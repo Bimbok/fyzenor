@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <clocale>
+#include <cstdio> // Required for popen/pclose
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -597,6 +598,7 @@ public:
     setStatus("Cut items");
     multiSelection.clear();
   }
+
   void handlePaste() {
     if (clipboard.paths.empty()) {
       setStatus("Clipboard empty");
@@ -605,24 +607,42 @@ public:
     int successCount = 0;
     for (const auto &src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
+
+      // Prevent overwrite on copy unless it is a move (rename usually handles
+      // overwrite)
       if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
+
       try {
-        if (clipboard.isCut)
-          fs::remove(src);
-        if (fs::is_directory(src))
-          fs::copy(src, dest, fs::copy_options::recursive);
-        else
-          fs::copy(src, dest);
+        if (clipboard.isCut) {
+          // FIX: Try efficient rename (move) first
+          try {
+            fs::rename(src, dest);
+          } catch (const fs::filesystem_error &e) {
+            // Fallback for cross-device moves: Copy then Delete
+            if (fs::is_directory(src))
+              fs::copy(src, dest, fs::copy_options::recursive);
+            else
+              fs::copy(src, dest);
+            fs::remove_all(src);
+          }
+        } else {
+          // Copy Operation
+          if (fs::is_directory(src))
+            fs::copy(src, dest, fs::copy_options::recursive);
+          else
+            fs::copy(src, dest);
+        }
         successCount++;
       } catch (...) {
       }
     }
     if (clipboard.isCut && successCount > 0)
       clipboard.paths.clear();
-    setStatus("Pasted items");
+    setStatus(clipboard.isCut ? "Moved items" : "Pasted items");
     reloadAll();
   }
+
   void handleRename() {
     if (currentFiles.empty())
       return;

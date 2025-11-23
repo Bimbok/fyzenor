@@ -301,7 +301,8 @@ public:
     std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
     std::string b64 = base64_encode(buffer.data(), buffer.size());
 
-    std::cout << "\033[" << (pY + 3) << ";" << (pX + 2) << "H";
+    // FIX: Moved from pY+3 to pY+7 to avoid overlapping "Name" and "Size" text
+    std::cout << "\033[" << (pY + 7) << ";" << (pX + 2) << "H";
 
     const size_t chunk_size = 4096;
     size_t total = b64.length();

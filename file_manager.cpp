@@ -259,6 +259,7 @@ public:
   }
 
   void clearDirectRender() {
+    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
     lastWasDirectRender = false;
   }
@@ -726,13 +727,19 @@ public:
     int successCount = 0;
     for (const auto &src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
+
+      // Prevent overwrite on copy unless it is a move (rename usually handles
+      // overwrite)
       if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
+
       try {
         if (clipboard.isCut) {
+          // FIX: Try efficient rename (move) first
           try {
             fs::rename(src, dest);
           } catch (const fs::filesystem_error &e) {
+            // Fallback for cross-device moves: Copy then Delete
             if (fs::is_directory(src))
               fs::copy(src, dest, fs::copy_options::recursive);
             else
@@ -740,6 +747,7 @@ public:
             fs::remove_all(src);
           }
         } else {
+          // Copy Operation
           if (fs::is_directory(src))
             fs::copy(src, dest, fs::copy_options::recursive);
           else

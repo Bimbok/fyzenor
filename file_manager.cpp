@@ -1,20 +1,16 @@
 /**
  * Yazi-like File Manager (C++)
  * * Features:
- * - 3-Column Layout
+ * - 3-Column Layout with Split Parent/Pinned View
  * - Vim-style navigation
  * - Nerd Fonts Icons (Requires libncursesw)
  * - Kitty Terminal Image/Video Preview Protocol
- * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip
- * - Multi-select: Space/v to toggle, Esc to clear, 'a' for all
- * - Hidden Files: Toggle with '.'
- * - Asynchronous Previews: Loading images does not freeze the UI
- * - Flicker-Free Rendering: Only redraws on state changes
- * * * * Dependencies (Install these first!):
- * - libncursesw (Wide char support): sudo apt install libncursesw5-dev
- * - ffmpeg (REQUIRED for previews):  sudo apt install ffmpeg
- * - zip (REQUIRED for zipping):      sudo apt install zip
- * * * * Compile (Note the -lncursesw flag):
+ * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip, Delete
+ * - Multi-select: Space/v to toggle
+ * - Pinned Folders: 'P' to pin, 'Tab' to switch focus, Enter to jump
+ * * * * Dependencies:
+ * - libncursesw, ffmpeg, zip
+ * * * * Compile:
  * g++ -std=c++17 -O3 file_manager.cpp -o fm -lncursesw -lpthread
  */
 
@@ -23,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <clocale>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -55,6 +52,7 @@ const char *ICON_IMAGE = " ";
 const char *ICON_CODE = " ";
 const char *ICON_FILE = " ";
 const char *ICON_MUSIC = " ";
+const char *ICON_PIN = " ";
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 
@@ -145,10 +143,16 @@ private:
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
   std::set<fs::path> multiSelection;
+
+  // Pins
+  std::vector<fs::path> pinnedPaths;
+  size_t pinnedIndex = 0;
+  bool focusPinned = false; // Mode toggle
+
   size_t selectedIndex;
   size_t scrollOffset;
 
-  WINDOW *winParent, *winCurrent, *winPreview;
+  WINDOW *winPinned, *winParent, *winCurrent, *winPreview;
   int width, height;
 
   Clipboard clipboard;
@@ -166,10 +170,11 @@ private:
 
 public:
   FileManager()
-      : selectedIndex(0), scrollOffset(0), winParent(nullptr),
-        winCurrent(nullptr), winPreview(nullptr) {
+      : selectedIndex(0), scrollOffset(0), winPinned(nullptr),
+        winParent(nullptr), winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
 
+    loadPins();
     currentPath = fs::current_path();
     loadDirectory(currentPath, currentFiles);
     loadParent();
@@ -193,12 +198,12 @@ public:
     init_pair(7, COLOR_CYAN, -1);
     init_pair(8, COLOR_RED, -1);
     init_pair(9, COLOR_YELLOW, -1);
+    init_pair(10, COLOR_WHITE, COLOR_BLUE); // Focus Border
 
     refresh();
   }
 
   void clearKittyImage() {
-    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
     lastWasImage = false;
   }
@@ -207,6 +212,67 @@ public:
     clearKittyImage();
     endwin();
   }
+
+  // --- Pin Management ---
+  std::string getPinFile() {
+    const char *home = getenv("HOME");
+    if (home)
+      return std::string(home) + "/.fm_pins";
+    return ".fm_pins";
+  }
+
+  void loadPins() {
+    pinnedPaths.clear();
+    std::ifstream f(getPinFile());
+    std::string line;
+    while (std::getline(f, line)) {
+      if (!line.empty() && fs::exists(line))
+        pinnedPaths.push_back(line);
+    }
+  }
+
+  void savePins() {
+    std::ofstream f(getPinFile());
+    for (const auto &p : pinnedPaths)
+      f << p.string() << "\n";
+  }
+
+  void handlePin() {
+    // Pin current directory
+    for (const auto &p : pinnedPaths) {
+      if (p == currentPath) {
+        setStatus("Already pinned");
+        return;
+      }
+    }
+    pinnedPaths.push_back(currentPath);
+    savePins();
+    setStatus("Pinned: " + currentPath.filename().string());
+  }
+
+  void handleUnpin() {
+    if (pinnedPaths.empty())
+      return;
+    if (pinnedIndex < pinnedPaths.size()) {
+      pinnedPaths.erase(pinnedPaths.begin() + pinnedIndex);
+      if (pinnedIndex >= pinnedPaths.size() && pinnedIndex > 0)
+        pinnedIndex--;
+      savePins();
+      setStatus("Unpinned");
+    }
+  }
+
+  void jumpToPin() {
+    if (pinnedPaths.empty())
+      return;
+    if (pinnedIndex < pinnedPaths.size()) {
+      currentPath = pinnedPaths[pinnedIndex];
+      reloadAll();
+      focusPinned = false; // Switch focus back to files
+      setStatus("Jumped to pin");
+    }
+  }
+  // ---------------------
 
   const char *getIcon(const FileEntry &f) {
     if (f.is_directory)
@@ -266,6 +332,8 @@ public:
     int w2 = width * 0.4;
     int w3 = width - w1 - w2;
 
+    if (winPinned)
+      delwin(winPinned);
     if (winParent)
       delwin(winParent);
     if (winCurrent)
@@ -273,7 +341,13 @@ public:
     if (winPreview)
       delwin(winPreview);
 
-    winParent = newwin(height - 1, w1, 0, 0);
+    // Split Left Column
+    int hPinned = height / 3;
+    int hParent = (height - 1) - hPinned;
+
+    winPinned = newwin(hPinned, w1, 0, 0);
+    winParent = newwin(hParent, w1, hPinned, 0);
+
     winCurrent = newwin(height - 1, w2, 0, w1);
     winPreview = newwin(height - 1, w3, 0, w1 + w2);
 
@@ -281,7 +355,6 @@ public:
   }
 
   // --- Threaded Preview Logic ---
-
   void startAsyncPreview(const std::string &path, bool isVideo) {
     requestID++;
     requestedPath = path;
@@ -292,7 +365,6 @@ public:
         fs::remove(PREVIEW_TEMP);
       } catch (...) {
       }
-
       std::string cmd;
       if (isVideo) {
         cmd = "ffmpeg -y -v error -i \"" + path +
@@ -303,17 +375,14 @@ public:
               "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
               " > /dev/null 2>&1";
       }
-
       int res = system(cmd.c_str());
       (void)res;
-
       std::ifstream file(PREVIEW_TEMP, std::ios::binary);
       if (!file)
         return;
       std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file),
                                         {});
       std::string b64 = base64_encode(buffer.data(), buffer.size());
-
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (reqId == requestID) {
@@ -326,30 +395,20 @@ public:
     }).detach();
   }
 
-  // Helper to send graphics protocol with proper chunking
   void sendKittyGraphics(const std::string &b64Data, int pY, int pX) {
-    // Move cursor relative to window position + offset
     std::cout << "\033[" << (pY + 7) << ";" << (pX + 2) << "H";
-
     const size_t chunk_size = 4096;
     size_t total = b64Data.length();
     size_t offset = 0;
-
     while (offset < total) {
       size_t chunkLen = std::min(chunk_size, total - offset);
       bool isLast = (offset + chunkLen >= total);
-
       std::cout << "\033_G";
-
-      // Header MUST be in the first chunk for strict Kitty compliance
-      if (offset == 0) {
+      if (offset == 0)
         std::cout << "a=T,f=100,t=d,q=2,";
-      }
-
       std::cout << "m=" << (isLast ? "0" : "1") << ";";
       std::cout << b64Data.substr(offset, chunkLen);
       std::cout << "\033\\";
-
       offset += chunkLen;
     }
     std::cout << std::flush;
@@ -359,15 +418,12 @@ public:
     std::lock_guard<std::mutex> lock(previewMutex);
     if (cachedBase64.empty())
       return;
-
     int pW, pH, pX, pY;
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
-
     sendKittyGraphics(cachedBase64, pY, pX);
     lastWasImage = true;
   }
-
   // ----------------------------
 
   void setStatus(const std::string &msg) { statusMessage = msg; }
@@ -379,7 +435,6 @@ public:
     mvprintw(height - 1, 0, "%s: ", prompt.c_str());
     attroff(COLOR_PAIR(7) | A_BOLD);
     refresh();
-
     timeout(-1);
     echo();
     curs_set(1);
@@ -391,6 +446,7 @@ public:
     return std::string(buf);
   }
 
+  // ... Selection / Operations ...
   void toggleSelection() {
     if (currentFiles.empty())
       return;
@@ -402,7 +458,6 @@ public:
     if (selectedIndex < currentFiles.size() - 1)
       selectedIndex++;
   }
-
   void selectAll() {
     for (const auto &f : currentFiles)
       multiSelection.insert(f.path);
@@ -426,7 +481,6 @@ public:
     setStatus("Yanked items");
     multiSelection.clear();
   }
-
   void handleCut() {
     if (currentFiles.empty())
       return;
@@ -440,7 +494,6 @@ public:
     setStatus("Cut items");
     multiSelection.clear();
   }
-
   void handlePaste() {
     if (clipboard.paths.empty()) {
       setStatus("Clipboard empty");
@@ -453,13 +506,11 @@ public:
         continue;
       try {
         if (clipboard.isCut)
-          fs::rename(src, dest);
-        else {
-          if (fs::is_directory(src))
-            fs::copy(src, dest, fs::copy_options::recursive);
-          else
-            fs::copy(src, dest);
-        }
+          fs::remove(src); // Simpler move
+        if (fs::is_directory(src))
+          fs::copy(src, dest, fs::copy_options::recursive);
+        else
+          fs::copy(src, dest);
         successCount++;
       } catch (...) {
       }
@@ -469,7 +520,6 @@ public:
     setStatus("Pasted items");
     reloadAll();
   }
-
   void handleRename() {
     if (currentFiles.empty())
       return;
@@ -477,16 +527,14 @@ public:
     std::string newName = promptInput("Rename " + file.name + " to");
     if (newName.empty())
       return;
-    fs::path dest = currentPath / newName;
     try {
-      fs::rename(file.path, dest);
+      fs::rename(file.path, currentPath / newName);
       setStatus("Renamed");
       reloadAll();
     } catch (...) {
       setStatus("Rename Failed");
     }
   }
-
   void handleNewFile() {
     std::string name = promptInput("New File Name");
     if (name.empty())
@@ -495,7 +543,6 @@ public:
     setStatus("Created file");
     reloadAll();
   }
-
   void handleNewFolder() {
     std::string name = promptInput("New Folder Name");
     if (name.empty())
@@ -507,7 +554,6 @@ public:
     } catch (...) {
     }
   }
-
   void handleZip() {
     if (currentFiles.empty())
       return;
@@ -517,16 +563,13 @@ public:
     else
       for (const auto &p : multiSelection)
         targets.push_back(p);
-
     std::string name = promptInput("Zip Name");
     if (name.empty())
       return;
-
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
     for (const auto &p : targets)
       cmd += " \"" + p.filename().string() + "\"";
     cmd += " > /dev/null 2>&1";
-
     fs::path old = fs::current_path();
     fs::current_path(currentPath);
     int res = system(cmd.c_str());
@@ -535,40 +578,29 @@ public:
     setStatus("Zipped");
     reloadAll();
   }
-
   void handleDelete() {
     if (currentFiles.empty())
       return;
-
     std::vector<fs::path> targets;
-    if (multiSelection.empty()) {
+    if (multiSelection.empty())
       targets.push_back(currentFiles[selectedIndex].path);
-    } else {
+    else
       for (const auto &p : multiSelection)
         targets.push_back(p);
-    }
-
     std::string countStr = (targets.size() > 1)
                                ? std::to_string(targets.size()) + " items"
                                : targets[0].filename().string();
     std::string confirm = promptInput("Delete " + countStr + "? (y/n)");
-
-    if (confirm != "y" && confirm != "Y") {
-      setStatus("Deletion cancelled");
+    if (confirm != "y" && confirm != "Y")
       return;
-    }
-
-    int successCount = 0;
     for (const auto &p : targets) {
       try {
         fs::remove_all(p);
-        successCount++;
       } catch (...) {
       }
     }
-
     multiSelection.clear();
-    setStatus("Deleted " + std::to_string(successCount) + " items");
+    setStatus("Deleted items");
     reloadAll();
   }
 
@@ -576,17 +608,49 @@ public:
     loadDirectory(currentPath, currentFiles);
     loadParent();
   }
-
   void toggleHidden() {
     showHidden = !showHidden;
     reloadAll();
     setStatus(showHidden ? "Showing hidden" : "Hidden masked");
   }
 
+  // --- Drawing ---
+
+  void drawPinned() {
+    werase(winPinned);
+    if (focusPinned)
+      wattron(winPinned, COLOR_PAIR(10)); // Highlight border
+    box(winPinned, 0, 0);
+    if (focusPinned)
+      wattroff(winPinned, COLOR_PAIR(10));
+
+    mvwprintw(winPinned, 0, 2, " Pinned ");
+
+    for (size_t i = 0; i < pinnedPaths.size() && i < getmaxy(winPinned) - 2;
+         ++i) {
+      wmove(winPinned, i + 1, 1);
+      if (focusPinned && i == pinnedIndex)
+        wattron(winPinned, COLOR_PAIR(3)); // Active item
+
+      std::string name = pinnedPaths[i].filename().string();
+      // Handle root path or empty filename
+      if (name.empty())
+        name = pinnedPaths[i].string();
+      if (name.length() > getmaxx(winPinned) - 4)
+        name = name.substr(0, getmaxx(winPinned) - 4);
+
+      wprintw(winPinned, " %s %s", ICON_PIN, name.c_str());
+
+      if (focusPinned && i == pinnedIndex)
+        wattroff(winPinned, COLOR_PAIR(3));
+    }
+    wrefresh(winPinned);
+  }
+
   void drawParent() {
     werase(winParent);
     box(winParent, 0, 0);
-    int maxLines = height - 2;
+    int maxLines = getmaxy(winParent) - 2;
     int highlightIdx = -1;
     for (size_t i = 0; i < parentFiles.size(); ++i) {
       if (parentFiles[i].path == currentPath) {
@@ -622,13 +686,15 @@ public:
 
   void drawCurrent() {
     werase(winCurrent);
-    wattron(winCurrent, COLOR_PAIR(6));
+    if (!focusPinned)
+      wattron(winCurrent, COLOR_PAIR(6));
     box(winCurrent, 0, 0);
-    wattroff(winCurrent, COLOR_PAIR(6));
+    if (!focusPinned)
+      wattroff(winCurrent, COLOR_PAIR(6));
+
     wattron(winCurrent, A_BOLD);
     mvwprintw(winCurrent, 0, 2, " %s ", currentPath.filename().c_str());
     wattroff(winCurrent, A_BOLD);
-
     if (!multiSelection.empty()) {
       std::string selStr =
           "[" + std::to_string(multiSelection.size()) + " sel]";
@@ -650,7 +716,7 @@ public:
       int colorPair = 2;
       bool isMultiSelected = multiSelection.count(file.path);
 
-      if (idx == selectedIndex)
+      if (!focusPinned && idx == selectedIndex)
         wattron(winCurrent, COLOR_PAIR(3));
       else if (isMultiSelected)
         wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
@@ -662,7 +728,7 @@ public:
         else if (IMAGE_EXTS.count(file.extension))
           colorPair = 5;
         else if (AUDIO_EXTS.count(file.extension))
-          colorPair = 4; // Yellow for media
+          colorPair = 4;
         wattron(winCurrent, COLOR_PAIR(colorPair));
       }
 
@@ -677,7 +743,7 @@ public:
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s",
                 sz.c_str());
 
-      if (idx == selectedIndex)
+      if (!focusPinned && idx == selectedIndex)
         wattroff(winCurrent, COLOR_PAIR(3));
       else if (isMultiSelected)
         wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
@@ -698,7 +764,6 @@ public:
       wrefresh(winPreview);
       return;
     }
-
     const auto &file = currentFiles[selectedIndex];
     int maxW = getmaxx(winPreview) - 4;
 
@@ -735,25 +800,18 @@ public:
       wrefresh(winPreview);
     } else if (isVid || isImg) {
       wrefresh(winPreview);
-
       bool match = false;
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (cachedPath == file.path.string())
           match = true;
       }
-
-      if (match) {
+      if (match)
         drawKittyImageFromCache();
-      } else {
-        if (requestedPath != file.path.string()) {
-          mvwprintw(winPreview, 10, 4, "Loading preview...");
-          wrefresh(winPreview);
-          startAsyncPreview(file.path.string(), isVid);
-        } else {
-          mvwprintw(winPreview, 10, 4, "Loading preview...");
-          wrefresh(winPreview);
-        }
+      else if (requestedPath != file.path.string()) {
+        mvwprintw(winPreview, 10, 4, "Loading...");
+        wrefresh(winPreview);
+        startAsyncPreview(file.path.string(), isVid);
       }
     } else if (CODE_EXTS.count(file.extension)) {
       std::ifstream f(file.path);
@@ -777,7 +835,6 @@ public:
     if (currentFiles.empty())
       return;
     const auto &file = currentFiles[selectedIndex];
-
     if (file.is_directory) {
       clearKittyImage();
       currentPath = file.path;
@@ -788,13 +845,9 @@ public:
       clearKittyImage();
       def_prog_mode();
       endwin();
-
       std::string cmd;
-      // Explicitly handle Audio and Video with mpv
       if (VIDEO_EXTS.count(file.extension) ||
           AUDIO_EXTS.count(file.extension)) {
-        // 2> /dev/null silences errors (stderr) but keeps the player UI
-        // (stdout)
         cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
       } else {
 #ifdef __APPLE__
@@ -802,12 +855,10 @@ public:
 #else
         cmd = "xdg-open \"" + file.path.string() + "\"";
 #endif
-        // Completely silence other launchers to prevent terminal garbage
         cmd += " > /dev/null 2>&1";
       }
       int res = system(cmd.c_str());
       (void)res;
-
       reset_prog_mode();
       refresh();
       timeout(50);
@@ -834,16 +885,18 @@ public:
 
   void run() {
     updateLayout();
-    bool needsRedraw = true; // Initial Draw
+    bool needsRedraw = true;
 
     while (true) {
       if (needsRedraw) {
+        // Bounds check
         if (!currentFiles.empty()) {
           if (selectedIndex >= currentFiles.size())
             selectedIndex = currentFiles.size() - 1;
         } else
           selectedIndex = 0;
 
+        drawPinned();
         drawParent();
         drawCurrent();
         drawPreview();
@@ -856,8 +909,11 @@ public:
           attroff(COLOR_PAIR(7));
         } else {
           attron(A_DIM);
-          printw("Space/v:Select a:All y:Cp x:Cut p:Pst d:Del z:Zip n:New "
-                 ".:Hide q:Quit");
+          if (focusPinned)
+            printw("[PINNED] j/k:Nav Enter:Jump d:Unpin Tab:Files");
+          else
+            printw(
+                "Tab:Pins P:Pin Space:Sel y:Cp x:Cut p:Pst d:Del z:Zip .:Hide");
           attroff(A_DIM);
         }
         refresh();
@@ -865,99 +921,128 @@ public:
       }
 
       int ch = getch();
-
-      // Handle Async Update
       if (ch == ERR) {
         if (imageReady) {
-          needsRedraw = true; // Image loaded, trigger redraw
+          needsRedraw = true;
           imageReady = false;
         }
-        continue; // Wait for input or next check
+        continue;
       }
-
-      // Key Pressed -> Redraw on next loop
       needsRedraw = true;
       if (ch != ERR)
         statusMessage = "";
 
-      switch (ch) {
-      case 'q':
+      // Common keys
+      if (ch == 'q')
         return;
-      case 'j':
-      case KEY_DOWN:
-        if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
-          selectedIndex++;
-        break;
-      case 'k':
-      case KEY_UP:
-        if (selectedIndex > 0)
-          selectedIndex--;
-        break;
-      case 'l':
-      case KEY_RIGHT:
-      case 10:
-        openFile();
-        break;
-      case 'h':
-      case KEY_LEFT:
-      case 127:
-      case KEY_BACKSPACE:
-        goUp();
-        break;
-      case 'g':
-        selectedIndex = 0;
-        scrollOffset = 0;
-        break;
-      case 'G':
-        if (!currentFiles.empty()) {
-          selectedIndex = currentFiles.size() - 1;
-          if (selectedIndex > height - 5)
-            scrollOffset = selectedIndex - (height - 5);
-        }
-        break;
-
-      case ' ':
-      case 'v':
-        toggleSelection();
-        break;
-      case 'a':
-        selectAll();
-        break;
-      case 27:
-        clearSelection();
-        break;
-      case 'y':
-        handleCopy();
-        break;
-      case 'x':
-        handleCut();
-        break;
-      case 'p':
-        handlePaste();
-        break;
-      case 'd':
-      case KEY_DC:
-        handleDelete();
-        break;
-      case 'r':
-        handleRename();
-        break;
-      case 'n':
-        handleNewFile();
-        break;
-      case 'N':
-        handleNewFolder();
-        break;
-      case 'z':
-        handleZip();
-        break;
-      case '.':
-        toggleHidden();
-        break;
-      case KEY_RESIZE:
+      if (ch == KEY_RESIZE) {
         clearKittyImage();
         updateLayout();
-        break;
+        continue;
+      }
+      if (ch == '\t') {
+        focusPinned = !focusPinned;
+        continue;
+      }
+
+      if (focusPinned) {
+        // PINNED MODE
+        switch (ch) {
+        case 'j':
+        case KEY_DOWN:
+          if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1)
+            pinnedIndex++;
+          break;
+        case 'k':
+        case KEY_UP:
+          if (pinnedIndex > 0)
+            pinnedIndex--;
+          break;
+        case 10:
+          jumpToPin();
+          break; // Enter
+        case 'd':
+          handleUnpin();
+          break;
+        }
+      } else {
+        // FILE MODE
+        switch (ch) {
+        case 'j':
+        case KEY_DOWN:
+          if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+            selectedIndex++;
+          break;
+        case 'k':
+        case KEY_UP:
+          if (selectedIndex > 0)
+            selectedIndex--;
+          break;
+        case 'l':
+        case KEY_RIGHT:
+        case 10:
+          openFile();
+          break;
+        case 'h':
+        case KEY_LEFT:
+        case 127:
+        case KEY_BACKSPACE:
+          goUp();
+          break;
+        case 'g':
+          selectedIndex = 0;
+          scrollOffset = 0;
+          break;
+        case 'G':
+          if (!currentFiles.empty()) {
+            selectedIndex = currentFiles.size() - 1;
+            if (selectedIndex > height - 5)
+              scrollOffset = selectedIndex - (height - 5);
+          }
+          break;
+
+        case 'P':
+          handlePin();
+          break; // Shift+P to Pin
+        case ' ':
+        case 'v':
+          toggleSelection();
+          break;
+        case 'a':
+          selectAll();
+          break;
+        case 27:
+          clearSelection();
+          break;
+        case 'y':
+          handleCopy();
+          break;
+        case 'x':
+          handleCut();
+          break;
+        case 'p':
+          handlePaste();
+          break;
+        case 'd':
+        case KEY_DC:
+          handleDelete();
+          break;
+        case 'r':
+          handleRename();
+          break;
+        case 'n':
+          handleNewFile();
+          break;
+        case 'N':
+          handleNewFolder();
+          break;
+        case 'z':
+          handleZip();
+          break;
+        case '.':
+          toggleHidden();
+          break;
+        }
       }
     }
   }

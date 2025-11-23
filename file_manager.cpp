@@ -8,6 +8,7 @@
  * - Syntax Highlighting using 'bat' (Async)
  * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip, Delete
  * - Multi-select & Pins
+ * - Asynchronous Folder Size Calculation (No lag on navigation)
  * * * * Dependencies:
  * - libncursesw, ffmpeg, zip
  * - bat (or batcat) for syntax highlighting
@@ -20,9 +21,11 @@
 #include <array>
 #include <atomic>
 #include <clocale>
-#include <cstdio> // Required for popen/pclose
+#include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -33,6 +36,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -60,6 +64,7 @@ const char *ICON_MUSIC = " ";
 const char *ICON_PIN = " ";
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
+const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
 
 struct Clipboard {
   std::vector<fs::path> paths;
@@ -79,8 +84,13 @@ struct FileEntry {
     extension = p.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    ::tolower);
+
     try {
-      size = is_directory ? 0 : fs::file_size(p);
+      if (is_directory) {
+        size = SIZE_CALCULATING; // Mark as pending calculation
+      } else {
+        size = fs::file_size(p);
+      }
     } catch (...) {
       size = 0;
     }
@@ -130,6 +140,8 @@ std::string base64_encode(const unsigned char *bytes, size_t len) {
 }
 
 std::string formatSize(uintmax_t size) {
+  if (size == SIZE_CALCULATING)
+    return "...";
   const char *units[] = {"B", "KB", "MB", "GB", "TB"};
   int i = 0;
   double dSize = static_cast<double>(size);
@@ -142,7 +154,6 @@ std::string formatSize(uintmax_t size) {
   return std::string(buffer);
 }
 
-// Helper to check for binary files (simple heuristic: look for null byte)
 bool is_binary_file(const std::string &path) {
   std::ifstream file(path, std::ios::binary);
   if (!file)
@@ -158,6 +169,18 @@ bool is_binary_file(const std::string &path) {
 }
 
 enum class PreviewType { NONE, IMAGE, TEXT };
+
+// --- Async Size Calculator ---
+struct SizeJob {
+  fs::path path;
+  int viewId; // To discard results from previous directories
+};
+
+struct SizeResult {
+  fs::path path;
+  uintmax_t size;
+  int viewId;
+};
 
 class FileManager {
 private:
@@ -188,15 +211,30 @@ private:
   long long requestID = 0;
   bool lastWasDirectRender = false;
 
+  // Async Size Calculation State
+  std::thread sizeWorker;
+  std::atomic<bool> stopWorker{false};
+  std::atomic<int> currentViewId{0};
+  std::deque<SizeJob> sizeQueue;
+  std::deque<SizeResult> resultQueue;
+  std::mutex queueMutex;
+  std::condition_variable queueCv;
+  std::mutex resultMutex;
+
 public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr),
         winParent(nullptr), winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
     loadPins();
+
+    // Start size worker thread
+    sizeWorker = std::thread(&FileManager::processSizeQueue, this);
+
     currentPath = fs::current_path();
     loadDirectory(currentPath, currentFiles);
     loadParent();
+
     initscr();
     cbreak();
     noecho();
@@ -221,14 +259,60 @@ public:
   }
 
   void clearDirectRender() {
-    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
     lastWasDirectRender = false;
   }
 
   ~FileManager() {
+    stopWorker = true;
+    queueCv.notify_all();
+    if (sizeWorker.joinable())
+      sizeWorker.join();
     clearDirectRender();
     endwin();
+  }
+
+  // --- Async Size Worker Function ---
+  void processSizeQueue() {
+    while (!stopWorker) {
+      SizeJob job;
+      {
+        std::unique_lock<std::mutex> lock(queueMutex);
+        queueCv.wait(lock, [this] { return !sizeQueue.empty() || stopWorker; });
+        if (stopWorker)
+          break;
+        job = sizeQueue.front();
+        sizeQueue.pop_front();
+      }
+
+      // Optimization: Skip if view changed
+      if (job.viewId != currentViewId)
+        continue;
+
+      uintmax_t size = 0;
+      try {
+        if (fs::exists(job.path) && fs::is_directory(job.path)) {
+          for (const auto &entry : fs::recursive_directory_iterator(
+                   job.path, fs::directory_options::skip_permission_denied)) {
+            // Check cancellation periodically during heavy calculation
+            if (job.viewId != currentViewId)
+              break;
+            try {
+              if (!fs::is_directory(entry.status())) {
+                size += fs::file_size(entry);
+              }
+            } catch (...) {
+            }
+          }
+        }
+      } catch (...) {
+      }
+
+      if (job.viewId == currentViewId) {
+        std::lock_guard<std::mutex> lock(resultMutex);
+        resultQueue.push_back({job.path, size, job.viewId});
+      }
+    }
   }
 
   // --- Pin Management ---
@@ -302,6 +386,16 @@ public:
   void loadDirectory(const fs::path &path, std::vector<FileEntry> &target) {
     target.clear();
     multiSelection.clear();
+
+    // New directory loaded, increment view ID to invalidate old size jobs
+    currentViewId++;
+
+    // Clear pending queue
+    {
+      std::lock_guard<std::mutex> lock(queueMutex);
+      sizeQueue.clear();
+    }
+
     try {
       for (const auto &entry : fs::directory_iterator(path)) {
         if (!showHidden && entry.path().filename().string().front() == '.')
@@ -326,12 +420,46 @@ public:
                 });
     } catch (...) {
     }
+
+    // Push directory size calculation jobs
+    {
+      std::lock_guard<std::mutex> lock(queueMutex);
+      for (const auto &entry : target) {
+        if (entry.is_directory) {
+          sizeQueue.push_back({entry.path, currentViewId.load()});
+        }
+      }
+    }
+    queueCv.notify_one();
   }
 
   void loadParent() {
     if (currentPath.has_parent_path() &&
         currentPath != currentPath.parent_path()) {
-      loadDirectory(currentPath.parent_path(), parentFiles);
+      // We don't calculate sizes for parent view to save resources, simplistic
+      // load
+      parentFiles.clear();
+      try {
+        fs::path pPath = currentPath.parent_path();
+        for (const auto &entry : fs::directory_iterator(pPath)) {
+          if (fs::is_directory(entry))
+            parentFiles.emplace_back(entry);
+        }
+        std::sort(parentFiles.begin(), parentFiles.end(),
+                  [](const FileEntry &a, const FileEntry &b) {
+                    return a.name < b.name;
+                  });
+        size_t split = parentFiles.size();
+        for (const auto &entry : fs::directory_iterator(pPath)) {
+          if (!fs::is_directory(entry))
+            parentFiles.emplace_back(entry);
+        }
+        std::sort(parentFiles.begin() + split, parentFiles.end(),
+                  [](const FileEntry &a, const FileEntry &b) {
+                    return a.name < b.name;
+                  });
+      } catch (...) {
+      }
     } else {
       parentFiles.clear();
     }
@@ -402,18 +530,15 @@ public:
           b64 = base64_encode(buffer.data(), buffer.size());
         }
       } else if (type == PreviewType::TEXT) {
-        // Check binary first to avoid catting binaries
         if (is_binary_file(path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
-          // 1. Try 'bat'
           std::string cmd = "bat --color=always --style=plain --paging=never "
                             "--wrap=never --line-range=:" +
                             std::to_string(previewHeight) + " \"" + path +
                             "\" 2>/dev/null";
           FILE *pipe = popen(cmd.c_str(), "r");
           bool gotOutput = false;
-
           if (pipe) {
             char buffer[1024];
             while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
@@ -425,8 +550,6 @@ public:
             }
             pclose(pipe);
           }
-
-          // 2. Fallback to 'batcat'
           if (!gotOutput) {
             lines.clear();
             cmd = "batcat --color=always --style=plain --paging=never "
@@ -446,8 +569,6 @@ public:
               pclose(pipe);
             }
           }
-
-          // 3. Final Fallback: Plain Text
           if (!gotOutput) {
             lines.clear();
             std::ifstream f(path);
@@ -517,13 +638,11 @@ public:
       lastWasDirectRender = true;
     } else if (type == PreviewType::TEXT && !cachedTextLines.empty()) {
       std::cout << "\033[?7l";
-
       int lineLimit = std::min((int)cachedTextLines.size(), pH - 8);
       for (int i = 0; i < lineLimit; ++i) {
         std::cout << "\033[" << (pY + 7 + i) << ";" << (pX + 2) << "H";
         std::cout << cachedTextLines[i];
       }
-
       std::cout << "\033[?7h";
       std::cout << std::flush;
       lastWasDirectRender = true;
@@ -607,19 +726,13 @@ public:
     int successCount = 0;
     for (const auto &src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
-
-      // Prevent overwrite on copy unless it is a move (rename usually handles
-      // overwrite)
       if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
-
       try {
         if (clipboard.isCut) {
-          // FIX: Try efficient rename (move) first
           try {
             fs::rename(src, dest);
           } catch (const fs::filesystem_error &e) {
-            // Fallback for cross-device moves: Copy then Delete
             if (fs::is_directory(src))
               fs::copy(src, dest, fs::copy_options::recursive);
             else
@@ -627,7 +740,6 @@ public:
             fs::remove_all(src);
           }
         } else {
-          // Copy Operation
           if (fs::is_directory(src))
             fs::copy(src, dest, fs::copy_options::recursive);
           else
@@ -863,8 +975,6 @@ public:
   void drawPreview() {
     if (lastWasDirectRender)
       clearDirectRender();
-    // wclear Forces a hard redraw/scrub of the window, preventing overlap
-    // artifacts from direct rendering
     wclear(winPreview);
     box(winPreview, 0, 0);
     mvwprintw(winPreview, 0, 2, " Preview ");
@@ -911,14 +1021,12 @@ public:
       wrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
       wrefresh(winPreview);
-
       bool match = false;
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (cachedPath == file.path.string())
           match = true;
       }
-
       if (match) {
         if (isCode)
           drawFromCache(PreviewType::TEXT);
@@ -928,11 +1036,9 @@ public:
         mvwprintw(winPreview, 10, 4, "Loading...");
         wrefresh(winPreview);
         PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
-        startAsyncPreview(file.path.string(), type, maxH - 8,
-                          maxW); // Reserve space for header
+        startAsyncPreview(file.path.string(), type, maxH - 8, maxW);
       }
     } else {
-      // Default text preview with binary check
       if (is_binary_file(file.path.string())) {
         mvwprintw(winPreview, 7, 2, "[Binary File]");
       } else {
@@ -1009,6 +1115,26 @@ public:
     bool needsRedraw = true;
 
     while (true) {
+      // Check for async size updates
+      {
+        std::lock_guard<std::mutex> lock(resultMutex);
+        if (!resultQueue.empty()) {
+          while (!resultQueue.empty()) {
+            SizeResult res = resultQueue.front();
+            resultQueue.pop_front();
+            if (res.viewId == currentViewId) {
+              for (auto &f : currentFiles) {
+                if (f.path == res.path) {
+                  f.size = res.size;
+                  break;
+                }
+              }
+            }
+          }
+          needsRedraw = true;
+        }
+      }
+
       if (needsRedraw) {
         if (!currentFiles.empty()) {
           if (selectedIndex >= currentFiles.size())

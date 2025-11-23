@@ -3,18 +3,19 @@
  * * Features:
  * - 3-Column Layout with Split Parent/Pinned View
  * - Vim-style navigation
- * - Nerd Fonts Icons (Requires libncursesw)
+ * - Nerd Fonts Icons
  * - Kitty Terminal Image/Video Preview Protocol
+ * - Syntax Highlighting using 'bat' (Async)
  * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip, Delete
- * - Multi-select: Space/v to toggle
- * - Pinned Folders: 'P' to pin, 'Tab' to switch focus, Enter to jump
+ * - Multi-select & Pins
  * * * * Dependencies:
  * - libncursesw, ffmpeg, zip
+ * - bat (or batcat) for syntax highlighting
  * * * * Compile:
  * g++ -std=c++17 -O3 file_manager.cpp -o fm -lncursesw -lpthread
  */
 
-#define _XOPEN_SOURCE_EXTENDED // Required for ncurses wide char support
+#define _XOPEN_SOURCE_EXTENDED
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -41,8 +42,11 @@ const std::set<std::string> VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov",
 const std::set<std::string> IMAGE_EXTS = {".png", ".jpg",  ".jpeg", ".gif",
                                           ".bmp", ".webp", ".svg",  ".tiff"};
 const std::set<std::string> CODE_EXTS = {
-    ".cpp", ".h",    ".py",  ".js",   ".ts", ".rs",  ".c",    ".txt",
-    ".md",  ".json", ".css", ".html", ".sh", ".lua", ".conf", ".yaml"};
+    ".cpp",  ".h",    ".hpp",   ".c",    ".cc",    ".py",   ".js",
+    ".ts",   ".rs",   ".go",    ".java", ".rb",    ".php",  ".html",
+    ".css",  ".scss", ".json",  ".xml",  ".yaml",  ".yml",  ".toml",
+    ".ini",  ".sh",   ".bash",  ".zsh",  ".lua",   ".md",   ".txt",
+    ".conf", ".diff", ".patch", ".sql",  ".cmake", ".make", ".dockerfile"};
 const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
                                           ".aac", ".ogg", ".wma",  ".opus"};
 
@@ -137,18 +141,32 @@ std::string formatSize(uintmax_t size) {
   return std::string(buffer);
 }
 
+// Helper to check for binary files (simple heuristic: look for null byte)
+bool is_binary_file(const std::string &path) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file)
+    return false;
+  char buffer[512];
+  file.read(buffer, sizeof(buffer));
+  size_t n = file.gcount();
+  for (size_t i = 0; i < n; ++i) {
+    if (buffer[i] == '\0')
+      return true;
+  }
+  return false;
+}
+
+enum class PreviewType { NONE, IMAGE, TEXT };
+
 class FileManager {
 private:
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
   std::set<fs::path> multiSelection;
-
-  // Pins
   std::vector<fs::path> pinnedPaths;
   size_t pinnedIndex = 0;
-  bool focusPinned = false; // Mode toggle
-
+  bool focusPinned = false;
   size_t selectedIndex;
   size_t scrollOffset;
 
@@ -163,22 +181,21 @@ private:
   std::mutex previewMutex;
   std::atomic<bool> imageReady{false};
   std::string cachedBase64;
+  std::vector<std::string> cachedTextLines;
   std::string cachedPath;
   std::string requestedPath;
   long long requestID = 0;
-  bool lastWasImage = false;
+  bool lastWasDirectRender = false;
 
 public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr),
         winParent(nullptr), winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
-
     loadPins();
     currentPath = fs::current_path();
     loadDirectory(currentPath, currentFiles);
     loadParent();
-
     initscr();
     cbreak();
     noecho();
@@ -186,8 +203,7 @@ public:
     curs_set(0);
     start_color();
     use_default_colors();
-
-    timeout(50); // Non-blocking input
+    timeout(50);
 
     init_pair(1, COLOR_BLUE, -1);
     init_pair(2, COLOR_WHITE, -1);
@@ -198,18 +214,19 @@ public:
     init_pair(7, COLOR_CYAN, -1);
     init_pair(8, COLOR_RED, -1);
     init_pair(9, COLOR_YELLOW, -1);
-    init_pair(10, COLOR_WHITE, COLOR_BLUE); // Focus Border
+    init_pair(10, COLOR_WHITE, COLOR_BLUE);
 
     refresh();
   }
 
-  void clearKittyImage() {
+  void clearDirectRender() {
+    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
-    lastWasImage = false;
+    lastWasDirectRender = false;
   }
 
   ~FileManager() {
-    clearKittyImage();
+    clearDirectRender();
     endwin();
   }
 
@@ -220,7 +237,6 @@ public:
       return std::string(home) + "/.fm_pins";
     return ".fm_pins";
   }
-
   void loadPins() {
     pinnedPaths.clear();
     std::ifstream f(getPinFile());
@@ -230,15 +246,12 @@ public:
         pinnedPaths.push_back(line);
     }
   }
-
   void savePins() {
     std::ofstream f(getPinFile());
     for (const auto &p : pinnedPaths)
       f << p.string() << "\n";
   }
-
   void handlePin() {
-    // Pin current directory
     for (const auto &p : pinnedPaths) {
       if (p == currentPath) {
         setStatus("Already pinned");
@@ -247,9 +260,8 @@ public:
     }
     pinnedPaths.push_back(currentPath);
     savePins();
-    setStatus("Pinned: " + currentPath.filename().string());
+    setStatus("Pinned");
   }
-
   void handleUnpin() {
     if (pinnedPaths.empty())
       return;
@@ -261,18 +273,16 @@ public:
       setStatus("Unpinned");
     }
   }
-
   void jumpToPin() {
     if (pinnedPaths.empty())
       return;
     if (pinnedIndex < pinnedPaths.size()) {
       currentPath = pinnedPaths[pinnedIndex];
       reloadAll();
-      focusPinned = false; // Switch focus back to files
+      focusPinned = false;
       setStatus("Jumped to pin");
     }
   }
-  // ---------------------
 
   const char *getIcon(const FileEntry &f) {
     if (f.is_directory)
@@ -341,52 +351,133 @@ public:
     if (winPreview)
       delwin(winPreview);
 
-    // Split Left Column
     int hPinned = height / 3;
     int hParent = (height - 1) - hPinned;
 
     winPinned = newwin(hPinned, w1, 0, 0);
     winParent = newwin(hParent, w1, hPinned, 0);
-
     winCurrent = newwin(height - 1, w2, 0, w1);
     winPreview = newwin(height - 1, w3, 0, w1 + w2);
 
     refresh();
   }
 
-  // --- Threaded Preview Logic ---
-  void startAsyncPreview(const std::string &path, bool isVideo) {
+  // --- Async Preview Logic (Image & Bat Text) ---
+  void startAsyncPreview(const std::string &path, PreviewType type,
+                         int previewHeight, int previewWidth) {
     requestID++;
     requestedPath = path;
     imageReady = false;
 
-    std::thread([this, path, isVideo, reqId = requestID]() {
-      try {
-        fs::remove(PREVIEW_TEMP);
-      } catch (...) {
+    std::thread([this, path, type, previewHeight, previewWidth,
+                 reqId = requestID]() {
+      std::string b64;
+      std::vector<std::string> lines;
+
+      if (type == PreviewType::IMAGE) {
+        try {
+          fs::remove(PREVIEW_TEMP);
+        } catch (...) {
+        }
+        std::string cmd;
+        std::string fileCmd = "\"" + path + "\"";
+        if (path.find(".mp4") != std::string::npos ||
+            path.find(".mkv") != std::string::npos ||
+            path.find(".webm") != std::string::npos) {
+          cmd = "ffmpeg -y -v error -i " + fileCmd +
+                " -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
+                PREVIEW_TEMP + " > /dev/null 2>&1";
+        } else {
+          cmd = "ffmpeg -y -v error -i " + fileCmd +
+                " -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
+                " > /dev/null 2>&1";
+        }
+        int res = system(cmd.c_str());
+        (void)res;
+        std::ifstream file(PREVIEW_TEMP, std::ios::binary);
+        if (file) {
+          std::vector<unsigned char> buffer(
+              std::istreambuf_iterator<char>(file), {});
+          b64 = base64_encode(buffer.data(), buffer.size());
+        }
+      } else if (type == PreviewType::TEXT) {
+        // Check binary first to avoid catting binaries
+        if (is_binary_file(path)) {
+          lines.push_back("\033[1;31m[Binary File]\033[0m");
+        } else {
+          // 1. Try 'bat'
+          std::string cmd = "bat --color=always --style=plain --paging=never "
+                            "--wrap=never --line-range=:" +
+                            std::to_string(previewHeight) + " \"" + path +
+                            "\" 2>/dev/null";
+          FILE *pipe = popen(cmd.c_str(), "r");
+          bool gotOutput = false;
+
+          if (pipe) {
+            char buffer[1024];
+            while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+              std::string line(buffer);
+              if (!line.empty() && line.back() == '\n')
+                line.pop_back();
+              lines.push_back(line);
+              gotOutput = true;
+            }
+            pclose(pipe);
+          }
+
+          // 2. Fallback to 'batcat'
+          if (!gotOutput) {
+            lines.clear();
+            cmd = "batcat --color=always --style=plain --paging=never "
+                  "--wrap=never --line-range=:" +
+                  std::to_string(previewHeight) + " \"" + path +
+                  "\" 2>/dev/null";
+            pipe = popen(cmd.c_str(), "r");
+            if (pipe) {
+              char buffer[1024];
+              while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+                std::string line(buffer);
+                if (!line.empty() && line.back() == '\n')
+                  line.pop_back();
+                lines.push_back(line);
+                gotOutput = true;
+              }
+              pclose(pipe);
+            }
+          }
+
+          // 3. Final Fallback: Plain Text
+          if (!gotOutput) {
+            lines.clear();
+            std::ifstream f(path);
+            if (f.is_open()) {
+              std::string lineStr;
+              int count = 0;
+              while (std::getline(f, lineStr) && count < previewHeight) {
+                std::string clean;
+                for (char c : lineStr) {
+                  if (c == '\t')
+                    clean += "    ";
+                  else
+                    clean += c;
+                }
+                if (clean.length() > (size_t)previewWidth)
+                  clean = clean.substr(0, previewWidth);
+                lines.push_back(clean);
+                count++;
+              }
+            }
+          }
+        }
       }
-      std::string cmd;
-      if (isVideo) {
-        cmd = "ffmpeg -y -v error -i \"" + path +
-              "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
-              PREVIEW_TEMP + " > /dev/null 2>&1";
-      } else {
-        cmd = "ffmpeg -y -v error -i \"" + path +
-              "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
-              " > /dev/null 2>&1";
-      }
-      int res = system(cmd.c_str());
-      (void)res;
-      std::ifstream file(PREVIEW_TEMP, std::ios::binary);
-      if (!file)
-        return;
-      std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file),
-                                        {});
-      std::string b64 = base64_encode(buffer.data(), buffer.size());
+
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (reqId == requestID) {
-          cachedBase64 = b64;
+          if (type == PreviewType::IMAGE)
+            cachedBase64 = b64;
+          else
+            cachedTextLines = lines;
           cachedPath = path;
         }
       }
@@ -414,15 +505,28 @@ public:
     std::cout << std::flush;
   }
 
-  void drawKittyImageFromCache() {
+  void drawFromCache(PreviewType type) {
     std::lock_guard<std::mutex> lock(previewMutex);
-    if (cachedBase64.empty())
-      return;
     int pW, pH, pX, pY;
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
-    sendKittyGraphics(cachedBase64, pY, pX);
-    lastWasImage = true;
+
+    if (type == PreviewType::IMAGE && !cachedBase64.empty()) {
+      sendKittyGraphics(cachedBase64, pY, pX);
+      lastWasDirectRender = true;
+    } else if (type == PreviewType::TEXT && !cachedTextLines.empty()) {
+      std::cout << "\033[?7l";
+
+      int lineLimit = std::min((int)cachedTextLines.size(), pH - 8);
+      for (int i = 0; i < lineLimit; ++i) {
+        std::cout << "\033[" << (pY + 7 + i) << ";" << (pX + 2) << "H";
+        std::cout << cachedTextLines[i];
+      }
+
+      std::cout << "\033[?7h";
+      std::cout << std::flush;
+      lastWasDirectRender = true;
+    }
   }
   // ----------------------------
 
@@ -446,7 +550,6 @@ public:
     return std::string(buf);
   }
 
-  // ... Selection / Operations ...
   void toggleSelection() {
     if (currentFiles.empty())
       return;
@@ -506,7 +609,7 @@ public:
         continue;
       try {
         if (clipboard.isCut)
-          fs::remove(src); // Simpler move
+          fs::remove(src);
         if (fs::is_directory(src))
           fs::copy(src, dest, fs::copy_options::recursive);
         else
@@ -615,32 +718,25 @@ public:
   }
 
   // --- Drawing ---
-
   void drawPinned() {
     werase(winPinned);
     if (focusPinned)
-      wattron(winPinned, COLOR_PAIR(10)); // Highlight border
+      wattron(winPinned, COLOR_PAIR(10));
     box(winPinned, 0, 0);
     if (focusPinned)
       wattroff(winPinned, COLOR_PAIR(10));
-
     mvwprintw(winPinned, 0, 2, " Pinned ");
-
     for (size_t i = 0; i < pinnedPaths.size() && i < getmaxy(winPinned) - 2;
          ++i) {
       wmove(winPinned, i + 1, 1);
       if (focusPinned && i == pinnedIndex)
-        wattron(winPinned, COLOR_PAIR(3)); // Active item
-
+        wattron(winPinned, COLOR_PAIR(3));
       std::string name = pinnedPaths[i].filename().string();
-      // Handle root path or empty filename
       if (name.empty())
         name = pinnedPaths[i].string();
       if (name.length() > getmaxx(winPinned) - 4)
         name = name.substr(0, getmaxx(winPinned) - 4);
-
       wprintw(winPinned, " %s %s", ICON_PIN, name.c_str());
-
       if (focusPinned && i == pinnedIndex)
         wattroff(winPinned, COLOR_PAIR(3));
     }
@@ -652,18 +748,16 @@ public:
     box(winParent, 0, 0);
     int maxLines = getmaxy(winParent) - 2;
     int highlightIdx = -1;
-    for (size_t i = 0; i < parentFiles.size(); ++i) {
+    for (size_t i = 0; i < parentFiles.size(); ++i)
       if (parentFiles[i].path == currentPath) {
         highlightIdx = i;
         break;
       }
-    }
     int start = 0;
     if (highlightIdx > maxLines / 2)
       start = highlightIdx - (maxLines / 2);
     if (start + maxLines > parentFiles.size() && parentFiles.size() > maxLines)
       start = parentFiles.size() - maxLines;
-
     for (int i = 0; i < maxLines && (start + i) < parentFiles.size(); ++i) {
       const auto &file = parentFiles[start + i];
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
@@ -691,7 +785,6 @@ public:
     box(winCurrent, 0, 0);
     if (!focusPinned)
       wattroff(winCurrent, COLOR_PAIR(6));
-
     wattron(winCurrent, A_BOLD);
     mvwprintw(winCurrent, 0, 2, " %s ", currentPath.filename().c_str());
     wattroff(winCurrent, A_BOLD);
@@ -701,13 +794,11 @@ public:
       mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s",
                 selStr.c_str());
     }
-
     int maxLines = height - 3;
     if (selectedIndex < scrollOffset)
       scrollOffset = selectedIndex;
     if (selectedIndex >= scrollOffset + maxLines)
       scrollOffset = selectedIndex - maxLines + 1;
-
     for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size();
          ++i) {
       int idx = scrollOffset + i;
@@ -715,7 +806,6 @@ public:
       wmove(winCurrent, i + 1, 1);
       int colorPair = 2;
       bool isMultiSelected = multiSelection.count(file.path);
-
       if (!focusPinned && idx == selectedIndex)
         wattron(winCurrent, COLOR_PAIR(3));
       else if (isMultiSelected)
@@ -731,18 +821,15 @@ public:
           colorPair = 4;
         wattron(winCurrent, COLOR_PAIR(colorPair));
       }
-
       std::string display = file.name;
       int availWidth = getmaxx(winCurrent) - 16;
       if (display.length() > availWidth)
         display = display.substr(0, availWidth - 3) + "...";
       char marker = isMultiSelected ? '*' : ' ';
       wprintw(winCurrent, " %c %s %-s", marker, getIcon(file), display.c_str());
-
       std::string sz = formatSize(file.size);
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s",
                 sz.c_str());
-
       if (!focusPinned && idx == selectedIndex)
         wattroff(winCurrent, COLOR_PAIR(3));
       else if (isMultiSelected)
@@ -754,9 +841,11 @@ public:
   }
 
   void drawPreview() {
-    if (lastWasImage)
-      clearKittyImage();
-    werase(winPreview);
+    if (lastWasDirectRender)
+      clearDirectRender();
+    // wclear Forces a hard redraw/scrub of the window, preventing overlap
+    // artifacts from direct rendering
+    wclear(winPreview);
     box(winPreview, 0, 0);
     mvwprintw(winPreview, 0, 2, " Preview ");
 
@@ -766,6 +855,7 @@ public:
     }
     const auto &file = currentFiles[selectedIndex];
     int maxW = getmaxx(winPreview) - 4;
+    int maxH = getmaxy(winPreview) - 2;
 
     wmove(winPreview, 2, 2);
     wattron(winPreview, A_BOLD | COLOR_PAIR(7));
@@ -776,6 +866,7 @@ public:
 
     bool isVid = VIDEO_EXTS.count(file.extension);
     bool isImg = IMAGE_EXTS.count(file.extension);
+    bool isCode = CODE_EXTS.count(file.extension);
 
     if (file.is_directory) {
       wattron(winPreview, A_DIM);
@@ -798,35 +889,45 @@ public:
       }
       wattroff(winPreview, A_DIM);
       wrefresh(winPreview);
-    } else if (isVid || isImg) {
+    } else if (isVid || isImg || isCode) {
       wrefresh(winPreview);
+
       bool match = false;
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (cachedPath == file.path.string())
           match = true;
       }
-      if (match)
-        drawKittyImageFromCache();
-      else if (requestedPath != file.path.string()) {
+
+      if (match) {
+        if (isCode)
+          drawFromCache(PreviewType::TEXT);
+        else
+          drawFromCache(PreviewType::IMAGE);
+      } else if (requestedPath != file.path.string()) {
         mvwprintw(winPreview, 10, 4, "Loading...");
         wrefresh(winPreview);
-        startAsyncPreview(file.path.string(), isVid);
+        PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
+        startAsyncPreview(file.path.string(), type, maxH - 8,
+                          maxW); // Reserve space for header
       }
-    } else if (CODE_EXTS.count(file.extension)) {
-      std::ifstream f(file.path);
-      if (f.is_open()) {
-        std::string lineStr;
-        int line = 7;
-        while (std::getline(f, lineStr) && line < height - 2) {
-          std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
-          if (lineStr.length() > maxW)
-            lineStr = lineStr.substr(0, maxW);
-          mvwprintw(winPreview, line++, 2, "%s", lineStr.c_str());
+    } else {
+      // Default text preview with binary check
+      if (is_binary_file(file.path.string())) {
+        mvwprintw(winPreview, 7, 2, "[Binary File]");
+      } else {
+        std::ifstream f(file.path);
+        if (f.is_open()) {
+          std::string lineStr;
+          int line = 7;
+          while (std::getline(f, lineStr) && line < height - 2) {
+            std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
+            if (lineStr.length() > maxW)
+              lineStr = lineStr.substr(0, maxW);
+            mvwprintw(winPreview, line++, 2, "%s", lineStr.c_str());
+          }
         }
       }
-      wrefresh(winPreview);
-    } else {
       wrefresh(winPreview);
     }
   }
@@ -836,13 +937,13 @@ public:
       return;
     const auto &file = currentFiles[selectedIndex];
     if (file.is_directory) {
-      clearKittyImage();
+      clearDirectRender();
       currentPath = file.path;
       selectedIndex = 0;
       scrollOffset = 0;
       reloadAll();
     } else {
-      clearKittyImage();
+      clearDirectRender();
       def_prog_mode();
       endwin();
       std::string cmd;
@@ -868,7 +969,7 @@ public:
   void goUp() {
     if (currentPath.has_parent_path() &&
         currentPath != currentPath.parent_path()) {
-      clearKittyImage();
+      clearDirectRender();
       std::string oldDirName = currentPath.filename().string();
       currentPath = currentPath.parent_path();
       reloadAll();
@@ -889,7 +990,6 @@ public:
 
     while (true) {
       if (needsRedraw) {
-        // Bounds check
         if (!currentFiles.empty()) {
           if (selectedIndex >= currentFiles.size())
             selectedIndex = currentFiles.size() - 1;
@@ -932,11 +1032,10 @@ public:
       if (ch != ERR)
         statusMessage = "";
 
-      // Common keys
       if (ch == 'q')
         return;
       if (ch == KEY_RESIZE) {
-        clearKittyImage();
+        clearDirectRender();
         updateLayout();
         continue;
       }
@@ -946,7 +1045,6 @@ public:
       }
 
       if (focusPinned) {
-        // PINNED MODE
         switch (ch) {
         case 'j':
         case KEY_DOWN:
@@ -960,13 +1058,12 @@ public:
           break;
         case 10:
           jumpToPin();
-          break; // Enter
+          break;
         case 'd':
           handleUnpin();
           break;
         }
       } else {
-        // FILE MODE
         switch (ch) {
         case 'j':
         case KEY_DOWN:
@@ -1000,10 +1097,9 @@ public:
               scrollOffset = selectedIndex - (height - 5);
           }
           break;
-
         case 'P':
           handlePin();
-          break; // Shift+P to Pin
+          break;
         case ' ':
         case 'v':
           toggleSelection();

@@ -155,7 +155,7 @@ private:
 
   // Async Preview State
   std::mutex previewMutex;
-  std::atomic<bool> imageReady{false}; // New atomic flag
+  std::atomic<bool> imageReady{false};
   std::string cachedBase64;
   std::string cachedPath;
   std::string requestedPath;
@@ -180,8 +180,7 @@ public:
     start_color();
     use_default_colors();
 
-    // Non-blocking input to allow async updates
-    timeout(50); // 50ms timeout for getch
+    timeout(50); // Non-blocking input
 
     init_pair(1, COLOR_BLUE, -1);
     init_pair(2, COLOR_WHITE, -1);
@@ -197,6 +196,7 @@ public:
   }
 
   void clearKittyImage() {
+    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
     lastWasImage = false;
   }
@@ -281,22 +281,15 @@ public:
   void startAsyncPreview(const std::string &path, bool isVideo) {
     requestID++;
     requestedPath = path;
-    imageReady = false; // Reset flag
+    imageReady = false;
 
-    // Launch detached thread
     std::thread([this, path, isVideo, reqId = requestID]() {
-      // Heavy operations in background
-
-      // 1. Clean up old preview to prevent stale images (ignore errors)
       try {
         fs::remove(PREVIEW_TEMP);
       } catch (...) {
       }
 
       std::string cmd;
-      // 2. Redirect stderr/stdout to /dev/null to prevent text leaking onto the
-      // TUI layout This fixes the "Invalid PNG signature" and "Invalid data"
-      // error messages ruining the GUI
       if (isVideo) {
         cmd = "ffmpeg -y -v error -i \"" + path +
               "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
@@ -317,7 +310,6 @@ public:
                                         {});
       std::string b64 = base64_encode(buffer.data(), buffer.size());
 
-      // Critical section: Update cache if request is still valid
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (reqId == requestID) {
@@ -325,10 +317,38 @@ public:
           cachedPath = path;
         }
       }
-      // Notify main thread
       if (reqId == requestID)
         imageReady = true;
     }).detach();
+  }
+
+  // Helper to send graphics protocol with proper chunking
+  void sendKittyGraphics(const std::string &b64Data, int pY, int pX) {
+    // Move cursor relative to window position + offset
+    std::cout << "\033[" << (pY + 7) << ";" << (pX + 2) << "H";
+
+    const size_t chunk_size = 4096;
+    size_t total = b64Data.length();
+    size_t offset = 0;
+
+    while (offset < total) {
+      size_t chunkLen = std::min(chunk_size, total - offset);
+      bool isLast = (offset + chunkLen >= total);
+
+      std::cout << "\033_G";
+
+      // Header MUST be in the first chunk for strict Kitty compliance
+      if (offset == 0) {
+        std::cout << "a=T,f=100,t=d,q=2,";
+      }
+
+      std::cout << "m=" << (isLast ? "0" : "1") << ";";
+      std::cout << b64Data.substr(offset, chunkLen);
+      std::cout << "\033\\";
+
+      offset += chunkLen;
+    }
+    std::cout << std::flush;
   }
 
   void drawKittyImageFromCache() {
@@ -340,33 +360,43 @@ public:
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
 
-    // Position: pY + 7 to avoid text overlap
-    std::cout << "\033[" << (pY + 7) << ";" << (pX + 2) << "H";
+    sendKittyGraphics(cachedBase64, pY, pX);
+    lastWasImage = true;
+  }
 
-    const size_t chunk_size = 4096;
-    size_t total = cachedBase64.length();
-    size_t offset = 0;
+  // Kept for fallback/sync usage if needed, updated with fix
+  void drawKittyImage(const std::string &path, bool isVideo) {
+    int pW, pH, pX, pY;
+    getmaxyx(winPreview, pH, pW);
+    getbegyx(winPreview, pY, pX);
 
-    std::cout << "\033_Gf=100,a=T,t=d,m=1,q=2;";
-
-    while (offset < total) {
-      size_t chunk = std::min(chunk_size, total - offset);
-      if (offset + chunk >= total) {
-        std::cout << "\033_Gm=0;" << cachedBase64.substr(offset, chunk)
-                  << "\033\\";
-      } else {
-        std::cout << "\033_Gm=1;" << cachedBase64.substr(offset, chunk)
-                  << "\033\\";
-      }
-      offset += chunk;
+    std::string cmd;
+    if (isVideo) {
+      cmd = "ffmpeg -y -v error -i \"" + path +
+            "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
+            PREVIEW_TEMP + " > /dev/null 2>&1";
+    } else {
+      cmd = "ffmpeg -y -v error -i \"" + path +
+            "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
+            " > /dev/null 2>&1";
     }
-    std::cout << std::flush;
+
+    int res = system(cmd.c_str());
+    if (res != 0)
+      return;
+
+    std::ifstream file(PREVIEW_TEMP, std::ios::binary);
+    if (!file)
+      return;
+    std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
+    std::string b64 = base64_encode(buffer.data(), buffer.size());
+
+    sendKittyGraphics(b64, pY, pX);
     lastWasImage = true;
   }
 
   // ----------------------------
 
-  // ... setStatus, promptInput, operations ...
   void setStatus(const std::string &msg) { statusMessage = msg; }
 
   std::string promptInput(const std::string &prompt) {
@@ -377,18 +407,17 @@ public:
     attroff(COLOR_PAIR(7) | A_BOLD);
     refresh();
 
-    timeout(-1); // Blocking for input
+    timeout(-1);
     echo();
     curs_set(1);
     char buf[256];
     getnstr(buf, 255);
     noecho();
     curs_set(0);
-    timeout(50); // Restore non-blocking
+    timeout(50);
     return std::string(buf);
   }
 
-  // ... Copy/Paste etc ...
   void toggleSelection() {
     if (currentFiles.empty())
       return;
@@ -520,7 +549,6 @@ public:
     if (name.empty())
       return;
 
-    // Redirect zip output to /dev/null to prevent GUI corruption
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
     for (const auto &p : targets)
       cmd += " \"" + p.filename().string() + "\"";
@@ -532,6 +560,43 @@ public:
     (void)res;
     fs::current_path(old);
     setStatus("Zipped");
+    reloadAll();
+  }
+
+  void handleDelete() {
+    if (currentFiles.empty())
+      return;
+
+    std::vector<fs::path> targets;
+    if (multiSelection.empty()) {
+      targets.push_back(currentFiles[selectedIndex].path);
+    } else {
+      for (const auto &p : multiSelection)
+        targets.push_back(p);
+    }
+
+    std::string countStr = (targets.size() > 1)
+                               ? std::to_string(targets.size()) + " items"
+                               : targets[0].filename().string();
+    std::string confirm = promptInput("Delete " + countStr + "? (y/n)");
+
+    if (confirm != "y" && confirm != "Y") {
+      setStatus("Deletion cancelled");
+      return;
+    }
+
+    int successCount = 0;
+    for (const auto &p : targets) {
+      try {
+        // remove_all deletes files and directories recursively
+        fs::remove_all(p);
+        successCount++;
+      } catch (...) {
+      }
+    }
+
+    multiSelection.clear();
+    setStatus("Deleted " + std::to_string(successCount) + " items");
     reloadAll();
   }
 
@@ -697,7 +762,6 @@ public:
     } else if (isVid || isImg) {
       wrefresh(winPreview);
 
-      // ASYNC PREVIEW LOGIC
       bool match = false;
       {
         std::lock_guard<std::mutex> lock(previewMutex);
@@ -812,8 +876,8 @@ public:
           attroff(COLOR_PAIR(7));
         } else {
           attron(A_DIM);
-          printw("Space/v:Select Esc:Clear a:All y:Cp x:Cut p:Pst z:Zip n:New "
-                 ".:Hidden q:Quit");
+          printw("Space/v:Select a:All y:Cp x:Cut p:Pst d:Del z:Zip n:New "
+                 ".:Hide q:Quit");
           attroff(A_DIM);
         }
         refresh();
@@ -891,6 +955,10 @@ public:
       case 'p':
         handlePaste();
         break;
+      case 'd':
+      case KEY_DC:
+        handleDelete();
+        break; // Added Delete
       case 'r':
         handleRename();
         break;

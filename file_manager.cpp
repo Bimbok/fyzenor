@@ -46,6 +46,8 @@ const std::set<std::string> IMAGE_EXTS = {".png", ".jpg",  ".jpeg", ".gif",
 const std::set<std::string> CODE_EXTS = {
     ".cpp", ".h",    ".py",  ".js",   ".ts", ".rs",  ".c",    ".txt",
     ".md",  ".json", ".css", ".html", ".sh", ".lua", ".conf", ".yaml"};
+const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
+                                          ".aac", ".ogg", ".wma",  ".opus"};
 
 const char *ICON_DIR = " ";
 const char *ICON_VIDEO = " ";
@@ -213,6 +215,8 @@ public:
       return ICON_VIDEO;
     if (IMAGE_EXTS.count(f.extension))
       return ICON_IMAGE;
+    if (AUDIO_EXTS.count(f.extension))
+      return ICON_MUSIC;
     if (CODE_EXTS.count(f.extension))
       return ICON_CODE;
     return ICON_FILE;
@@ -361,37 +365,6 @@ public:
     getbegyx(winPreview, pY, pX);
 
     sendKittyGraphics(cachedBase64, pY, pX);
-    lastWasImage = true;
-  }
-
-  // Kept for fallback/sync usage if needed, updated with fix
-  void drawKittyImage(const std::string &path, bool isVideo) {
-    int pW, pH, pX, pY;
-    getmaxyx(winPreview, pH, pW);
-    getbegyx(winPreview, pY, pX);
-
-    std::string cmd;
-    if (isVideo) {
-      cmd = "ffmpeg -y -v error -i \"" + path +
-            "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
-            PREVIEW_TEMP + " > /dev/null 2>&1";
-    } else {
-      cmd = "ffmpeg -y -v error -i \"" + path +
-            "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
-            " > /dev/null 2>&1";
-    }
-
-    int res = system(cmd.c_str());
-    if (res != 0)
-      return;
-
-    std::ifstream file(PREVIEW_TEMP, std::ios::binary);
-    if (!file)
-      return;
-    std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
-    std::string b64 = base64_encode(buffer.data(), buffer.size());
-
-    sendKittyGraphics(b64, pY, pX);
     lastWasImage = true;
   }
 
@@ -588,7 +561,6 @@ public:
     int successCount = 0;
     for (const auto &p : targets) {
       try {
-        // remove_all deletes files and directories recursively
         fs::remove_all(p);
         successCount++;
       } catch (...) {
@@ -689,6 +661,8 @@ public:
           colorPair = 4;
         else if (IMAGE_EXTS.count(file.extension))
           colorPair = 5;
+        else if (AUDIO_EXTS.count(file.extension))
+          colorPair = 4; // Yellow for media
         wattron(winCurrent, COLOR_PAIR(colorPair));
       }
 
@@ -816,14 +790,20 @@ public:
       endwin();
 
       std::string cmd;
-      if (VIDEO_EXTS.count(file.extension))
-        cmd = "mpv \"" + file.path.string() + "\"";
-      else {
+      // Explicitly handle Audio and Video with mpv
+      if (VIDEO_EXTS.count(file.extension) ||
+          AUDIO_EXTS.count(file.extension)) {
+        // 2> /dev/null silences errors (stderr) but keeps the player UI
+        // (stdout)
+        cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
+      } else {
 #ifdef __APPLE__
         cmd = "open \"" + file.path.string() + "\"";
 #else
         cmd = "xdg-open \"" + file.path.string() + "\"";
 #endif
+        // Completely silence other launchers to prevent terminal garbage
+        cmd += " > /dev/null 2>&1";
       }
       int res = system(cmd.c_str());
       (void)res;
@@ -958,7 +938,7 @@ public:
       case 'd':
       case KEY_DC:
         handleDelete();
-        break; // Added Delete
+        break;
       case 'r':
         handleRename();
         break;

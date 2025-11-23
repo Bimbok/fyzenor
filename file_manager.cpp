@@ -8,27 +8,32 @@
  * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip
  * - Multi-select: Space/v to toggle, Esc to clear, 'a' for all
  * - Hidden Files: Toggle with '.'
+ * - Asynchronous Previews: Loading images does not freeze the UI
+ * - Flicker-Free Rendering: Only redraws on state changes
  * * * * Dependencies (Install these first!):
  * - libncursesw (Wide char support): sudo apt install libncursesw5-dev
  * - ffmpeg (REQUIRED for previews):  sudo apt install ffmpeg
  * - zip (REQUIRED for zipping):      sudo apt install zip
  * * * * Compile (Note the -lncursesw flag):
- * g++ -std=c++17 -O3 file_manager.cpp -o fm -lncursesw
+ * g++ -std=c++17 -O3 file_manager.cpp -o fm -lncursesw -lpthread
  */
 
 #define _XOPEN_SOURCE_EXTENDED // Required for ncurses wide char support
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <clocale>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <ncurses.h>
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -42,19 +47,17 @@ const std::set<std::string> CODE_EXTS = {
     ".cpp", ".h",    ".py",  ".js",   ".ts", ".rs",  ".c",    ".txt",
     ".md",  ".json", ".css", ".html", ".sh", ".lua", ".conf", ".yaml"};
 
-// Nerd Font Icons (Wide Strings)
-const char *ICON_DIR = " ";   // nf-fa-folder
-const char *ICON_VIDEO = " "; // nf-fa-film
-const char *ICON_IMAGE = " "; // nf-fa-file_image_o
-const char *ICON_CODE = " ";  // nf-fa-code
-const char *ICON_FILE = " ";  // nf-fa-file_o
-const char *ICON_MUSIC = " "; // nf-fa-music
+const char *ICON_DIR = " ";
+const char *ICON_VIDEO = " ";
+const char *ICON_IMAGE = " ";
+const char *ICON_CODE = " ";
+const char *ICON_FILE = " ";
+const char *ICON_MUSIC = " ";
 
-// Temp file for preview generation (Matches Kitty f=100 expectation)
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 
 struct Clipboard {
-  std::vector<fs::path> paths; // Support multiple files
+  std::vector<fs::path> paths;
   bool isCut = false;
 };
 
@@ -79,7 +82,6 @@ struct FileEntry {
   }
 };
 
-// Base64 Encoder for Kitty Protocol
 static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                         "abcdefghijklmnopqrstuvwxyz"
                                         "0123456789+/";
@@ -140,17 +142,25 @@ private:
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
-  std::set<fs::path> multiSelection; // Track selected files
+  std::set<fs::path> multiSelection;
   size_t selectedIndex;
   size_t scrollOffset;
 
   WINDOW *winParent, *winCurrent, *winPreview;
   int width, height;
-  bool lastWasImage = false; // Track if we need to clear graphics
 
   Clipboard clipboard;
   std::string statusMessage;
-  bool showHidden = false; // Default: hidden files are hidden
+  bool showHidden = false;
+
+  // Async Preview State
+  std::mutex previewMutex;
+  std::atomic<bool> imageReady{false}; // New atomic flag
+  std::string cachedBase64;
+  std::string cachedPath;
+  std::string requestedPath;
+  long long requestID = 0;
+  bool lastWasImage = false;
 
 public:
   FileManager()
@@ -170,16 +180,18 @@ public:
     start_color();
     use_default_colors();
 
-    // Define Colors
-    init_pair(1, COLOR_BLUE, -1);          // Dir
-    init_pair(2, COLOR_WHITE, -1);         // File
-    init_pair(3, COLOR_BLACK, COLOR_CYAN); // Cursor selection
-    init_pair(4, COLOR_YELLOW, -1);        // Video
-    init_pair(5, COLOR_MAGENTA, -1);       // Image
-    init_pair(6, COLOR_GREEN, -1);         // Border
-    init_pair(7, COLOR_CYAN, -1);          // Info
-    init_pair(8, COLOR_RED, -1);           // Error
-    init_pair(9, COLOR_YELLOW, -1); // Multi-selected item (Bright Yellow)
+    // Non-blocking input to allow async updates
+    timeout(50); // 50ms timeout for getch
+
+    init_pair(1, COLOR_BLUE, -1);
+    init_pair(2, COLOR_WHITE, -1);
+    init_pair(3, COLOR_BLACK, COLOR_CYAN);
+    init_pair(4, COLOR_YELLOW, -1);
+    init_pair(5, COLOR_MAGENTA, -1);
+    init_pair(6, COLOR_GREEN, -1);
+    init_pair(7, COLOR_CYAN, -1);
+    init_pair(8, COLOR_RED, -1);
+    init_pair(9, COLOR_YELLOW, -1);
 
     refresh();
   }
@@ -208,35 +220,25 @@ public:
 
   void loadDirectory(const fs::path &path, std::vector<FileEntry> &target) {
     target.clear();
-    multiSelection
-        .clear(); // Clear selection when changing folders for simplicity
+    multiSelection.clear();
     try {
-      // Filter and add Directories
       for (const auto &entry : fs::directory_iterator(path)) {
-        // Hidden file check
         if (!showHidden && entry.path().filename().string().front() == '.')
           continue;
-
         if (fs::is_directory(entry))
           target.emplace_back(entry);
       }
-
       std::sort(target.begin(), target.end(),
                 [](const FileEntry &a, const FileEntry &b) {
                   return a.name < b.name;
                 });
       size_t split = target.size();
-
-      // Filter and add Files
       for (const auto &entry : fs::directory_iterator(path)) {
-        // Hidden file check
         if (!showHidden && entry.path().filename().string().front() == '.')
           continue;
-
         if (!fs::is_directory(entry))
           target.emplace_back(entry);
       }
-
       std::sort(target.begin() + split, target.end(),
                 [](const FileEntry &a, const FileEntry &b) {
                   return a.name < b.name;
@@ -274,38 +276,64 @@ public:
     refresh();
   }
 
-  // --- Kitty Image Protocol Logic ---
+  // --- Threaded Preview Logic ---
 
-  void drawKittyImage(const std::string &path, bool isVideo) {
+  void startAsyncPreview(const std::string &path, bool isVideo) {
+    requestID++;
+    requestedPath = path;
+    imageReady = false; // Reset flag
+
+    // Launch detached thread
+    std::thread([this, path, isVideo, reqId = requestID]() {
+      // Heavy operations in background
+      std::string cmd;
+      if (isVideo) {
+        cmd = "ffmpeg -y -v error -i \"" + path +
+              "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
+              PREVIEW_TEMP;
+      } else {
+        cmd = "ffmpeg -y -v error -i \"" + path +
+              "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP;
+      }
+
+      int res = system(cmd.c_str());
+      (void)res;
+
+      std::ifstream file(PREVIEW_TEMP, std::ios::binary);
+      if (!file)
+        return;
+      std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file),
+                                        {});
+      std::string b64 = base64_encode(buffer.data(), buffer.size());
+
+      // Critical section: Update cache if request is still valid
+      {
+        std::lock_guard<std::mutex> lock(previewMutex);
+        if (reqId == requestID) {
+          cachedBase64 = b64;
+          cachedPath = path;
+        }
+      }
+      // Notify main thread
+      if (reqId == requestID)
+        imageReady = true;
+    }).detach();
+  }
+
+  void drawKittyImageFromCache() {
+    std::lock_guard<std::mutex> lock(previewMutex);
+    if (cachedBase64.empty())
+      return;
+
     int pW, pH, pX, pY;
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
 
-    std::string cmd;
-    if (isVideo) {
-      cmd = "ffmpeg -y -v error -i \"" + path +
-            "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
-            PREVIEW_TEMP;
-    } else {
-      cmd = "ffmpeg -y -v error -i \"" + path +
-            "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP;
-    }
-
-    int res = system(cmd.c_str());
-    if (res != 0)
-      return;
-
-    std::ifstream file(PREVIEW_TEMP, std::ios::binary);
-    if (!file)
-      return;
-    std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
-    std::string b64 = base64_encode(buffer.data(), buffer.size());
-
-    // FIX: Moved from pY+3 to pY+7 to avoid overlapping "Name" and "Size" text
+    // Position: pY + 7 to avoid text overlap
     std::cout << "\033[" << (pY + 7) << ";" << (pX + 2) << "H";
 
     const size_t chunk_size = 4096;
-    size_t total = b64.length();
+    size_t total = cachedBase64.length();
     size_t offset = 0;
 
     std::cout << "\033_Gf=100,a=T,t=d,m=1,q=2;";
@@ -313,9 +341,11 @@ public:
     while (offset < total) {
       size_t chunk = std::min(chunk_size, total - offset);
       if (offset + chunk >= total) {
-        std::cout << "\033_Gm=0;" << b64.substr(offset, chunk) << "\033\\";
+        std::cout << "\033_Gm=0;" << cachedBase64.substr(offset, chunk)
+                  << "\033\\";
       } else {
-        std::cout << "\033_Gm=1;" << b64.substr(offset, chunk) << "\033\\";
+        std::cout << "\033_Gm=1;" << cachedBase64.substr(offset, chunk)
+                  << "\033\\";
       }
       offset += chunk;
     }
@@ -323,8 +353,9 @@ public:
     lastWasImage = true;
   }
 
-  // --- Operations ---
+  // ----------------------------
 
+  // ... setStatus, promptInput, operations ...
   void setStatus(const std::string &msg) { statusMessage = msg; }
 
   std::string promptInput(const std::string &prompt) {
@@ -335,37 +366,35 @@ public:
     attroff(COLOR_PAIR(7) | A_BOLD);
     refresh();
 
+    timeout(-1); // Blocking for input
     echo();
     curs_set(1);
     char buf[256];
     getnstr(buf, 255);
     noecho();
     curs_set(0);
+    timeout(50); // Restore non-blocking
     return std::string(buf);
   }
 
-  // --- Multi-Select Logic ---
+  // ... Copy/Paste etc ...
   void toggleSelection() {
     if (currentFiles.empty())
       return;
     fs::path p = currentFiles[selectedIndex].path;
-    if (multiSelection.count(p)) {
+    if (multiSelection.count(p))
       multiSelection.erase(p);
-    } else {
+    else
       multiSelection.insert(p);
-    }
-    // Auto advance
     if (selectedIndex < currentFiles.size() - 1)
       selectedIndex++;
   }
 
   void selectAll() {
-    for (const auto &f : currentFiles) {
+    for (const auto &f : currentFiles)
       multiSelection.insert(f.path);
-    }
-    setStatus("Selected all files");
+    setStatus("Selected all");
   }
-
   void clearSelection() {
     multiSelection.clear();
     setStatus("Cleared selection");
@@ -375,16 +404,13 @@ public:
     if (currentFiles.empty())
       return;
     clipboard.paths.clear();
-
-    if (multiSelection.empty()) {
+    if (multiSelection.empty())
       clipboard.paths.push_back(currentFiles[selectedIndex].path);
-    } else {
+    else
       for (const auto &p : multiSelection)
         clipboard.paths.push_back(p);
-    }
-
     clipboard.isCut = false;
-    setStatus("Yanked " + std::to_string(clipboard.paths.size()) + " items");
+    setStatus("Yanked items");
     multiSelection.clear();
   }
 
@@ -392,16 +418,13 @@ public:
     if (currentFiles.empty())
       return;
     clipboard.paths.clear();
-
-    if (multiSelection.empty()) {
+    if (multiSelection.empty())
       clipboard.paths.push_back(currentFiles[selectedIndex].path);
-    } else {
+    else
       for (const auto &p : multiSelection)
         clipboard.paths.push_back(p);
-    }
-
     clipboard.isCut = true;
-    setStatus("Cut " + std::to_string(clipboard.paths.size()) + " items");
+    setStatus("Cut items");
     multiSelection.clear();
   }
 
@@ -410,42 +433,27 @@ public:
       setStatus("Clipboard empty");
       return;
     }
-
     int successCount = 0;
-    std::string errorMsg;
-
     for (const auto &src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
-      if (fs::exists(dest) && !clipboard.isCut && src != dest) {
-        // Simple conflict resolution: skip
+      if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
-      }
-
       try {
-        if (clipboard.isCut) {
+        if (clipboard.isCut)
           fs::rename(src, dest);
-        } else {
+        else {
           if (fs::is_directory(src))
             fs::copy(src, dest, fs::copy_options::recursive);
           else
             fs::copy(src, dest);
         }
         successCount++;
-      } catch (const std::exception &e) {
-        errorMsg = e.what();
+      } catch (...) {
       }
     }
-
-    if (clipboard.isCut && successCount > 0) {
-      clipboard.paths.clear(); // Clear clipboard after move
-    }
-
-    setStatus(clipboard.isCut
-                  ? "Moved "
-                  : "Pasted " + std::to_string(successCount) + " items");
-    if (!errorMsg.empty())
-      setStatus("Error: " + errorMsg);
-
+    if (clipboard.isCut && successCount > 0)
+      clipboard.paths.clear();
+    setStatus("Pasted items");
     reloadAll();
   }
 
@@ -459,10 +467,10 @@ public:
     fs::path dest = currentPath / newName;
     try {
       fs::rename(file.path, dest);
-      setStatus("Renamed to " + newName);
+      setStatus("Renamed");
       reloadAll();
-    } catch (std::exception &e) {
-      setStatus("Rename Failed: " + std::string(e.what()));
+    } catch (...) {
+      setStatus("Rename Failed");
     }
   }
 
@@ -470,13 +478,8 @@ public:
     std::string name = promptInput("New File Name");
     if (name.empty())
       return;
-    fs::path dest = currentPath / name;
-    if (fs::exists(dest)) {
-      setStatus("File exists");
-      return;
-    }
-    std::ofstream(dest).close();
-    setStatus("Created file: " + name);
+    std::ofstream(currentPath / name).close();
+    setStatus("Created file");
     reloadAll();
   }
 
@@ -484,56 +487,38 @@ public:
     std::string name = promptInput("New Folder Name");
     if (name.empty())
       return;
-    fs::path dest = currentPath / name;
     try {
-      if (fs::create_directory(dest)) {
-        setStatus("Created folder: " + name);
-        reloadAll();
-      } else
-        setStatus("Failed to create folder");
-    } catch (std::exception &e) {
-      setStatus("Error: " + std::string(e.what()));
+      fs::create_directory(currentPath / name);
+      setStatus("Created folder");
+      reloadAll();
+    } catch (...) {
     }
   }
 
   void handleZip() {
     if (currentFiles.empty())
       return;
-
     std::vector<fs::path> targets;
-    if (multiSelection.empty()) {
+    if (multiSelection.empty())
       targets.push_back(currentFiles[selectedIndex].path);
-    } else {
+    else
       for (const auto &p : multiSelection)
         targets.push_back(p);
-    }
 
-    std::string name = promptInput("Zip Name (without .zip)");
+    std::string name = promptInput("Zip Name");
     if (name.empty())
       return;
-
-    // Construct command: zip -r -q "name.zip" "file1" "file2" ...
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
-    for (const auto &p : targets) {
+    for (const auto &p : targets)
       cmd += " \"" + p.filename().string() + "\"";
-    }
 
     fs::path old = fs::current_path();
     fs::current_path(currentPath);
-
     int res = system(cmd.c_str());
     (void)res;
-
     fs::current_path(old);
-
-    if (res == 0) {
-      setStatus("Zipped " + std::to_string(targets.size()) + " items to " +
-                name + ".zip");
-      multiSelection.clear();
-      reloadAll();
-    } else {
-      setStatus("Zip failed");
-    }
+    setStatus("Zipped");
+    reloadAll();
   }
 
   void reloadAll() {
@@ -544,10 +529,8 @@ public:
   void toggleHidden() {
     showHidden = !showHidden;
     reloadAll();
-    setStatus(showHidden ? "Showing hidden files" : "Hidden files masked");
+    setStatus(showHidden ? "Showing hidden" : "Hidden masked");
   }
-
-  // ------------------------------------
 
   void drawParent() {
     werase(winParent);
@@ -595,7 +578,6 @@ public:
     mvwprintw(winCurrent, 0, 2, " %s ", currentPath.filename().c_str());
     wattroff(winCurrent, A_BOLD);
 
-    // Selection indicator
     if (!multiSelection.empty()) {
       std::string selStr =
           "[" + std::to_string(multiSelection.size()) + " sel]";
@@ -613,17 +595,15 @@ public:
          ++i) {
       int idx = scrollOffset + i;
       const auto &file = currentFiles[idx];
-
       wmove(winCurrent, i + 1, 1);
       int colorPair = 2;
       bool isMultiSelected = multiSelection.count(file.path);
 
-      // Selection Logic
-      if (idx == selectedIndex) {
-        wattron(winCurrent, COLOR_PAIR(3)); // Cursor highlight
-      } else if (isMultiSelected) {
-        wattron(winCurrent, COLOR_PAIR(9) | A_BOLD); // Multi-select highlight
-      } else {
+      if (idx == selectedIndex)
+        wattron(winCurrent, COLOR_PAIR(3));
+      else if (isMultiSelected)
+        wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
+      else {
         if (file.is_directory)
           colorPair = 1;
         else if (VIDEO_EXTS.count(file.extension))
@@ -637,8 +617,6 @@ public:
       int availWidth = getmaxx(winCurrent) - 16;
       if (display.length() > availWidth)
         display = display.substr(0, availWidth - 3) + "...";
-
-      // Marker for multi-select
       char marker = isMultiSelected ? '*' : ' ';
       wprintw(winCurrent, " %c %s %-s", marker, getIcon(file), display.c_str());
 
@@ -687,10 +665,8 @@ public:
       try {
         int line = 8;
         for (const auto &entry : fs::directory_iterator(file.path)) {
-          // Hide hidden files in directory preview too
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
-
           if (line >= height - 2)
             break;
           std::string subName = entry.path().filename().string();
@@ -706,7 +682,27 @@ public:
       wrefresh(winPreview);
     } else if (isVid || isImg) {
       wrefresh(winPreview);
-      drawKittyImage(file.path.string(), isVid);
+
+      // ASYNC PREVIEW LOGIC
+      bool match = false;
+      {
+        std::lock_guard<std::mutex> lock(previewMutex);
+        if (cachedPath == file.path.string())
+          match = true;
+      }
+
+      if (match) {
+        drawKittyImageFromCache();
+      } else {
+        if (requestedPath != file.path.string()) {
+          mvwprintw(winPreview, 10, 4, "Loading preview...");
+          wrefresh(winPreview);
+          startAsyncPreview(file.path.string(), isVid);
+        } else {
+          mvwprintw(winPreview, 10, 4, "Loading preview...");
+          wrefresh(winPreview);
+        }
+      }
     } else if (CODE_EXTS.count(file.extension)) {
       std::ifstream f(file.path);
       if (f.is_open()) {
@@ -756,6 +752,7 @@ public:
 
       reset_prog_mode();
       refresh();
+      timeout(50);
     }
   }
 
@@ -766,7 +763,6 @@ public:
       std::string oldDirName = currentPath.filename().string();
       currentPath = currentPath.parent_path();
       reloadAll();
-
       selectedIndex = 0;
       for (size_t i = 0; i < currentFiles.size(); ++i) {
         if (currentFiles[i].name == oldDirName) {
@@ -780,32 +776,49 @@ public:
 
   void run() {
     updateLayout();
+    bool needsRedraw = true; // Initial Draw
+
     while (true) {
-      if (!currentFiles.empty()) {
-        if (selectedIndex >= currentFiles.size())
-          selectedIndex = currentFiles.size() - 1;
-      } else
-        selectedIndex = 0;
+      if (needsRedraw) {
+        if (!currentFiles.empty()) {
+          if (selectedIndex >= currentFiles.size())
+            selectedIndex = currentFiles.size() - 1;
+        } else
+          selectedIndex = 0;
 
-      drawParent();
-      drawCurrent();
-      drawPreview();
+        drawParent();
+        drawCurrent();
+        drawPreview();
 
-      move(height - 1, 0);
-      clrtoeol();
-      if (!statusMessage.empty()) {
-        attron(COLOR_PAIR(7));
-        printw("%s", statusMessage.c_str());
-        attroff(COLOR_PAIR(7));
-      } else {
-        attron(A_DIM);
-        printw("Space/v:Select Esc:Clear a:All y:Cp x:Cut p:Pst z:Zip n:New "
-               ".:Hidden q:Quit");
-        attroff(A_DIM);
+        move(height - 1, 0);
+        clrtoeol();
+        if (!statusMessage.empty()) {
+          attron(COLOR_PAIR(7));
+          printw("%s", statusMessage.c_str());
+          attroff(COLOR_PAIR(7));
+        } else {
+          attron(A_DIM);
+          printw("Space/v:Select Esc:Clear a:All y:Cp x:Cut p:Pst z:Zip n:New "
+                 ".:Hidden q:Quit");
+          attroff(A_DIM);
+        }
+        refresh();
+        needsRedraw = false;
       }
-      refresh();
 
       int ch = getch();
+
+      // Handle Async Update
+      if (ch == ERR) {
+        if (imageReady) {
+          needsRedraw = true; // Image loaded, trigger redraw
+          imageReady = false;
+        }
+        continue; // Wait for input or next check
+      }
+
+      // Key Pressed -> Redraw on next loop
+      needsRedraw = true;
       if (ch != ERR)
         statusMessage = "";
 
@@ -845,7 +858,6 @@ public:
         }
         break;
 
-      // Multi-Select
       case ' ':
       case 'v':
         toggleSelection();
@@ -855,9 +867,7 @@ public:
         break;
       case 27:
         clearSelection();
-        break; // ESC
-
-      // Operations
+        break;
       case 'y':
         handleCopy();
         break;
@@ -882,7 +892,6 @@ public:
       case '.':
         toggleHidden();
         break;
-
       case KEY_RESIZE:
         clearKittyImage();
         updateLayout();

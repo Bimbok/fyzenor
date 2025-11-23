@@ -286,14 +286,25 @@ public:
     // Launch detached thread
     std::thread([this, path, isVideo, reqId = requestID]() {
       // Heavy operations in background
+
+      // 1. Clean up old preview to prevent stale images (ignore errors)
+      try {
+        fs::remove(PREVIEW_TEMP);
+      } catch (...) {
+      }
+
       std::string cmd;
+      // 2. Redirect stderr/stdout to /dev/null to prevent text leaking onto the
+      // TUI layout This fixes the "Invalid PNG signature" and "Invalid data"
+      // error messages ruining the GUI
       if (isVideo) {
         cmd = "ffmpeg -y -v error -i \"" + path +
               "\" -vf \"thumbnail,scale=400:-1\" -frames:v 1 -f image2 " +
-              PREVIEW_TEMP;
+              PREVIEW_TEMP + " > /dev/null 2>&1";
       } else {
         cmd = "ffmpeg -y -v error -i \"" + path +
-              "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP;
+              "\" -vf \"scale=400:-1\" -f image2 " + PREVIEW_TEMP +
+              " > /dev/null 2>&1";
       }
 
       int res = system(cmd.c_str());
@@ -508,9 +519,12 @@ public:
     std::string name = promptInput("Zip Name");
     if (name.empty())
       return;
+
+    // Redirect zip output to /dev/null to prevent GUI corruption
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
     for (const auto &p : targets)
       cmd += " \"" + p.filename().string() + "\"";
+    cmd += " > /dev/null 2>&1";
 
     fs::path old = fs::current_path();
     fs::current_path(currentPath);

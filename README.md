@@ -1,11 +1,12 @@
 ```
-╔═╗╦ ╦╔═╗╔═╗╔╗╔╔═╗╦═╗
-╠═╝╚╦╝╔═╝║╣ ║║║║ ║╠╦╝
+╔══╦ ╦╔═╗╔═╗╔╗╔╔═╗╦═╗
+╠══╚╦╝╔═╝║╣ ║║║║ ║╠╦╝
 ╩   ╩ ╚═╝╚═╝╝╚╝╚═╝╩╚═
 ```
+
 <div align="center">
 
->_ The Blazing Fast, Modern C++ Terminal File Manager.
+> \_ The Blazing Fast, Modern C++ Terminal File Manager.
 
 [![C++](https://img.shields.io/badge/language-C++17-00599C?style=for-the-badge&logo=c%2B%2B)](https://isocpp.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
@@ -15,7 +16,6 @@
 <br/>
 
 <img width="1920" height="1043" alt="Image" src="https://github.com/user-attachments/assets/7491cd62-fc34-4169-9b5b-11b0bb43dba0" />
-
 
 </div>
 
@@ -29,21 +29,21 @@ Designed for power users who want to manage files at the speed of thought withou
 
 ## 🚀 Key Features
 
-* **📁 Three-Column Architecture:** Classic Miller columns view (Parent → Current → Preview) for instant context.
-* **🖼️ Asynchronous Media Previews:** High-resolution image and video thumbnails rendered directly in the terminal using the **Kitty Graphics Protocol**. Zero UI freezing while loading.
-* **🧭 Vim-Like Navigation:** Feel right at home with `h`, `j`, `k`, `l` and `g`/`G` movements.
-* **✨ Nerd Fonts Support:** Beautiful icons for directories and various file types.
-* **⚡ Flicker-Free Rendering:** Efficient state management ensures the UI only redraws when necessary.
-* **📝 Essential Operations:** Copy, Cut, Paste, Rename, Delete, New File/Folder, and Zip compression.
-* **✅ Robust Multi-Selection:** Easily select varying groups of files for bulk operations.
+- **📁 Three-Column Architecture:** Classic Miller columns view (Parent → Current → Preview) for instant context.
+- **🖼️ Asynchronous Media Previews:** High-resolution image and video thumbnails rendered directly in the terminal using the **Kitty Graphics Protocol**. Zero UI freezing while loading.
+- **🧭 Vim-Like Navigation:** Feel right at home with `h`, `j`, `k`, `l` and `g`/`G` movements.
+- **✨ Nerd Fonts Support:** Beautiful icons for directories and various file types.
+- **⚡ Flicker-Free Rendering:** Efficient state management ensures the UI only redraws when necessary.
+- **📝 Essential Operations:** Copy, Cut, Paste, Rename, Delete, New File/Folder, and Zip compression.
+- **✅ Robust Multi-Selection:** Easily select varying groups of files for bulk operations.
 
 ## 🛠️ Prerequisites
 
 To unleash the full power of Fyzenor (especially image previews), your system needs a few things:
 
 1.  **A Terminal Supporting the Kitty Graphics Protocol:**
-    * Recommended: [Kitty](https://sw.kovidgoyal.net/kitty/)
-    * *Note: Other terminals like WezTerm or Konsole might work but Kitty is primary target.*
+    - Recommended: [Kitty](https://sw.kovidgoyal.net/kitty/)
+    - _Note: Other terminals like WezTerm or Konsole might work but Kitty is primary target._
 2.  **Dependencies (Debian/Ubuntu based):**
 
 ```bash
@@ -51,10 +51,9 @@ sudo apt update
 sudo apt install build-essential libncursesw5-dev ffmpeg zip
 ```
 
-
-  * `libncursesw`: For wide-character (Unicode/Icon) TUI support.
-  * `ffmpeg`: Required to generate thumbnails for images and videos.
-  * `zip`: Required for archive operations.
+- `libncursesw`: For wide-character (Unicode/Icon) TUI support.
+- `ffmpeg`: Required to generate thumbnails for images and videos.
+- `zip`: Required for archive operations.
 
 ## ⚙️ Installation & Compilation
 
@@ -72,7 +71,7 @@ g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread
 ./fyzenor
 ```
 
-*Tip: Move the binary to your path for global access: `sudo mv fyzenor /usr/local/bin/`*
+_Tip: Move the binary to your path for global access: `sudo mv fyzenor /usr/local/bin/`_
 
 ## ⌨️ Controls
 
@@ -80,37 +79,37 @@ Navigate your filesystem with the speed and precision of Vim bindings.
 
 ### Navigation
 
-| Key | Action |
-| :--- | :--- |
-| `k` or `↑` | Move selection up |
-| `j` or `↓` | Move selection down |
-| `h` or `←` | Go to parent directory |
+| Key                   | Action                      |
+| :-------------------- | :-------------------------- |
+| `k` or `↑`            | Move selection up           |
+| `j` or `↓`            | Move selection down         |
+| `h` or `←`            | Go to parent directory      |
 | `l` or `→` or `Enter` | Open file / Enter directory |
-| `g` | Go to top of list |
-| `G` | Go to bottom of list |
+| `g`                   | Go to top of list           |
+| `G`                   | Go to bottom of list        |
 
 ### File Operations
 
-| Key | Action |
-| :--- | :--- |
-| `y` | **Yank** (Copy) selected items |
-| `x` | **Cut** selected items |
-| `p` | **Paste** items from clipboard |
+| Key             | Action                                        |
+| :-------------- | :-------------------------------------------- |
+| `y`             | **Yank** (Copy) selected items                |
+| `x`             | **Cut** selected items                        |
+| `p`             | **Paste** items from clipboard                |
 | `d` or `Delete` | **Delete** selected items (with confirmation) |
-| `r` | **Rename** current item |
-| `n` | Create **New File** |
-| `N` | Create **New Folder** |
-| `z` | **Zip** selected items |
+| `r`             | **Rename** current item                       |
+| `n`             | Create **New File**                           |
+| `N`             | Create **New Folder**                         |
+| `z`             | **Zip** selected items                        |
 
 ### Selection & View
 
-| Key | Action |
-| :--- | :--- |
-| `Space` or `v` | Toggle selection of current file |
-| `a` | Select **All** files in current directory |
-| `Esc` | Clear all selections |
-| `.` | Toggle hidden files (dotfiles) |
-| `q` | Quit Fyzenor |
+| Key            | Action                                    |
+| :------------- | :---------------------------------------- |
+| `Space` or `v` | Toggle selection of current file          |
+| `a`            | Select **All** files in current directory |
+| `Esc`          | Clear all selections                      |
+| `.`            | Toggle hidden files (dotfiles)            |
+| `q`            | Quit Fyzenor                              |
 
 ## ⚖️ License
 

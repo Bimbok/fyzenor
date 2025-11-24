@@ -8,7 +8,7 @@
  * - Syntax Highlighting using 'bat' (Async)
  * - File Operations: Copy, Cut, Paste, Rename, New File/Folder, Zip, Delete
  * - Multi-select & Pins
- * - Asynchronous Folder Size Calculation (No lag on navigation)
+ * - Asynchronous Folder Size Calculation with Live Sorting
  * * * * Dependencies:
  * - libncursesw, ffmpeg, zip
  * - bat (or batcat) for syntax highlighting
@@ -173,7 +173,7 @@ enum class PreviewType { NONE, IMAGE, TEXT };
 // --- Async Size Calculator ---
 struct SizeJob {
   fs::path path;
-  int viewId; // To discard results from previous directories
+  int viewId;
 };
 
 struct SizeResult {
@@ -200,6 +200,7 @@ private:
   Clipboard clipboard;
   std::string statusMessage;
   bool showHidden = false;
+  bool sortBySize = false;
 
   // Async Preview State
   std::mutex previewMutex;
@@ -228,7 +229,6 @@ public:
     setlocale(LC_ALL, "");
     loadPins();
 
-    // Start size worker thread
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
 
     currentPath = fs::current_path();
@@ -259,7 +259,6 @@ public:
   }
 
   void clearDirectRender() {
-    // q=2 suppresses errors
     std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
     lastWasDirectRender = false;
   }
@@ -286,7 +285,6 @@ public:
         sizeQueue.pop_front();
       }
 
-      // Optimization: Skip if view changed
       if (job.viewId != currentViewId)
         continue;
 
@@ -295,7 +293,6 @@ public:
         if (fs::exists(job.path) && fs::is_directory(job.path)) {
           for (const auto &entry : fs::recursive_directory_iterator(
                    job.path, fs::directory_options::skip_permission_denied)) {
-            // Check cancellation periodically during heavy calculation
             if (job.viewId != currentViewId)
               break;
             try {
@@ -384,14 +381,31 @@ public:
     return ICON_FILE;
   }
 
+  // Unified Sorting Logic: Folders Top -> Size/Name
+  void sortList(std::vector<FileEntry> &list) {
+    std::sort(list.begin(), list.end(),
+              [this](const FileEntry &a, const FileEntry &b) {
+                // 1. Always keep directories on top
+                if (a.is_directory != b.is_directory) {
+                  return a.is_directory > b.is_directory;
+                }
+
+                // 2. Sort by Size (if enabled)
+                if (sortBySize) {
+                  if (a.size != b.size)
+                    return a.size > b.size; // Descending
+                  return a.name < b.name;
+                }
+
+                // 3. Default: Sort by Name (Ascending)
+                return a.name < b.name;
+              });
+  }
+
   void loadDirectory(const fs::path &path, std::vector<FileEntry> &target) {
     target.clear();
     multiSelection.clear();
-
-    // New directory loaded, increment view ID to invalidate old size jobs
     currentViewId++;
-
-    // Clear pending queue
     {
       std::lock_guard<std::mutex> lock(queueMutex);
       sizeQueue.clear();
@@ -401,28 +415,14 @@ public:
       for (const auto &entry : fs::directory_iterator(path)) {
         if (!showHidden && entry.path().filename().string().front() == '.')
           continue;
-        if (fs::is_directory(entry))
-          target.emplace_back(entry);
+        target.emplace_back(entry);
       }
-      std::sort(target.begin(), target.end(),
-                [](const FileEntry &a, const FileEntry &b) {
-                  return a.name < b.name;
-                });
-      size_t split = target.size();
-      for (const auto &entry : fs::directory_iterator(path)) {
-        if (!showHidden && entry.path().filename().string().front() == '.')
-          continue;
-        if (!fs::is_directory(entry))
-          target.emplace_back(entry);
-      }
-      std::sort(target.begin() + split, target.end(),
-                [](const FileEntry &a, const FileEntry &b) {
-                  return a.name < b.name;
-                });
     } catch (...) {
     }
 
-    // Push directory size calculation jobs
+    // Initial Sort
+    sortList(target);
+
     {
       std::lock_guard<std::mutex> lock(queueMutex);
       for (const auto &entry : target) {
@@ -437,30 +437,21 @@ public:
   void loadParent() {
     if (currentPath.has_parent_path() &&
         currentPath != currentPath.parent_path()) {
-      // We don't calculate sizes for parent view to save resources, simplistic
-      // load
       parentFiles.clear();
       try {
-        fs::path pPath = currentPath.parent_path();
-        for (const auto &entry : fs::directory_iterator(pPath)) {
-          if (fs::is_directory(entry))
-            parentFiles.emplace_back(entry);
+        for (const auto &entry :
+             fs::directory_iterator(currentPath.parent_path())) {
+          parentFiles.emplace_back(entry);
         }
-        std::sort(parentFiles.begin(), parentFiles.end(),
-                  [](const FileEntry &a, const FileEntry &b) {
-                    return a.name < b.name;
-                  });
-        size_t split = parentFiles.size();
-        for (const auto &entry : fs::directory_iterator(pPath)) {
-          if (!fs::is_directory(entry))
-            parentFiles.emplace_back(entry);
-        }
-        std::sort(parentFiles.begin() + split, parentFiles.end(),
-                  [](const FileEntry &a, const FileEntry &b) {
-                    return a.name < b.name;
-                  });
       } catch (...) {
       }
+      // Standard sort for parent to keep it stable
+      std::sort(parentFiles.begin(), parentFiles.end(),
+                [](const FileEntry &a, const FileEntry &b) {
+                  if (a.is_directory != b.is_directory)
+                    return a.is_directory > b.is_directory;
+                  return a.name < b.name;
+                });
     } else {
       parentFiles.clear();
     }
@@ -692,6 +683,12 @@ public:
     setStatus("Cleared selection");
   }
 
+  void toggleSort() {
+    sortBySize = !sortBySize;
+    sortList(currentFiles); // Immediate sort
+    setStatus(sortBySize ? "Sorted by Size (Desc)" : "Sorted by Name");
+  }
+
   void handleCopy() {
     if (currentFiles.empty())
       return;
@@ -727,19 +724,13 @@ public:
     int successCount = 0;
     for (const auto &src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
-
-      // Prevent overwrite on copy unless it is a move (rename usually handles
-      // overwrite)
       if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
-
       try {
         if (clipboard.isCut) {
-          // FIX: Try efficient rename (move) first
           try {
             fs::rename(src, dest);
           } catch (const fs::filesystem_error &e) {
-            // Fallback for cross-device moves: Copy then Delete
             if (fs::is_directory(src))
               fs::copy(src, dest, fs::copy_options::recursive);
             else
@@ -747,7 +738,6 @@ public:
             fs::remove_all(src);
           }
         } else {
-          // Copy Operation
           if (fs::is_directory(src))
             fs::copy(src, dest, fs::copy_options::recursive);
           else
@@ -821,14 +811,10 @@ public:
     setStatus("Zipped");
     reloadAll();
   }
-
   void handleCopyPath() {
     if (currentFiles.empty())
       return;
-    // Get absolute path
     std::string path = fs::absolute(currentFiles[selectedIndex].path).string();
-
-    // Escape quotes for shell command safety
     std::string escaped;
     for (char c : path) {
       if (c == '"')
@@ -836,18 +822,13 @@ public:
       else
         escaped += c;
     }
-
-    // Chain common clipboard tools: Wayland -> X11 -> macOS
-    // 2>/dev/null hides errors if a tool is missing
     std::string cmd = "echo -n \"" + escaped +
                       "\" | (wl-copy 2>/dev/null || xclip -selection clipboard "
                       "2>/dev/null || pbcopy 2>/dev/null)";
-
     int res = system(cmd.c_str());
     (void)res;
     setStatus("Copied path");
   }
-
   void handleDelete() {
     if (currentFiles.empty())
       return;
@@ -1154,6 +1135,7 @@ public:
       {
         std::lock_guard<std::mutex> lock(resultMutex);
         if (!resultQueue.empty()) {
+          bool updated = false;
           while (!resultQueue.empty()) {
             SizeResult res = resultQueue.front();
             resultQueue.pop_front();
@@ -1161,12 +1143,17 @@ public:
               for (auto &f : currentFiles) {
                 if (f.path == res.path) {
                   f.size = res.size;
+                  updated = true;
                   break;
                 }
               }
             }
           }
-          needsRedraw = true;
+          if (updated) {
+            if (sortBySize)
+              sortList(currentFiles); // Re-sort if sorting by size
+            needsRedraw = true;
+          }
         }
       }
 
@@ -1194,7 +1181,7 @@ public:
             printw("[PINNED] j/k:Nav Enter:Jump d:Unpin Tab:Files");
           else
             printw("Tab:Pins P:Pin Space:Sel y:Cp x:Cut p:Pst d:Del z:Zip "
-                   "c:Path .:Hide");
+                   "r:Ren s:Sort");
           attroff(A_DIM);
         }
         refresh();
@@ -1321,7 +1308,10 @@ public:
           break;
         case 'c':
           handleCopyPath();
-          break; // Added 'c' for Copy Path
+          break;
+        case 's':
+          toggleSort();
+          break;
         }
       }
     }

@@ -821,6 +821,33 @@ public:
     setStatus("Zipped");
     reloadAll();
   }
+
+  void handleCopyPath() {
+    if (currentFiles.empty())
+      return;
+    // Get absolute path
+    std::string path = fs::absolute(currentFiles[selectedIndex].path).string();
+
+    // Escape quotes for shell command safety
+    std::string escaped;
+    for (char c : path) {
+      if (c == '"')
+        escaped += "\\\"";
+      else
+        escaped += c;
+    }
+
+    // Chain common clipboard tools: Wayland -> X11 -> macOS
+    // 2>/dev/null hides errors if a tool is missing
+    std::string cmd = "echo -n \"" + escaped +
+                      "\" | (wl-copy 2>/dev/null || xclip -selection clipboard "
+                      "2>/dev/null || pbcopy 2>/dev/null)";
+
+    int res = system(cmd.c_str());
+    (void)res;
+    setStatus("Copied path");
+  }
+
   void handleDelete() {
     if (currentFiles.empty())
       return;
@@ -1166,8 +1193,8 @@ public:
           if (focusPinned)
             printw("[PINNED] j/k:Nav Enter:Jump d:Unpin Tab:Files");
           else
-            printw(
-                "Tab:Pins P:Pin Space:Sel y:Cp x:Cut p:Pst d:Del z:Zip .:Hide");
+            printw("Tab:Pins P:Pin Space:Sel y:Cp x:Cut p:Pst d:Del z:Zip "
+                   "c:Path .:Hide");
           attroff(A_DIM);
         }
         refresh();
@@ -1292,6 +1319,9 @@ public:
         case '.':
           toggleHidden();
           break;
+        case 'c':
+          handleCopyPath();
+          break; // Added 'c' for Copy Path
         }
       }
     }

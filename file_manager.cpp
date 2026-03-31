@@ -1318,7 +1318,24 @@ public:
   }
 };
 
-int main() {
+const std::string VERSION = "1.1.0";
+
+int main(int argc, char *argv[]) {
+  if (argc > 1) {
+    std::string arg = argv[1];
+    if (arg == "-v" || arg == "--version") {
+      std::cout << "Fyzenor version " << VERSION << std::endl;
+      return 0;
+    } else if (arg == "-h" || arg == "--help") {
+      std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
+                << std::endl;
+      std::cout << "Usage: fyzenor [options]" << std::endl;
+      std::cout << "Options:" << std::endl;
+      std::cout << "  -v, --version    Show version information" << std::endl;
+      std::cout << "  -h, --help       Show this help message" << std::endl;
+      return 0;
+    }
+  }
   FileManager fm;
   fm.run();
   return 0;

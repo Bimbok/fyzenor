@@ -57,21 +57,52 @@ sudo apt install build-essential libncursesw5-dev ffmpeg zip
 
 ## ⚙️ Installation & Compilation
 
-Fyzenor is distributed as source code. Compile it quickly with `g++`.
+Fyzenor is distributed as source code and can be easily installed using the provided installation script.
+
+### Using the Installer (Recommended)
+
+The easiest way to install Fyzenor is by running the `install.sh` script. This script checks for dependencies, compiles the source code, and offers to install the binary globally.
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Bimbok/fyzenor.git
 cd fyzenor
 
-# 2. Compile (using O3 optimization for speed)
-g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread
-
-# 3. Run it!
-./fyzenor
+# 2. Run the installer
+./install.sh
 ```
 
-_Tip: Move the binary to your path for global access: `sudo mv fyzenor /usr/local/bin/`_
+### Manual Compilation
+
+If you prefer to compile manually:
+
+```bash
+# 1. Install dependencies (Debian/Ubuntu)
+sudo apt update && sudo apt install build-essential libncursesw5-dev ffmpeg zip bat
+
+# 2. Compile
+g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread
+
+# 3. Move to your path
+sudo mv fyzenor /usr/local/bin/
+```
+
+## 🛠️ CLI Usage
+
+Fyzenor supports a few command-line arguments:
+
+| Option               | Description                               |
+| :------------------- | :---------------------------------------- |
+| `-v`, `--version`    | Display the current version of Fyzenor.   |
+| `-h`, `--help`       | Show the help message and exit.           |
+
+```bash
+# Check version
+fyzenor --version
+
+# Show help
+fyzenor --help
+```
 
 ## ⌨️ Controls
 
@@ -100,8 +131,9 @@ Navigate your filesystem with the speed and precision of Vim bindings.
 | `n`             | Create **New File**                           |
 | `N`             | Create **New Folder**                         |
 | `z`             | **Zip** selected items                        |
+| `c`             | **Copy Path** to clipboard                    |
 
-### Selection & View
+### Selection, View & Pins
 
 | Key            | Action                                    |
 | :------------- | :---------------------------------------- |
@@ -109,7 +141,31 @@ Navigate your filesystem with the speed and precision of Vim bindings.
 | `a`            | Select **All** files in current directory |
 | `Esc`          | Clear all selections                      |
 | `.`            | Toggle hidden files (dotfiles)            |
+| `s`            | Toggle sort by size                       |
+| `P`            | Pin current directory                     |
+| `Tab`          | Toggle focus between Files and Pins       |
 | `q`            | Quit Fyzenor                              |
+
+## 🎨 Visuals & Protocols
+
+### Kitty Graphics Protocol
+Fyzenor utilizes the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) for high-resolution image and video previews. This allows for smooth, asynchronous rendering of thumbnails without freezing the terminal UI.
+
+### Nerd Fonts
+Icons are rendered using [Nerd Fonts](https://www.nerdfonts.com/). Ensure your terminal is using a Nerd Font for icons to display correctly.
+
+### Syntax Highlighting
+Text file previews benefit from syntax highlighting powered by `bat` (or `batcat`). If `bat` is not installed, Fyzenor falls back to a plain text preview.
+
+## 🤝 Contributing
+
+Contributions are welcome! Whether it's reporting a bug, suggesting a feature, or submitting a pull request.
+
+1.  Fork the repository.
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4.  Push to the branch (`git push origin feature/AmazingFeature`).
+5.  Open a pull request.
 
 ## ⚖️ License
 

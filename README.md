@@ -55,36 +55,28 @@ sudo apt install build-essential libncursesw5-dev ffmpeg zip
 - `ffmpeg`: Required to generate thumbnails for images and videos.
 - `zip`: Required for archive operations.
 
-## ⚙️ Installation & Compilation
+## ⚙️ Installation & Update
 
-Fyzenor is distributed as source code and can be easily installed using the provided installation script.
+The easiest way to install or update Fyzenor is using the universal installation script.
 
-### Using the Installer (Recommended)
+### One-Liner (Recommended)
 
-The easiest way to install Fyzenor is by running the `install.sh` script. This script checks for dependencies, compiles the source code, and offers to install the binary globally.
+Run this command in your terminal to automatically download, compile, and install (or update) Fyzenor:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/Bimbok/fyzenor.git
-cd fyzenor
-
-# 2. Run the installer
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
 ```
 
-### Manual Compilation
+### Manual Installation & Updates
 
-If you prefer to compile manually:
+If you already have the repository cloned, you can run the installer locally:
 
 ```bash
-# 1. Install dependencies (Debian/Ubuntu)
-sudo apt update && sudo apt install build-essential libncursesw5-dev ffmpeg zip bat
+# 1. Enter the repository
+cd fyzenor
 
-# 2. Compile
-g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread
-
-# 3. Move to your path
-sudo mv fyzenor /usr/local/bin/
+# 2. Run the installer (it will also pull the latest changes)
+./install.sh
 ```
 
 ## 🛠️ CLI Usage

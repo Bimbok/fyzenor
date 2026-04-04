@@ -66,7 +66,7 @@ The easiest way to install or update Fyzenor is using the universal installation
 
 ### One-Liner (Recommended)
 
-Run this command in your terminal to automatically download, compile, and install (or update) Fyzenor:
+Run this command in your terminal to automatically download, compile, and install (or update) Fyzenor. It will also create an `fm` symlink and set up shell integration:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
@@ -83,6 +83,12 @@ cd fyzenor
 # 2. Run the installer (it will also pull the latest changes)
 ./install.sh
 ```
+
+The installer will:
+- Compile the binary.
+- Install it as `fyzenor` in `/usr/local/bin/`.
+- Create a symlink `fm` for quicker access.
+- Append the `f` shell function to your `.bashrc`/`.zshrc` for directory jumping.
 
 ## 🎨 Customization & Theming
 
@@ -177,19 +183,22 @@ fyzenor --help
 
 ## 🔌 Shell Integration (Jump to CWD on exit)
 
-Fyzenor can change your shell's current working directory upon exit (similar to `yazi`). Add this to your `.bashrc` or `.zshrc`:
+Fyzenor can change your shell's current working directory upon exit (similar to `yazi`). If you use the installer, this is handled automatically for `.bashrc` and `.zshrc`. 
+
+Otherwise, add this to your shell config:
 
 ```bash
+# Fyzenor CWD Integration
 function f() {
-    local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
-    fyzenor "$@" --cwd-file="$tmp"
-    if [ -f "$tmp" ]; then
-        cwd=$(cat "$tmp")
-        rm -f -- "$tmp"
-        if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-            builtin cd -- "$cwd"
-        fi
-    fi
+	local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
+	fyzenor "$@" --cwd-file="$tmp"
+	if [ -f "$tmp" ]; then
+		cwd=$(cat "$tmp")
+		rm -f -- "$tmp"
+		if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+			builtin cd -- "$cwd"
+		fi
+	fi
 }
 ```
 

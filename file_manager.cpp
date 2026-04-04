@@ -1713,7 +1713,7 @@ public:
   }
 };
 
-const std::string VERSION = "1.1.0";
+const std::string VERSION = "1.2.0";
 
 int main(int argc, char *argv[]) {
   std::string cwdFileArg;

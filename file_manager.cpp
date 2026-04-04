@@ -1537,6 +1537,19 @@ public:
       if (VIDEO_EXTS.count(file.extension) ||
           AUDIO_EXTS.count(file.extension)) {
         cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
+      } else if (CODE_EXTS.count(file.extension)) {
+        const char *editor = getenv("EDITOR");
+        if (!editor)
+          editor = getenv("VISUAL");
+        if (!editor) {
+          if (system("which nvim > /dev/null 2>&1") == 0)
+            editor = "nvim";
+          else if (system("which nano > /dev/null 2>&1") == 0)
+            editor = "nano";
+          else
+            editor = "vi";
+        }
+        cmd = std::string(editor) + " \"" + file.path.string() + "\"";
       } else {
 #ifdef __APPLE__
         cmd = "open \"" + file.path.string() + "\"";

@@ -69,6 +69,42 @@ const char *ICON_MUSIC = " ";
 const char *ICON_PIN = " ";
 const char *ICON_ZIP = "󰿺 ";
 
+std::string getCacheDir() {
+  const char *home = getenv("HOME");
+  fs::path cacheDir;
+  if (home) {
+    cacheDir = fs::path(home) / ".cache/fyzenor/previews";
+  } else {
+    cacheDir = fs::temp_directory_path() / "fyzenor/previews";
+  }
+  if (!fs::exists(cacheDir)) {
+    try {
+      fs::create_directories(cacheDir);
+    } catch (...) {
+      return "/tmp";
+    }
+  }
+  return cacheDir.string();
+}
+
+std::string getCachePath(const fs::path &p, int w, int h) {
+  try {
+    auto mtime = fs::last_write_time(p).time_since_epoch().count();
+    std::string to_hash =
+        p.string() + std::to_string(mtime) + std::to_string(w) + std::to_string(h);
+
+    unsigned long hash = 5381;
+    for (char c : to_hash)
+      hash = ((hash << 5) + hash) + (unsigned char)c;
+
+    char hex[32];
+    snprintf(hex, sizeof(hex), "%lx", hash);
+    return (fs::path(getCacheDir()) / (std::string(hex) + ".png")).string();
+  } catch (...) {
+    return "/tmp/fm_preview_thumb.png";
+  }
+}
+
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
 
@@ -215,6 +251,11 @@ private:
   std::string cachedBase64;
   int cachedImgW = 0, cachedImgH = 0;
   std::vector<std::string> cachedTextLines;
+  struct ImageCacheEntry {
+    std::string b64;
+    int w, h;
+  };
+  std::unordered_map<std::string, ImageCacheEntry> sessionImageCache;
   std::string cachedPath;
   std::string requestedPath;
   long long requestID = 0;
@@ -640,20 +681,25 @@ public:
     requestedPath = path;
     imageReady = false;
 
+    if (type == PreviewType::IMAGE) {
+      std::lock_guard<std::mutex> lock(previewMutex);
+      auto it = sessionImageCache.find(path);
+      if (it != sessionImageCache.end()) {
+        cachedBase64 = it->second.b64;
+        cachedImgW = it->second.w;
+        cachedImgH = it->second.h;
+        cachedPath = path;
+        imageReady = true;
+        return;
+      }
+    }
+
     std::thread([this, path, type, previewHeight, previewWidth,
                  reqId = requestID]() {
       std::string b64;
       std::vector<std::string> lines;
 
       if (type == PreviewType::IMAGE) {
-        try {
-          fs::remove(PREVIEW_TEMP);
-        } catch (...) {
-        }
-        std::string cmd;
-        std::string fileCmd = "\"" + path + "\"";
-
-        // Use 90% of the box for the image to satisfy "smaller a bit"
         int targetW = (int)((previewWidth - 4) * 10);
         int targetH = (int)((previewHeight - 4) * 20);
         if (targetW < 10)
@@ -661,29 +707,37 @@ public:
         if (targetH < 10)
           targetH = 10;
 
-        std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
-                                  std::to_string(targetH) +
-                                  ":force_original_aspect_ratio=decrease";
+        std::string cachePath = getCachePath(path, targetW, targetH);
 
-        if (path.find(".mp4") != std::string::npos ||
-            path.find(".mkv") != std::string::npos ||
-            path.find(".webm") != std::string::npos) {
-          cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
-                "\" -frames:v 1 -f image2 " + PREVIEW_TEMP +
-                " > /dev/null 2>&1";
-        } else {
-          cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
-                "\" -f image2 " + PREVIEW_TEMP + " > /dev/null 2>&1";
+        std::string ext = fs::path(path).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        bool isVid = VIDEO_EXTS.count(ext);
+
+        if (!fs::exists(cachePath)) {
+          std::string fileCmd = "\"" + path + "\"";
+          std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
+                                    std::to_string(targetH) +
+                                    ":force_original_aspect_ratio=decrease";
+
+          std::string cmd;
+          if (isVid) {
+            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
+                  "\" -frames:v 1 -f image2 \"" + cachePath +
+                  "\" > /dev/null 2>&1";
+          } else {
+            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
+                  "\" -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
+          }
+          int res = system(cmd.c_str());
+          (void)res;
         }
-        int res = system(cmd.c_str());
-        (void)res;
 
         // Get actual scaled dimensions
         int finalW = 0, finalH = 0;
         std::string probeCmd =
             "ffprobe -v error -select_streams v:0 -show_entries "
             "stream=width,height -of csv=s=x:p=0 \"" +
-            PREVIEW_TEMP + "\"";
+            cachePath + "\"";
         FILE *p = popen(probeCmd.c_str(), "r");
         if (p) {
           char buf[64];
@@ -693,7 +747,7 @@ public:
           pclose(p);
         }
 
-        std::ifstream file(PREVIEW_TEMP, std::ios::binary);
+        std::ifstream file(cachePath, std::ios::binary);
         if (file) {
           std::vector<unsigned char> buffer(
               std::istreambuf_iterator<char>(file), {});
@@ -774,10 +828,12 @@ public:
       {
         std::lock_guard<std::mutex> lock(previewMutex);
         if (reqId == requestID) {
-          if (type == PreviewType::IMAGE)
+          if (type == PreviewType::IMAGE) {
             cachedBase64 = b64;
-          else
+            sessionImageCache[path] = {b64, cachedImgW, cachedImgH};
+          } else {
             cachedTextLines = lines;
+          }
           cachedPath = path;
         }
       }

@@ -1062,13 +1062,30 @@ public:
   }
 
   // --- Drawing ---
+  void drawRoundedBox(WINDOW *win) {
+    int my, mx;
+    getmaxyx(win, my, mx);
+    for (int i = 1; i < mx - 1; ++i) {
+      mvwaddstr(win, 0, i, "─");
+      mvwaddstr(win, my - 1, i, "─");
+    }
+    for (int i = 1; i < my - 1; ++i) {
+      mvwaddstr(win, i, 0, "│");
+      mvwaddstr(win, i, mx - 1, "│");
+    }
+    mvwaddstr(win, 0, 0, "╭");
+    mvwaddstr(win, 0, mx - 1, "╮");
+    mvwaddstr(win, my - 1, 0, "╰");
+    mvwaddstr(win, my - 1, mx - 1, "╯");
+  }
+
   void drawPinned() {
     werase(winPinned);
     if (focusPinned)
       wattron(winPinned, COLOR_PAIR(10));
     else
       wattron(winPinned, COLOR_PAIR(15));
-    box(winPinned, 0, 0);
+    drawRoundedBox(winPinned);
     if (focusPinned)
       wattroff(winPinned, COLOR_PAIR(10));
     else
@@ -1105,7 +1122,7 @@ public:
   void drawParent() {
     werase(winParent);
     wattron(winParent, COLOR_PAIR(6));
-    box(winParent, 0, 0);
+    drawRoundedBox(winParent);
     wattroff(winParent, COLOR_PAIR(6));
 
     int maxLines = getmaxy(winParent) - 2;
@@ -1194,7 +1211,7 @@ public:
       wattron(winCurrent, COLOR_PAIR(6) | A_BOLD);
     else
       wattron(winCurrent, COLOR_PAIR(6));
-    box(winCurrent, 0, 0);
+    drawRoundedBox(winCurrent);
     wattroff(winCurrent, A_BOLD);
     wattroff(winCurrent, COLOR_PAIR(6));
 
@@ -1303,7 +1320,7 @@ public:
       clearDirectRender();
     wclear(winPreview);
     wattron(winPreview, COLOR_PAIR(6));
-    box(winPreview, 0, 0);
+    drawRoundedBox(winPreview);
     wattroff(winPreview, COLOR_PAIR(6));
 
     wattron(winPreview, A_BOLD | COLOR_PAIR(5));
@@ -1325,13 +1342,18 @@ public:
 
     wattron(winPreview, A_DIM);
     mvwprintw(winPreview, 2, 2, " Size: %s", formatSize(file.size).c_str());
-    mvwprintw(winPreview, 3, 2, " Type: %s",
-              file.is_directory
-                  ? "Directory"
-                  : (file.extension.empty() ? "File" : file.extension.c_str()));
+    mvwprintw(winPreview, 3, 2,
+              " Type: %s",
+              file.is_directory ? "Directory"
+                                : (file.extension.empty() ? "File"
+                                                          : file.extension.c_str()));
     wattroff(winPreview, A_DIM);
 
-    mvwhline(winPreview, 4, 1, ACS_HLINE, getmaxx(winPreview) - 2);
+    wattron(winPreview, COLOR_PAIR(6));
+    for (int i = 1; i < getmaxx(winPreview) - 1; ++i)
+      mvwaddstr(winPreview, 4, i, "─");
+    wattroff(winPreview, COLOR_PAIR(6));
+
 
     bool isVid = VIDEO_EXTS.count(file.extension);
     bool isImg = IMAGE_EXTS.count(file.extension);

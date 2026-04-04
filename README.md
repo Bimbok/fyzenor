@@ -31,6 +31,7 @@ Designed for power users who want to manage files at the speed of thought withou
 
 - **📁 Three-Column Architecture:** Classic Miller columns view (Parent → Current → Preview) for instant context.
 - **🖼️ Asynchronous Media Previews:** High-resolution image and video thumbnails rendered directly in the terminal using the **Kitty Graphics Protocol**. Zero UI freezing while loading.
+- **✨ Modern UI:** Clean interface with rounded corners and optimized spacing for better readability.
 - **⚡ Asynchronous Folder Sizing:** Directory sizes are calculated in the background, showing `...` during calculation and updating live.
 - **🧭 Vim-Like Navigation:** Feel right at home with `h`, `j`, `k`, `l` and `g`/`G` movements.
 - **✨ Nerd Fonts Support:** Beautiful icons for directories, archives, media, and various code files.

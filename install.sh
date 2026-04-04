@@ -110,17 +110,15 @@ echo -e "${BLUE}Setting up shell integration for directory jumping...${NC}"
 MARKER="# Fyzenor CWD Integration"
 SHELL_FUNC="$MARKER
 function f() {
-    local tmp
-    tmp=\"\$(mktemp -t fyzenor-cwd.XXXXXX)\" || return
-    fyzenor \"\$@\" --cwd-file=\"\$tmp\"
-    if [ -f \"\$tmp\" ]; then
-        local cwd
-        cwd=\$(cat \"\$tmp\")
-        rm -f -- \"\$tmp\"
-        if [ -n \"\$cwd\" ] && [ \"\$cwd\" != \"\$PWD\" ]; then
-            builtin cd -- \"\$cwd\"
-        fi
-    fi
+	local tmp=\"\$(mktemp -t \"fyzenor-cwd.XXXXXX\")\" cwd
+	fyzenor \"\$@\" --cwd-file=\"\$tmp\"
+	if [ -f \"\$tmp\" ]; then
+		cwd=\$(cat \"\$tmp\")
+		rm -f -- \"\$tmp\"
+		if [ -n \"\$cwd\" ] && [ \"\$cwd\" != \"\$PWD\" ]; then
+			builtin cd -- \"\$cwd\"
+		fi
+	fi
 }
 "
 

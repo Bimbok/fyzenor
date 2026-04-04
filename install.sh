@@ -93,12 +93,51 @@ fi
 
 if sudo mv fyzenor "$INSTALL_PATH"; then
     echo -e "${GREEN}Fyzenor is now installed/updated at $INSTALL_PATH${NC}"
+    # Create symlink 'fm'
+    if sudo ln -sf "$INSTALL_PATH" "$(dirname "$INSTALL_PATH")/fm"; then
+        echo -e "${GREEN}Symlink 'fm' created successfully.${NC}"
+    else
+        echo -e "${YELLOW}Failed to create symlink 'fm'. You can do it manually: sudo ln -sf $INSTALL_PATH /usr/local/bin/fm${NC}"
+    fi
 else
     echo -e "${RED}Failed to move binary to $INSTALL_PATH. You may need to move it manually.${NC}"
     exit 1
 fi
 
-# 6. Cleanup if we used a temp dir
+# 6. Shell Integration (CWD on exit)
+echo -e "${BLUE}Setting up shell integration for directory jumping...${NC}"
+
+SHELL_FUNC='
+# Fyzenor shell integration (jump to CWD on exit)
+function f() {
+    local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
+    fyzenor "$@" --cwd-file="$tmp"
+    if [ -f "$tmp" ]; then
+        cwd=$(cat "$tmp")
+        rm -f -- "$tmp"
+        if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+            builtin cd -- "$cwd"
+        fi
+    fi
+}
+'
+
+setup_shell() {
+    local config_file="$1"
+    if [ -f "$config_file" ]; then
+        if ! grep -q "function f()" "$config_file"; then
+            echo -e "$SHELL_FUNC" >> "$config_file"
+            echo -e "${GREEN}Shell integration added to $config_file${NC}"
+        else
+            echo -e "${YELLOW}Shell integration already exists in $config_file${NC}"
+        fi
+    fi
+}
+
+setup_shell "$HOME/.bashrc"
+setup_shell "$HOME/.zshrc"
+
+# 7. Cleanup if we used a temp dir
 if [[ "$PWD" == "/tmp/"* ]]; then
     cd - > /dev/null
 fi

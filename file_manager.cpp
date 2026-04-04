@@ -191,6 +191,7 @@ struct SizeResult {
 class FileManager {
 private:
   fs::path currentPath;
+  std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
   std::set<fs::path> multiSelection;
@@ -390,7 +391,17 @@ public:
       sizeWorker.join();
     clearDirectRender();
     endwin();
+
+    if (!cwdFile.empty()) {
+      std::ofstream f(cwdFile);
+      if (f.is_open()) {
+        f << currentPath.string();
+        f.close();
+      }
+    }
   }
+
+  void setCwdFile(const std::string &path) { cwdFile = path; }
 
   // --- Async Size Worker Function ---
   void processSizeQueue() {
@@ -1704,23 +1715,31 @@ public:
 const std::string VERSION = "1.1.0";
 
 int main(int argc, char *argv[]) {
+  std::string cwdFileArg;
   if (argc > 1) {
-    std::string arg = argv[1];
-    if (arg == "-v" || arg == "--version") {
-      std::cout << "Fyzenor version " << VERSION << std::endl;
-      return 0;
-    } else if (arg == "-h" || arg == "--help") {
-      std::cout
-          << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
-          << std::endl;
-      std::cout << "Usage: fyzenor [options]" << std::endl;
-      std::cout << "Options:" << std::endl;
-      std::cout << "  -v, --version    Show version information" << std::endl;
-      std::cout << "  -h, --help       Show this help message" << std::endl;
-      return 0;
+    for (int i = 1; i < argc; ++i) {
+      std::string arg = argv[i];
+      if (arg == "-v" || arg == "--version") {
+        std::cout << "Fyzenor version " << VERSION << std::endl;
+        return 0;
+      } else if (arg == "-h" || arg == "--help") {
+        std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
+                  << std::endl;
+        std::cout << "Usage: fyzenor [options]" << std::endl;
+        std::cout << "Options:" << std::endl;
+        std::cout << "  -v, --version         Show version information" << std::endl;
+        std::cout << "  -h, --help            Show this help message" << std::endl;
+        std::cout << "  --cwd-file <file>     Write the final working directory to <file> on exit" << std::endl;
+        return 0;
+      } else if (arg == "--cwd-file" && i + 1 < argc) {
+        cwdFileArg = argv[++i];
+      }
     }
   }
   FileManager fm;
+  if (!cwdFileArg.empty())
+    fm.setCwdFile(cwdFileArg);
   fm.run();
   return 0;
 }
+

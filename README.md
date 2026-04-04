@@ -161,10 +161,11 @@ Matugen will read the image, calculate the Material colors, fill in your templat
 
 Fyzenor supports a few command-line arguments:
 
-| Option            | Description                             |
-| :---------------- | :-------------------------------------- |
-| `-v`, `--version` | Display the current version of Fyzenor. |
-| `-h`, `--help`    | Show the help message and exit.         |
+| Option               | Description                               |
+| :------------------- | :---------------------------------------- |
+| `-v`, `--version`    | Display the current version of Fyzenor.   |
+| `-h`, `--help`       | Show the help message and exit.           |
+| `--cwd-file <file>`  | Write the final working directory to <file> on exit. |
 
 ```bash
 # Check version
@@ -174,7 +175,28 @@ fyzenor --version
 fyzenor --help
 ```
 
+## 🔌 Shell Integration (Jump to CWD on exit)
+
+Fyzenor can change your shell's current working directory upon exit (similar to `yazi`). Add this to your `.bashrc` or `.zshrc`:
+
+```bash
+function f() {
+    local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
+    fyzenor "$@" --cwd-file="$tmp"
+    if [ -f "$tmp" ]; then
+        cwd=$(cat "$tmp")
+        rm -f -- "$tmp"
+        if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+            builtin cd -- "$cwd"
+        fi
+    fi
+}
+```
+
+Now, run `f` instead of `fyzenor`. When you exit Fyzenor, your shell will automatically jump to your last visited directory.
+
 ## ⌨️ Controls
+
 
 Navigate your filesystem with the speed and precision of Vim bindings.
 

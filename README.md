@@ -6,12 +6,13 @@
 
 <div align="center">
 
-<img width="100%" alt="Fyzenor Showcase 1" src="Sample/2026-04-04-223753_hyprshot.png" />
-<br/>
-<img width="49.5%" alt="Fyzenor Showcase 2" src="Sample/2026-04-04-223837_hyprshot.png" />
-<img width="49.5%" alt="Fyzenor Showcase 3" src="Sample/2026-04-04-223913_hyprshot.png" />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 1" src="Sample/2026-04-04-223753_hyprshot.png" />
+<br/><br/>
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 2" src="Sample/2026-04-04-223837_hyprshot.png" />
+<br/><br/>
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 3" src="Sample/2026-04-04-223913_hyprshot.png" />
 
-<br/>
+<br/><br/>
 
 > _ The Blazing Fast, Modern C++ Terminal File Manager.
 

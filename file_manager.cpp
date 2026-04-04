@@ -228,6 +228,119 @@ private:
   std::condition_variable queueCv;
   std::mutex resultMutex;
 
+  void initColors() {
+    start_color();
+    use_default_colors();
+
+    std::unordered_map<std::string, std::string> colors = {
+        {"DIR", "#89b4fa"},
+        {"FILE", "#cdd6f4"},
+        {"SEL_BG", "#585b70"},
+        {"MEDIA", "#f9e2af"},
+        {"IMAGE", "#f5c2e7"},
+        {"BORDER", "#b4befe"},
+        {"SUCCESS", "#a6e3a1"},
+        {"ERROR", "#f38ba8"},
+        {"MULTI", "#fab387"},
+        {"PIN_BG", "#cba6f7"},
+        {"PIN_BORDER", "#89b4fa"},
+        {"SEC_SEL_BG", "#313244"}
+    };
+
+    const char *home = getenv("HOME");
+    if (home) {
+      fs::path configDir = fs::path(home) / ".config/fyzenor";
+      if (!fs::exists(configDir))
+        fs::create_directories(configDir);
+      fs::path colorFile = configDir / "colors.fz";
+      if (fs::exists(colorFile)) {
+        std::ifstream f(colorFile);
+        std::string line;
+        while (std::getline(f, line)) {
+          if (line.empty() || line[0] == '#')
+            continue;
+          size_t pos = line.find(':');
+          if (pos != std::string::npos) {
+            std::string key = line.substr(0, pos);
+            std::string val = line.substr(pos + 1);
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            val.erase(0, val.find_first_not_of(" \t"));
+            val.erase(val.find_last_not_of(" \t") + 1);
+            if (!val.empty() && val[0] == '#')
+              colors[key] = val;
+          }
+        }
+      } else {
+        std::ofstream f(colorFile);
+        f << "# Fyzenor Theme: Catppuccin Mocha (Matugen ready)\n";
+        f << "DIR: #89b4fa\n";
+        f << "FILE: #cdd6f4\n";
+        f << "SEL_BG: #585b70\n";
+        f << "MEDIA: #f9e2af\n";
+        f << "IMAGE: #f5c2e7\n";
+        f << "BORDER: #b4befe\n";
+        f << "SUCCESS: #a6e3a1\n";
+        f << "ERROR: #f38ba8\n";
+        f << "MULTI: #fab387\n";
+        f << "PIN_BG: #cba6f7\n";
+        f << "PIN_BORDER: #89b4fa\n";
+        f << "SEC_SEL_BG: #313244\n";
+      }
+    }
+
+    auto setHex = [](short id, const std::string &hex) {
+      if (hex.length() < 7 || hex[0] != '#')
+        return;
+      int r, g, b;
+      if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+        init_color(id, (short)(r * 1000 / 255), (short)(g * 1000 / 255),
+                   (short)(b * 1000 / 255));
+      }
+    };
+
+    if (can_change_color()) {
+      setHex(20, colors["DIR"]);
+      setHex(21, colors["FILE"]);
+      setHex(22, colors["SEL_BG"]);
+      setHex(23, colors["MEDIA"]);
+      setHex(24, colors["IMAGE"]);
+      setHex(25, colors["BORDER"]);
+      setHex(26, colors["SUCCESS"]);
+      setHex(27, colors["ERROR"]);
+      setHex(28, colors["MULTI"]);
+      setHex(29, colors["PIN_BG"]);
+      setHex(30, colors["PIN_BORDER"]);
+      setHex(31, colors["SEC_SEL_BG"]);
+
+      init_pair(1, 20, -1);
+      init_pair(2, 21, -1);
+      init_pair(3, 21, 22);
+      init_pair(4, 23, -1);
+      init_pair(5, 24, -1);
+      init_pair(6, 25, -1);
+      init_pair(7, 26, -1);
+      init_pair(8, 27, -1);
+      init_pair(9, 28, -1);
+      init_pair(10, 21, 29);
+      init_pair(11, 30, -1);
+      init_pair(12, 21, 31);
+    } else {
+      init_pair(1, COLOR_CYAN, -1);
+      init_pair(2, COLOR_WHITE, -1);
+      init_pair(3, COLOR_BLACK, COLOR_CYAN);
+      init_pair(4, COLOR_YELLOW, -1);
+      init_pair(5, COLOR_MAGENTA, -1);
+      init_pair(6, COLOR_BLUE, -1);
+      init_pair(7, COLOR_GREEN, -1);
+      init_pair(8, COLOR_RED, -1);
+      init_pair(9, COLOR_YELLOW, -1);
+      init_pair(10, COLOR_WHITE, COLOR_BLUE);
+      init_pair(11, COLOR_BLUE, -1);
+      init_pair(12, COLOR_BLACK, COLOR_WHITE);
+    }
+  }
+
 public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr),
@@ -246,23 +359,9 @@ public:
     noecho();
     keypad(stdscr, TRUE);
     curs_set(0);
-    start_color();
-    use_default_colors();
     timeout(50);
 
-    // Modern Color Palette
-    init_pair(1, COLOR_CYAN, -1);    // Directories (Cyan)
-    init_pair(2, COLOR_WHITE, -1);   // Regular Files
-    init_pair(3, -1, COLOR_CYAN);    // Selection (Black on Cyan)
-    init_pair(4, COLOR_YELLOW, -1);  // Media Files (Video/Audio)
-    init_pair(5, COLOR_MAGENTA, -1); // Images
-    init_pair(6, COLOR_BLUE, -1);    // Border/UI Primary
-    init_pair(7, COLOR_GREEN, -1);   // Success/Status
-    init_pair(8, COLOR_RED, -1);     // Errors/Delete
-    init_pair(9, COLOR_YELLOW, -1);  // Multi-Selection
-    init_pair(10, COLOR_WHITE, COLOR_BLUE); // Pinned Focus
-    init_pair(11, COLOR_BLUE, -1);   // Pinned Border
-    init_pair(12, COLOR_BLACK, COLOR_WHITE); // Secondary Selection (Inactive)
+    initColors();
 
     refresh();
   }

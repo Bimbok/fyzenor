@@ -57,6 +57,8 @@ const std::set<std::string> CODE_EXTS = {
     ".conf", ".diff", ".patch", ".sql",  ".cmake", ".make", ".dockerfile"};
 const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
                                           ".aac", ".ogg", ".wma",  ".opus"};
+const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z",
+                                            ".rar", ".xz",  ".bz2"};
 
 const char *ICON_DIR = " ";
 const char *ICON_VIDEO = " ";
@@ -65,6 +67,7 @@ const char *ICON_CODE = " ";
 const char *ICON_FILE = " ";
 const char *ICON_MUSIC = " ";
 const char *ICON_PIN = " ";
+const char *ICON_ZIP = "󰿺 ";
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
@@ -233,19 +236,13 @@ private:
     use_default_colors();
 
     std::unordered_map<std::string, std::string> colors = {
-        {"DIR", "#89b4fa"},
-        {"FILE", "#cdd6f4"},
-        {"SEL_BG", "#585b70"},
-        {"MEDIA", "#f9e2af"},
-        {"IMAGE", "#f5c2e7"},
-        {"BORDER", "#b4befe"},
-        {"SUCCESS", "#a6e3a1"},
-        {"ERROR", "#f38ba8"},
-        {"MULTI", "#fab387"},
-        {"PIN_BG", "#cba6f7"},
-        {"PIN_BORDER", "#89b4fa"},
-        {"SEC_SEL_BG", "#313244"}
-    };
+        {"DIR", "#89b4fa"},        {"FILE", "#cdd6f4"},
+        {"SEL_BG", "#585b70"},     {"MEDIA", "#f9e2af"},
+        {"IMAGE", "#f5c2e7"},      {"BORDER", "#b4befe"},
+        {"SUCCESS", "#a6e3a1"},    {"ERROR", "#f38ba8"},
+        {"MULTI", "#fab387"},      {"PIN_BG", "#cba6f7"},
+        {"PIN_BORDER", "#89b4fa"}, {"SEC_SEL_BG", "#313244"},
+        {"CODE", "#a6e3a1"},       {"ARCHIVE", "#eba0ac"}};
 
     const char *home = getenv("HOME");
     if (home) {
@@ -286,6 +283,8 @@ private:
         f << "PIN_BG: #cba6f7\n";
         f << "PIN_BORDER: #89b4fa\n";
         f << "SEC_SEL_BG: #313244\n";
+        f << "CODE: #a6e3a1\n";
+        f << "ARCHIVE: #eba0ac\n";
       }
     }
 
@@ -312,19 +311,32 @@ private:
       setHex(29, colors["PIN_BG"]);
       setHex(30, colors["PIN_BORDER"]);
       setHex(31, colors["SEC_SEL_BG"]);
+      setHex(32, colors["CODE"]);
+      setHex(33, colors["ARCHIVE"]);
 
-      init_pair(1, 20, -1);
-      init_pair(2, 21, -1);
-      init_pair(3, 21, 22);
-      init_pair(4, 23, -1);
-      init_pair(5, 24, -1);
-      init_pair(6, 25, -1);
-      init_pair(7, 26, -1);
-      init_pair(8, 27, -1);
-      init_pair(9, 28, -1);
-      init_pair(10, 21, 29);
-      init_pair(11, 30, -1);
-      init_pair(12, 21, 31);
+      init_pair(1, 20, -1);  // DIR
+      init_pair(2, 21, -1);  // FILE
+      init_pair(3, 21, 22);  // SEL_FILE
+      init_pair(4, 23, -1);  // MEDIA
+      init_pair(5, 24, -1);  // IMAGE
+      init_pair(6, 25, -1);  // BORDER
+      init_pair(7, 26, -1);  // SUCCESS
+      init_pair(8, 27, -1);  // ERROR
+      init_pair(9, 28, -1);  // MULTI
+      init_pair(10, 20, 22); // SEL_DIR
+      init_pair(11, 23, 22); // SEL_MEDIA
+      init_pair(12, 24, 22); // SEL_IMAGE
+      init_pair(13, 21, 31); // SEC_SEL_FILE
+      init_pair(14, 20, 31); // SEC_SEL_DIR
+      init_pair(15, 30, -1); // PIN_BORDER
+      init_pair(16, 32, -1); // CODE
+      init_pair(17, 33, -1); // ARCHIVE
+      init_pair(18, 32, 22); // SEL_CODE
+      init_pair(19, 33, 22); // SEL_ARCHIVE
+      init_pair(20, 23, 31); // SEC_SEL_MEDIA
+      init_pair(21, 24, 31); // SEC_SEL_IMAGE
+      init_pair(22, 32, 31); // SEC_SEL_CODE
+      init_pair(23, 33, 31); // SEC_SEL_ARCHIVE
     } else {
       init_pair(1, COLOR_CYAN, -1);
       init_pair(2, COLOR_WHITE, -1);
@@ -492,6 +504,8 @@ public:
       return ICON_MUSIC;
     if (CODE_EXTS.count(f.extension))
       return ICON_CODE;
+    if (ARCHIVE_EXTS.count(f.extension))
+      return ICON_ZIP;
     return ICON_FILE;
   }
 
@@ -581,7 +595,8 @@ public:
 
   void updateLayout() {
     getmaxyx(stdscr, height, width);
-    // Adjusted widths for a more modern Miller Column feel (2:3:5 ratio roughly)
+    // Adjusted widths for a more modern Miller Column feel (2:3:5 ratio
+    // roughly)
     int w1 = static_cast<int>(width * 0.18); // Pins/Parent
     int w2 = static_cast<int>(width * 0.32); // Current Files
     int w3 = width - w1 - w2;                // Large Preview
@@ -625,34 +640,39 @@ public:
         }
         std::string cmd;
         std::string fileCmd = "\"" + path + "\"";
-        
+
         // Use 90% of the box for the image to satisfy "smaller a bit"
         int targetW = (int)((previewWidth - 4) * 10);
         int targetH = (int)((previewHeight - 4) * 20);
-        if (targetW < 10) targetW = 10;
-        if (targetH < 10) targetH = 10;
+        if (targetW < 10)
+          targetW = 10;
+        if (targetH < 10)
+          targetH = 10;
 
-        std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" + std::to_string(targetH) + 
+        std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
+                                  std::to_string(targetH) +
                                   ":force_original_aspect_ratio=decrease";
 
         if (path.find(".mp4") != std::string::npos ||
             path.find(".mkv") != std::string::npos ||
             path.find(".webm") != std::string::npos) {
-          cmd = "ffmpeg -y -v error -i " + fileCmd +
-                " -vf \"" + scaleFilter + "\" -frames:v 1 -f image2 " +
-                PREVIEW_TEMP + " > /dev/null 2>&1";
-        } else {
-          cmd = "ffmpeg -y -v error -i " + fileCmd +
-                " -vf \"" + scaleFilter + "\" -f image2 " + PREVIEW_TEMP +
+          cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
+                "\" -frames:v 1 -f image2 " + PREVIEW_TEMP +
                 " > /dev/null 2>&1";
+        } else {
+          cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
+                "\" -f image2 " + PREVIEW_TEMP + " > /dev/null 2>&1";
         }
         int res = system(cmd.c_str());
         (void)res;
 
         // Get actual scaled dimensions
         int finalW = 0, finalH = 0;
-        std::string probeCmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 \"" + PREVIEW_TEMP + "\"";
-        FILE* p = popen(probeCmd.c_str(), "r");
+        std::string probeCmd =
+            "ffprobe -v error -select_streams v:0 -show_entries "
+            "stream=width,height -of csv=s=x:p=0 \"" +
+            PREVIEW_TEMP + "\"";
+        FILE *p = popen(probeCmd.c_str(), "r");
         if (p) {
           char buf[64];
           if (fgets(buf, sizeof(buf), p)) {
@@ -754,9 +774,11 @@ public:
     }).detach();
   }
 
-  void sendKittyGraphics(const std::string &b64Data, int pY, int pX, int cols, int rows, int offX = 0, int offY = 0) {
+  void sendKittyGraphics(const std::string &b64Data, int pY, int pX, int cols,
+                         int rows, int offX = 0, int offY = 0) {
     // Move cursor to start of preview area (1-indexed for terminal)
-    // pY+1 is the start of the window, we have 7 lines of header/padding + offY.
+    // pY+1 is the start of the window, we have 7 lines of header/padding +
+    // offY.
     std::cout << "\033[" << (pY + 7 + offY) << ";" << (pX + 3 + offX) << "H";
     const size_t chunk_size = 4096;
     size_t total = b64Data.length();
@@ -787,16 +809,18 @@ public:
     if (type == PreviewType::IMAGE && !cachedBase64.empty()) {
       int cols = (cachedImgW + 9) / 10;
       int rows = (cachedImgH + 19) / 20;
-      
+
       // Box starts at line 7, ends at pH-2. Total height = pH - 8.
       // Width starts at pX+3, ends at pX+pW-2. Total width = pW - 4.
       int boxW = pW - 4;
       int boxH = pH - 8;
-      
+
       int offX = (boxW - cols) / 2;
       int offY = (boxH - rows) / 2;
-      if (offX < 0) offX = 0;
-      if (offY < 0) offY = 0;
+      if (offX < 0)
+        offX = 0;
+      if (offY < 0)
+        offY = 0;
 
       sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY);
       lastWasDirectRender = true;
@@ -1043,33 +1067,37 @@ public:
     if (focusPinned)
       wattron(winPinned, COLOR_PAIR(10));
     else
-      wattron(winPinned, COLOR_PAIR(11));
+      wattron(winPinned, COLOR_PAIR(15));
     box(winPinned, 0, 0);
     if (focusPinned)
       wattroff(winPinned, COLOR_PAIR(10));
     else
-      wattroff(winPinned, COLOR_PAIR(11));
+      wattroff(winPinned, COLOR_PAIR(15));
 
     wattron(winPinned, A_BOLD | COLOR_PAIR(4));
     mvwprintw(winPinned, 0, 2, " 󰐃 Pinned ");
     wattroff(winPinned, A_BOLD | COLOR_PAIR(4));
 
-    for (size_t i = 0; i < pinnedPaths.size() && i < (size_t)getmaxy(winPinned) - 2;
-         ++i) {
+    for (size_t i = 0;
+         i < pinnedPaths.size() && i < (size_t)getmaxy(winPinned) - 2; ++i) {
       wmove(winPinned, i + 1, 1);
-      if (focusPinned && i == pinnedIndex)
-        wattron(winPinned, COLOR_PAIR(3) | A_BOLD);
-      
+      if (focusPinned && i == pinnedIndex) {
+        wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
+        for (int j = 0; j < getmaxx(winPinned) - 2; ++j)
+          waddch(winPinned, ' ');
+        wmove(winPinned, i + 1, 1);
+      }
+
       std::string name = pinnedPaths[i].filename().string();
       if (name.empty())
         name = pinnedPaths[i].string();
       if (name.length() > (size_t)getmaxx(winPinned) - 6)
         name = name.substr(0, getmaxx(winPinned) - 6);
-      
+
       wprintw(winPinned, " %s %s", ICON_PIN, name.c_str());
-      
+
       if (focusPinned && i == pinnedIndex)
-        wattroff(winPinned, COLOR_PAIR(3) | A_BOLD);
+        wattroff(winPinned, COLOR_PAIR(10) | A_BOLD);
     }
     wrefresh(winPinned);
   }
@@ -1079,7 +1107,7 @@ public:
     wattron(winParent, COLOR_PAIR(6));
     box(winParent, 0, 0);
     wattroff(winParent, COLOR_PAIR(6));
-    
+
     int maxLines = getmaxy(winParent) - 2;
     int highlightIdx = -1;
     for (size_t i = 0; i < parentFiles.size(); ++i)
@@ -1087,33 +1115,75 @@ public:
         highlightIdx = i;
         break;
       }
-    
+
     int start = 0;
     if (highlightIdx > maxLines / 2)
       start = highlightIdx - (maxLines / 2);
-    if (start + maxLines > (int)parentFiles.size() && (int)parentFiles.size() > maxLines)
+    if (start + maxLines > (int)parentFiles.size() &&
+        (int)parentFiles.size() > maxLines)
       start = parentFiles.size() - maxLines;
 
-    for (int i = 0; i < maxLines && (start + i) < (int)parentFiles.size(); ++i) {
+    for (int i = 0; i < maxLines && (start + i) < (int)parentFiles.size();
+         ++i) {
       const auto &file = parentFiles[start + i];
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
       wmove(winParent, i + 1, 1);
-      
-      if (isCurrent)
-        wattron(winParent, A_BOLD | COLOR_PAIR(1));
-      else
-        wattron(winParent, A_DIM);
-        
+
+      int colorPair = file.is_directory ? 1 : 2;
+      if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
+        colorPair = 4;
+      else if (IMAGE_EXTS.count(file.extension))
+        colorPair = 5;
+      else if (CODE_EXTS.count(file.extension))
+        colorPair = 16;
+      else if (ARCHIVE_EXTS.count(file.extension))
+        colorPair = 17;
+
+      if (isCurrent) {
+        int selPair = 13;
+        if (file.is_directory)
+          selPair = 14;
+        else if (VIDEO_EXTS.count(file.extension) ||
+                 AUDIO_EXTS.count(file.extension))
+          selPair = 20;
+        else if (IMAGE_EXTS.count(file.extension))
+          selPair = 21;
+        else if (CODE_EXTS.count(file.extension))
+          selPair = 22;
+        else if (ARCHIVE_EXTS.count(file.extension))
+          selPair = 23;
+
+        wattron(winParent, COLOR_PAIR(selPair) | A_BOLD);
+        for (int j = 0; j < getmaxx(winParent) - 2; ++j)
+          waddch(winParent, ' ');
+        wmove(winParent, i + 1, 1);
+      } else {
+        wattron(winParent, COLOR_PAIR(colorPair) | A_DIM);
+      }
+
       std::string display = file.name;
-      if (display.length() > (size_t)getmaxx(winParent) - 6)
-        display = display.substr(0, getmaxx(winParent) - 9) + "...";
-      
+      if (display.length() > (size_t)getmaxx(winParent) - 8)
+        display = display.substr(0, getmaxx(winParent) - 11) + "...";
+
       wprintw(winParent, " %s %s", getIcon(file), display.c_str());
-      
-      if (isCurrent)
-        wattroff(winParent, A_BOLD | COLOR_PAIR(1));
-      else
-        wattroff(winParent, A_DIM);
+
+      if (isCurrent) {
+        int selPair = 13;
+        if (file.is_directory)
+          selPair = 14;
+        else if (VIDEO_EXTS.count(file.extension) ||
+                 AUDIO_EXTS.count(file.extension))
+          selPair = 20;
+        else if (IMAGE_EXTS.count(file.extension))
+          selPair = 21;
+        else if (CODE_EXTS.count(file.extension))
+          selPair = 22;
+        else if (ARCHIVE_EXTS.count(file.extension))
+          selPair = 23;
+        wattroff(winParent, COLOR_PAIR(selPair) | A_BOLD);
+      } else {
+        wattroff(winParent, COLOR_PAIR(colorPair) | A_DIM);
+      }
     }
     wrefresh(winParent);
   }
@@ -1121,23 +1191,24 @@ public:
   void drawCurrent() {
     werase(winCurrent);
     if (!focusPinned)
-      wattron(winCurrent, COLOR_PAIR(1));
+      wattron(winCurrent, COLOR_PAIR(6) | A_BOLD);
     else
       wattron(winCurrent, COLOR_PAIR(6));
     box(winCurrent, 0, 0);
-    if (!focusPinned)
-      wattroff(winCurrent, COLOR_PAIR(1));
-    else
-      wattroff(winCurrent, COLOR_PAIR(6));
-
-    wattron(winCurrent, A_BOLD);
-    mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
     wattroff(winCurrent, A_BOLD);
+    wattroff(winCurrent, COLOR_PAIR(6));
+
+    wattron(winCurrent, A_BOLD | COLOR_PAIR(1));
+    mvwprintw(winCurrent, 0, 2, " 󰉖 %s ",
+              currentPath.filename().string().c_str());
+    wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
 
     if (!multiSelection.empty()) {
-      std::string selStr = " [" + std::to_string(multiSelection.size()) + " selected] ";
+      std::string selStr =
+          " [" + std::to_string(multiSelection.size()) + " selected] ";
       wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
-      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s", selStr.c_str());
+      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s",
+                selStr.c_str());
       wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
     }
 
@@ -1147,48 +1218,82 @@ public:
     if (selectedIndex >= scrollOffset + (size_t)maxLines)
       scrollOffset = selectedIndex - maxLines + 1;
 
-    for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size(); ++i) {
+    for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size();
+         ++i) {
       int idx = scrollOffset + i;
       const auto &file = currentFiles[idx];
       wmove(winCurrent, i + 1, 1);
-      
+
       bool isSelected = (!focusPinned && idx == (int)selectedIndex);
       bool isMultiSelected = multiSelection.count(file.path);
 
+      int baseColor = 2;
+      if (file.is_directory)
+        baseColor = 1;
+      else if (VIDEO_EXTS.count(file.extension) ||
+               AUDIO_EXTS.count(file.extension))
+        baseColor = 4;
+      else if (IMAGE_EXTS.count(file.extension))
+        baseColor = 5;
+      else if (CODE_EXTS.count(file.extension))
+        baseColor = 16;
+      else if (ARCHIVE_EXTS.count(file.extension))
+        baseColor = 17;
+
       if (isSelected) {
-        wattron(winCurrent, COLOR_PAIR(3) | A_BOLD);
-        for(int j=0; j<getmaxx(winCurrent)-2; ++j) waddch(winCurrent, ' ');
+        int selPair = 3;
+        if (file.is_directory)
+          selPair = 10;
+        else if (VIDEO_EXTS.count(file.extension) ||
+                 AUDIO_EXTS.count(file.extension))
+          selPair = 11;
+        else if (IMAGE_EXTS.count(file.extension))
+          selPair = 12;
+        else if (CODE_EXTS.count(file.extension))
+          selPair = 18;
+        else if (ARCHIVE_EXTS.count(file.extension))
+          selPair = 19;
+
+        wattron(winCurrent, COLOR_PAIR(selPair) | A_BOLD);
+        for (int j = 0; j < getmaxx(winCurrent) - 2; ++j)
+          waddch(winCurrent, ' ');
         wmove(winCurrent, i + 1, 1);
       } else if (isMultiSelected) {
-        wattron(winCurrent, COLOR_PAIR(9) | A_DIM);
+        wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
       } else {
-        int colorPair = 2;
-        if (file.is_directory) colorPair = 1;
-        else if (VIDEO_EXTS.count(file.extension)) colorPair = 4;
-        else if (IMAGE_EXTS.count(file.extension)) colorPair = 5;
-        else if (AUDIO_EXTS.count(file.extension)) colorPair = 4;
-        wattron(winCurrent, COLOR_PAIR(colorPair));
+        wattron(winCurrent, COLOR_PAIR(baseColor));
       }
 
       std::string display = file.name;
       int availWidth = getmaxx(winCurrent) - 16;
       if (display.length() > (size_t)availWidth)
         display = display.substr(0, availWidth - 3) + "...";
-      
+
       char marker = isMultiSelected ? '*' : ' ';
       wprintw(winCurrent, " %c %s %-s", marker, getIcon(file), display.c_str());
 
       std::string sz = formatSize(file.size);
-      mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
+      mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s",
+                sz.c_str());
 
-      if (isSelected) wattroff(winCurrent, COLOR_PAIR(3) | A_BOLD);
-      else if (isMultiSelected) wattroff(winCurrent, COLOR_PAIR(9) | A_DIM);
-      else {
-        int colorPair = file.is_directory ? 1 : 2;
-        if (VIDEO_EXTS.count(file.extension)) colorPair = 4;
-        else if (IMAGE_EXTS.count(file.extension)) colorPair = 5;
-        wattroff(winCurrent, COLOR_PAIR(colorPair));
-      }
+      if (isSelected) {
+        int selPair = 3;
+        if (file.is_directory)
+          selPair = 10;
+        else if (VIDEO_EXTS.count(file.extension) ||
+                 AUDIO_EXTS.count(file.extension))
+          selPair = 11;
+        else if (IMAGE_EXTS.count(file.extension))
+          selPair = 12;
+        else if (CODE_EXTS.count(file.extension))
+          selPair = 18;
+        else if (ARCHIVE_EXTS.count(file.extension))
+          selPair = 19;
+        wattroff(winCurrent, COLOR_PAIR(selPair) | A_BOLD);
+      } else if (isMultiSelected)
+        wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
+      else
+        wattroff(winCurrent, COLOR_PAIR(baseColor));
     }
     wrefresh(winCurrent);
   }
@@ -1200,7 +1305,7 @@ public:
     wattron(winPreview, COLOR_PAIR(6));
     box(winPreview, 0, 0);
     wattroff(winPreview, COLOR_PAIR(6));
-    
+
     wattron(winPreview, A_BOLD | COLOR_PAIR(5));
     mvwprintw(winPreview, 0, 2, " 󰮫 Preview ");
     wattroff(winPreview, A_BOLD | COLOR_PAIR(5));
@@ -1217,13 +1322,16 @@ public:
     wattron(winPreview, A_BOLD | COLOR_PAIR(1));
     mvwprintw(winPreview, 1, 2, " %s ", file.name.c_str());
     wattroff(winPreview, A_BOLD | COLOR_PAIR(1));
-    
+
     wattron(winPreview, A_DIM);
     mvwprintw(winPreview, 2, 2, " Size: %s", formatSize(file.size).c_str());
-    mvwprintw(winPreview, 3, 2, " Type: %s", file.is_directory ? "Directory" : (file.extension.empty() ? "File" : file.extension.c_str()));
+    mvwprintw(winPreview, 3, 2, " Type: %s",
+              file.is_directory
+                  ? "Directory"
+                  : (file.extension.empty() ? "File" : file.extension.c_str()));
     wattroff(winPreview, A_DIM);
-    
-    mvwhline(winPreview, 4, 1, ACS_HLINE, getmaxx(winPreview)-2);
+
+    mvwhline(winPreview, 4, 1, ACS_HLINE, getmaxx(winPreview) - 2);
 
     bool isVid = VIDEO_EXTS.count(file.extension);
     bool isImg = IMAGE_EXTS.count(file.extension);
@@ -1238,19 +1346,42 @@ public:
         for (const auto &entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
-          if (line >= height - 3) break;
+          if (line >= height - 3)
+            break;
           std::string subName = entry.path().filename().string();
           if (subName.length() > (size_t)maxW)
             subName = subName.substr(0, maxW - 3) + "...";
-          
+
           int cp = fs::is_directory(entry) ? 1 : 2;
+          std::string ext = entry.path().extension().string();
+          std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+          if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext))
+            cp = 4;
+          else if (IMAGE_EXTS.count(ext))
+            cp = 5;
+          else if (CODE_EXTS.count(ext))
+            cp = 16;
+          else if (ARCHIVE_EXTS.count(ext))
+            cp = 17;
+
           wattron(winPreview, COLOR_PAIR(cp));
           mvwprintw(winPreview, line++, 4, "%s %s",
-                    fs::is_directory(entry) ? ICON_DIR : ICON_FILE,
+                    fs::is_directory(entry)
+                        ? ICON_DIR
+                        : (VIDEO_EXTS.count(ext)
+                               ? ICON_VIDEO
+                               : (IMAGE_EXTS.count(ext)
+                                      ? ICON_IMAGE
+                                      : (CODE_EXTS.count(ext)
+                                             ? ICON_CODE
+                                             : (ARCHIVE_EXTS.count(ext)
+                                                    ? ICON_ZIP
+                                                    : ICON_FILE)))),
                     subName.c_str());
           wattroff(winPreview, COLOR_PAIR(cp));
         }
-      } catch (...) {}
+      } catch (...) {
+      }
       wrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
       wrefresh(winPreview);
@@ -1286,8 +1417,10 @@ public:
           while (std::getline(f, lineStr) && line < height - 3) {
             std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
             for (size_t i = 0; i < lineStr.length(); i += maxW) {
-              if (line >= height - 3) break;
-              mvwprintw(winPreview, line++, 2, "%s", lineStr.substr(i, maxW).c_str());
+              if (line >= height - 3)
+                break;
+              mvwprintw(winPreview, line++, 2, "%s",
+                        lineStr.substr(i, maxW).c_str());
             }
           }
         }
@@ -1394,7 +1527,8 @@ public:
         move(height - 1, 0);
         clrtoeol();
         if (!statusMessage.empty()) {
-          bool isError = statusMessage.find("Failed") != std::string::npos || statusMessage.find("Error") != std::string::npos;
+          bool isError = statusMessage.find("Failed") != std::string::npos ||
+                         statusMessage.find("Error") != std::string::npos;
           attron(COLOR_PAIR(isError ? 8 : 7) | A_BOLD);
           printw(" %s ", statusMessage.c_str());
           attroff(COLOR_PAIR(isError ? 8 : 7) | A_BOLD);
@@ -1402,12 +1536,13 @@ public:
           attron(COLOR_PAIR(6) | A_BOLD);
           printw(" Fyzenor ");
           attroff(COLOR_PAIR(6) | A_BOLD);
-          
+
           attron(A_DIM);
           if (focusPinned)
             printw(" 󰄾 Nav:j/k Jump:Enter Unpin:d Files:Tab");
           else
-            printw(" 󰄾 Space:Sel y:Cp x:Cut p:Pst d:Del z:Zip r:Ren s:Sort Pins:Tab");
+            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z: r:  "
+                   "s: Pins: ");
           attroff(A_DIM);
         }
         refresh();
@@ -1553,8 +1688,9 @@ int main(int argc, char *argv[]) {
       std::cout << "Fyzenor version " << VERSION << std::endl;
       return 0;
     } else if (arg == "-h" || arg == "--help") {
-      std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
-                << std::endl;
+      std::cout
+          << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
+          << std::endl;
       std::cout << "Usage: fyzenor [options]" << std::endl;
       std::cout << "Options:" << std::endl;
       std::cout << "  -v, --version    Show version information" << std::endl;

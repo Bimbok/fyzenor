@@ -107,29 +107,31 @@ fi
 # 6. Shell Integration (CWD on exit)
 echo -e "${BLUE}Setting up shell integration for directory jumping...${NC}"
 
-SHELL_FUNC='
-# Fyzenor shell integration (jump to CWD on exit)
+MARKER="# Fyzenor CWD Integration"
+SHELL_FUNC="$MARKER
 function f() {
-    local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
-    fyzenor "$@" --cwd-file="$tmp"
-    if [ -f "$tmp" ]; then
-        cwd=$(cat "$tmp")
-        rm -f -- "$tmp"
-        if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-            builtin cd -- "$cwd"
+    local tmp
+    tmp=\"\$(mktemp -t fyzenor-cwd.XXXXXX)\" || return
+    fyzenor \"\$@\" --cwd-file=\"\$tmp\"
+    if [ -f \"\$tmp\" ]; then
+        local cwd
+        cwd=\$(cat \"\$tmp\")
+        rm -f -- \"\$tmp\"
+        if [ -n \"\$cwd\" ] && [ \"\$cwd\" != \"\$PWD\" ]; then
+            builtin cd -- \"\$cwd\"
         fi
     fi
 }
-'
+"
 
 setup_shell() {
     local config_file="$1"
     if [ -f "$config_file" ]; then
-        if ! grep -q "function f()" "$config_file"; then
-            echo -e "$SHELL_FUNC" >> "$config_file"
+        if ! grep -q "$MARKER" "$config_file"; then
+            echo -e "\n$SHELL_FUNC" >> "$config_file"
             echo -e "${GREEN}Shell integration added to $config_file${NC}"
         else
-            echo -e "${YELLOW}Shell integration already exists in $config_file${NC}"
+            echo -e "${YELLOW}Shell integration already exists in $config_file (skipping)${NC}"
         fi
     fi
 }

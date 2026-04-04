@@ -395,7 +395,8 @@ public:
     if (!cwdFile.empty()) {
       std::ofstream f(cwdFile);
       if (f.is_open()) {
-        f << currentPath.string();
+        f << fs::absolute(currentPath).string();
+        f.flush();
         f.close();
       }
     }

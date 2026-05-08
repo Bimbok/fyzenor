@@ -84,14 +84,6 @@ jobs:
             archive_cmd: tar -czf fyzenor-linux.tar.gz fyzenor LICENSE README.md
             artifact_name: fyzenor-linux
             asset_name: fyzenor-linux.tar.gz
-          - os: macos-latest
-            compiler: clang++
-            output: fyzenor
-            install_cmd: true
-            link_flags: -lncurses -lpthread
-            archive_cmd: tar -czf fyzenor-macos.tar.gz fyzenor LICENSE README.md
-            artifact_name: fyzenor-macos
-            asset_name: fyzenor-macos.tar.gz
 
     steps:
       - name: Checkout repository

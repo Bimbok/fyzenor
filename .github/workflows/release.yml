@@ -28,13 +28,6 @@ jobs:
             link_flags: -lncursesw -lpthread
             asset_name: fyzenor-linux.tar.gz
             artifact_name: fyzenor-linux
-          - os: macos-latest
-            compiler: clang++
-            output: fyzenor
-            install_cmd: true
-            link_flags: -lncurses -lpthread
-            asset_name: fyzenor-macos.tar.gz
-            artifact_name: fyzenor-macos
 
     steps:
       - name: Checkout repository

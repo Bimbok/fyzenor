@@ -45,32 +45,29 @@
 namespace fs = std::filesystem;
 
 // Configuration
-const std::set<std::string> VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov",
-                                          ".flv", ".wmv", ".webm"};
+const std::set<std::string> VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm"};
 const std::set<std::string> IMAGE_EXTS = {".png", ".jpg",  ".jpeg", ".gif",
                                           ".bmp", ".webp", ".svg",  ".tiff"};
 const std::set<std::string> CODE_EXTS = {
-    ".cpp",  ".h",    ".hpp",   ".c",    ".cc",    ".py",   ".js",
-    ".ts",   ".rs",   ".go",    ".java", ".rb",    ".php",  ".html",
-    ".css",  ".scss", ".json",  ".xml",  ".yaml",  ".yml",  ".toml",
-    ".ini",  ".sh",   ".bash",  ".zsh",  ".lua",   ".md",   ".txt",
-    ".conf", ".diff", ".patch", ".sql",  ".cmake", ".make", ".dockerfile"};
+    ".cpp",  ".h",    ".hpp",  ".c",     ".cc",   ".py",    ".js",   ".ts",        ".rs",
+    ".go",   ".java", ".rb",   ".php",   ".html", ".css",   ".scss", ".json",      ".xml",
+    ".yaml", ".yml",  ".toml", ".ini",   ".sh",   ".bash",  ".zsh",  ".lua",       ".md",
+    ".txt",  ".conf", ".diff", ".patch", ".sql",  ".cmake", ".make", ".dockerfile"};
 const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
                                           ".aac", ".ogg", ".wma",  ".opus"};
-const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z",
-                                            ".rar", ".xz",  ".bz2"};
+const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z", ".rar", ".xz", ".bz2"};
 
-const char *ICON_DIR = " ";
-const char *ICON_VIDEO = " ";
-const char *ICON_IMAGE = " ";
-const char *ICON_CODE = " ";
-const char *ICON_FILE = " ";
-const char *ICON_MUSIC = " ";
-const char *ICON_PIN = " ";
-const char *ICON_ZIP = "󰿺 ";
+const char* ICON_DIR = " ";
+const char* ICON_VIDEO = " ";
+const char* ICON_IMAGE = " ";
+const char* ICON_CODE = " ";
+const char* ICON_FILE = " ";
+const char* ICON_MUSIC = " ";
+const char* ICON_PIN = " ";
+const char* ICON_ZIP = "󰿺 ";
 
 std::string getCacheDir() {
-  const char *home = getenv("HOME");
+  const char* home = getenv("HOME");
   fs::path cacheDir;
   if (home) {
     cacheDir = fs::path(home) / ".cache/fyzenor/previews";
@@ -87,7 +84,7 @@ std::string getCacheDir() {
   return cacheDir.string();
 }
 
-std::string getCachePath(const fs::path &p, int w, int h) {
+std::string getCachePath(const fs::path& p, int w, int h) {
   try {
     auto mtime = fs::last_write_time(p).time_since_epoch().count();
     std::string to_hash =
@@ -120,12 +117,11 @@ struct FileEntry {
   uintmax_t size;
   std::string extension;
 
-  FileEntry(const fs::path &p) : path(p) {
+  FileEntry(const fs::path& p) : path(p) {
     name = p.filename().string();
     is_directory = fs::is_directory(p);
     extension = p.extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(),
-                   ::tolower);
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
 
     try {
       if (is_directory) {
@@ -143,7 +139,7 @@ static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                         "abcdefghijklmnopqrstuvwxyz"
                                         "0123456789+/";
 
-std::string base64_encode(const unsigned char *bytes, size_t len) {
+std::string base64_encode(const unsigned char* bytes, size_t len) {
   std::string ret;
   int i = 0;
   int j = 0;
@@ -154,10 +150,8 @@ std::string base64_encode(const unsigned char *bytes, size_t len) {
     char_array_3[i++] = *(bytes++);
     if (i == 3) {
       char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-      char_array_4[1] =
-          ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-      char_array_4[2] =
-          ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+      char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+      char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
       char_array_4[3] = char_array_3[2] & 0x3f;
       for (i = 0; (i < 4); i++)
         ret += base64_chars[char_array_4[i]];
@@ -168,10 +162,8 @@ std::string base64_encode(const unsigned char *bytes, size_t len) {
     for (j = i; j < 3; j++)
       char_array_3[j] = '\0';
     char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-    char_array_4[1] =
-        ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-    char_array_4[2] =
-        ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+    char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+    char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
     char_array_4[3] = char_array_3[2] & 0x3f;
     for (j = 0; (j < i + 1); j++)
       ret += base64_chars[char_array_4[j]];
@@ -184,7 +176,7 @@ std::string base64_encode(const unsigned char *bytes, size_t len) {
 std::string formatSize(uintmax_t size) {
   if (size == SIZE_CALCULATING)
     return "...";
-  const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+  const char* units[] = {"B", "KB", "MB", "GB", "TB"};
   int i = 0;
   double dSize = static_cast<double>(size);
   while (dSize > 1024 && i < 4) {
@@ -196,7 +188,7 @@ std::string formatSize(uintmax_t size) {
   return std::string(buffer);
 }
 
-bool is_binary_file(const std::string &path) {
+bool is_binary_file(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file)
     return false;
@@ -278,15 +270,13 @@ private:
     use_default_colors();
 
     std::unordered_map<std::string, std::string> colors = {
-        {"DIR", "#89b4fa"},        {"FILE", "#cdd6f4"},
-        {"SEL_BG", "#585b70"},     {"MEDIA", "#f9e2af"},
-        {"IMAGE", "#f5c2e7"},      {"BORDER", "#b4befe"},
-        {"SUCCESS", "#a6e3a1"},    {"ERROR", "#f38ba8"},
-        {"MULTI", "#fab387"},      {"PIN_BG", "#cba6f7"},
-        {"PIN_BORDER", "#89b4fa"}, {"SEC_SEL_BG", "#313244"},
-        {"CODE", "#a6e3a1"},       {"ARCHIVE", "#eba0ac"}};
+        {"DIR", "#89b4fa"},     {"FILE", "#cdd6f4"},       {"SEL_BG", "#585b70"},
+        {"MEDIA", "#f9e2af"},   {"IMAGE", "#f5c2e7"},      {"BORDER", "#b4befe"},
+        {"SUCCESS", "#a6e3a1"}, {"ERROR", "#f38ba8"},      {"MULTI", "#fab387"},
+        {"PIN_BG", "#cba6f7"},  {"PIN_BORDER", "#89b4fa"}, {"SEC_SEL_BG", "#313244"},
+        {"CODE", "#a6e3a1"},    {"ARCHIVE", "#eba0ac"}};
 
-    const char *home = getenv("HOME");
+    const char* home = getenv("HOME");
     if (home) {
       fs::path configDir = fs::path(home) / ".config/fyzenor";
       if (!fs::exists(configDir))
@@ -330,13 +320,12 @@ private:
       }
     }
 
-    auto setHex = [](short id, const std::string &hex) {
+    auto setHex = [](short id, const std::string& hex) {
       if (hex.length() < 7 || hex[0] != '#')
         return;
       int r, g, b;
       if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
-        init_color(id, (short)(r * 1000 / 255), (short)(g * 1000 / 255),
-                   (short)(b * 1000 / 255));
+        init_color(id, (short)(r * 1000 / 255), (short)(g * 1000 / 255), (short)(b * 1000 / 255));
       }
     };
 
@@ -397,8 +386,8 @@ private:
 
 public:
   FileManager()
-      : selectedIndex(0), scrollOffset(0), winPinned(nullptr),
-        winParent(nullptr), winCurrent(nullptr), winPreview(nullptr) {
+      : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
+        winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
     loadPins();
 
@@ -443,7 +432,9 @@ public:
     }
   }
 
-  void setCwdFile(const std::string &path) { cwdFile = path; }
+  void setCwdFile(const std::string& path) {
+    cwdFile = path;
+  }
 
   // --- Async Size Worker Function ---
   void processSizeQueue() {
@@ -464,7 +455,7 @@ public:
       uintmax_t size = 0;
       try {
         if (fs::exists(job.path) && fs::is_directory(job.path)) {
-          for (const auto &entry : fs::recursive_directory_iterator(
+          for (const auto& entry : fs::recursive_directory_iterator(
                    job.path, fs::directory_options::skip_permission_denied)) {
             if (job.viewId != currentViewId)
               break;
@@ -494,7 +485,7 @@ public:
 
   // --- Pin Management ---
   std::string getPinFile() {
-    const char *home = getenv("HOME");
+    const char* home = getenv("HOME");
     if (home)
       return std::string(home) + "/.fm_pins";
     return ".fm_pins";
@@ -510,11 +501,11 @@ public:
   }
   void savePins() {
     std::ofstream f(getPinFile());
-    for (const auto &p : pinnedPaths)
+    for (const auto& p : pinnedPaths)
       f << p.string() << "\n";
   }
   void handlePin() {
-    for (const auto &p : pinnedPaths) {
+    for (const auto& p : pinnedPaths) {
       if (p == currentPath) {
         setStatus("Already pinned");
         return;
@@ -546,7 +537,7 @@ public:
     }
   }
 
-  const char *getIcon(const FileEntry &f) {
+  const char* getIcon(const FileEntry& f) {
     if (f.is_directory)
       return ICON_DIR;
     if (VIDEO_EXTS.count(f.extension))
@@ -563,27 +554,26 @@ public:
   }
 
   // Unified Sorting Logic: Folders Top -> Size/Name
-  void sortList(std::vector<FileEntry> &list) {
-    std::sort(list.begin(), list.end(),
-              [this](const FileEntry &a, const FileEntry &b) {
-                // 1. Always keep directories on top
-                if (a.is_directory != b.is_directory) {
-                  return a.is_directory > b.is_directory;
-                }
+  void sortList(std::vector<FileEntry>& list) {
+    std::sort(list.begin(), list.end(), [this](const FileEntry& a, const FileEntry& b) {
+      // 1. Always keep directories on top
+      if (a.is_directory != b.is_directory) {
+        return a.is_directory > b.is_directory;
+      }
 
-                // 2. Sort by Size (if enabled)
-                if (sortBySize) {
-                  if (a.size != b.size)
-                    return a.size > b.size; // Descending
-                  return a.name < b.name;
-                }
+      // 2. Sort by Size (if enabled)
+      if (sortBySize) {
+        if (a.size != b.size)
+          return a.size > b.size; // Descending
+        return a.name < b.name;
+      }
 
-                // 3. Default: Sort by Name (Ascending)
-                return a.name < b.name;
-              });
+      // 3. Default: Sort by Name (Ascending)
+      return a.name < b.name;
+    });
   }
 
-  void loadDirectory(const fs::path &path, std::vector<FileEntry> &target) {
+  void loadDirectory(const fs::path& path, std::vector<FileEntry>& target) {
     target.clear();
     multiSelection.clear();
     currentViewId++;
@@ -593,7 +583,7 @@ public:
     }
 
     try {
-      for (const auto &entry : fs::directory_iterator(path)) {
+      for (const auto& entry : fs::directory_iterator(path)) {
         if (!showHidden && entry.path().filename().string().front() == '.')
           continue;
         target.emplace_back(entry);
@@ -605,7 +595,7 @@ public:
     {
       std::lock_guard<std::mutex> qLock(queueMutex);
       std::lock_guard<std::mutex> cLock(cacheMutex);
-      for (auto &entry : target) {
+      for (auto& entry : target) {
         if (entry.is_directory) {
           auto it = dirSizeCache.find(entry.path.string());
           if (it != dirSizeCache.end()) {
@@ -624,23 +614,20 @@ public:
   }
 
   void loadParent() {
-    if (currentPath.has_parent_path() &&
-        currentPath != currentPath.parent_path()) {
+    if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       parentFiles.clear();
       try {
-        for (const auto &entry :
-             fs::directory_iterator(currentPath.parent_path())) {
+        for (const auto& entry : fs::directory_iterator(currentPath.parent_path())) {
           parentFiles.emplace_back(entry);
         }
       } catch (...) {
       }
       // Standard sort for parent to keep it stable
-      std::sort(parentFiles.begin(), parentFiles.end(),
-                [](const FileEntry &a, const FileEntry &b) {
-                  if (a.is_directory != b.is_directory)
-                    return a.is_directory > b.is_directory;
-                  return a.name < b.name;
-                });
+      std::sort(parentFiles.begin(), parentFiles.end(), [](const FileEntry& a, const FileEntry& b) {
+        if (a.is_directory != b.is_directory)
+          return a.is_directory > b.is_directory;
+        return a.name < b.name;
+      });
     } else {
       parentFiles.clear();
     }
@@ -675,8 +662,8 @@ public:
   }
 
   // --- Async Preview Logic (Image & Bat Text) ---
-  void startAsyncPreview(const std::string &path, PreviewType type,
-                         int previewHeight, int previewWidth) {
+  void startAsyncPreview(const std::string& path, PreviewType type, int previewHeight,
+                         int previewWidth) {
     requestID++;
     requestedPath = path;
     imageReady = false;
@@ -694,8 +681,7 @@ public:
       }
     }
 
-    std::thread([this, path, type, previewHeight, previewWidth,
-                 reqId = requestID]() {
+    std::thread([this, path, type, previewHeight, previewWidth, reqId = requestID]() {
       std::string b64;
       std::vector<std::string> lines;
 
@@ -722,11 +708,10 @@ public:
           std::string cmd;
           if (isVid) {
             cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
-                  "\" -frames:v 1 -f image2 \"" + cachePath +
-                  "\" > /dev/null 2>&1";
+                  "\" -frames:v 1 -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
           } else {
-            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
-                  "\" -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter + "\" -f image2 \"" +
+                  cachePath + "\" > /dev/null 2>&1";
           }
           int res = system(cmd.c_str());
           (void)res;
@@ -734,11 +719,10 @@ public:
 
         // Get actual scaled dimensions
         int finalW = 0, finalH = 0;
-        std::string probeCmd =
-            "ffprobe -v error -select_streams v:0 -show_entries "
-            "stream=width,height -of csv=s=x:p=0 \"" +
-            cachePath + "\"";
-        FILE *p = popen(probeCmd.c_str(), "r");
+        std::string probeCmd = "ffprobe -v error -select_streams v:0 -show_entries "
+                               "stream=width,height -of csv=s=x:p=0 \"" +
+                               cachePath + "\"";
+        FILE* p = popen(probeCmd.c_str(), "r");
         if (p) {
           char buf[64];
           if (fgets(buf, sizeof(buf), p)) {
@@ -749,8 +733,7 @@ public:
 
         std::ifstream file(cachePath, std::ios::binary);
         if (file) {
-          std::vector<unsigned char> buffer(
-              std::istreambuf_iterator<char>(file), {});
+          std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
           b64 = base64_encode(buffer.data(), buffer.size());
         }
 
@@ -767,9 +750,8 @@ public:
         } else {
           std::string cmd = "bat --color=always --style=plain --paging=never "
                             "--wrap=character --line-range=:" +
-                            std::to_string(previewHeight * 2) + " \"" + path +
-                            "\" 2>/dev/null";
-          FILE *pipe = popen(cmd.c_str(), "r");
+                            std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
+          FILE* pipe = popen(cmd.c_str(), "r");
           bool gotOutput = false;
           if (pipe) {
             char buffer[4096];
@@ -786,8 +768,7 @@ public:
             lines.clear();
             cmd = "batcat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
-                  std::to_string(previewHeight * 2) + " \"" + path +
-                  "\" 2>/dev/null";
+                  std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
             pipe = popen(cmd.c_str(), "r");
             if (pipe) {
               char buffer[1024];
@@ -842,8 +823,8 @@ public:
     }).detach();
   }
 
-  void sendKittyGraphics(const std::string &b64Data, int pY, int pX, int cols,
-                         int rows, int offX = 0, int offY = 0) {
+  void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
+                         int offX = 0, int offY = 0) {
     // Move cursor to start of preview area (1-indexed for terminal)
     // pY+1 is the start of the window, we have 7 lines of header/padding +
     // offY.
@@ -906,9 +887,11 @@ public:
   }
   // ----------------------------
 
-  void setStatus(const std::string &msg) { statusMessage = msg; }
+  void setStatus(const std::string& msg) {
+    statusMessage = msg;
+  }
 
-  std::string promptInput(const std::string &prompt) {
+  std::string promptInput(const std::string& prompt) {
     move(height - 1, 0);
     clrtoeol();
     attron(COLOR_PAIR(7) | A_BOLD);
@@ -938,7 +921,7 @@ public:
       selectedIndex++;
   }
   void selectAll() {
-    for (const auto &f : currentFiles)
+    for (const auto& f : currentFiles)
       multiSelection.insert(f.path);
     setStatus("Selected all");
   }
@@ -960,7 +943,7 @@ public:
     if (multiSelection.empty())
       clipboard.paths.push_back(currentFiles[selectedIndex].path);
     else
-      for (const auto &p : multiSelection)
+      for (const auto& p : multiSelection)
         clipboard.paths.push_back(p);
     clipboard.isCut = false;
     setStatus("Yanked items");
@@ -973,7 +956,7 @@ public:
     if (multiSelection.empty())
       clipboard.paths.push_back(currentFiles[selectedIndex].path);
     else
-      for (const auto &p : multiSelection)
+      for (const auto& p : multiSelection)
         clipboard.paths.push_back(p);
     clipboard.isCut = true;
     setStatus("Cut items");
@@ -986,7 +969,7 @@ public:
       return;
     }
     int successCount = 0;
-    for (const auto &src : clipboard.paths) {
+    for (const auto& src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
       if (fs::exists(dest) && !clipboard.isCut && src != dest)
         continue;
@@ -994,7 +977,7 @@ public:
         if (clipboard.isCut) {
           try {
             fs::rename(src, dest);
-          } catch (const fs::filesystem_error &e) {
+          } catch (const fs::filesystem_error& e) {
             if (fs::is_directory(src))
               fs::copy(src, dest, fs::copy_options::recursive);
             else
@@ -1020,7 +1003,7 @@ public:
   void handleRename() {
     if (currentFiles.empty())
       return;
-    const auto &file = currentFiles[selectedIndex];
+    const auto& file = currentFiles[selectedIndex];
     std::string newName = promptInput("Rename " + file.name + " to");
     if (newName.empty())
       return;
@@ -1058,13 +1041,13 @@ public:
     if (multiSelection.empty())
       targets.push_back(currentFiles[selectedIndex].path);
     else
-      for (const auto &p : multiSelection)
+      for (const auto& p : multiSelection)
         targets.push_back(p);
     std::string name = promptInput("Zip Name");
     if (name.empty())
       return;
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
-    for (const auto &p : targets)
+    for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";
     cmd += " > /dev/null 2>&1";
     fs::path old = fs::current_path();
@@ -1100,15 +1083,14 @@ public:
     if (multiSelection.empty())
       targets.push_back(currentFiles[selectedIndex].path);
     else
-      for (const auto &p : multiSelection)
+      for (const auto& p : multiSelection)
         targets.push_back(p);
-    std::string countStr = (targets.size() > 1)
-                               ? std::to_string(targets.size()) + " items"
-                               : targets[0].filename().string();
+    std::string countStr = (targets.size() > 1) ? std::to_string(targets.size()) + " items"
+                                                : targets[0].filename().string();
     std::string confirm = promptInput("Delete " + countStr + "? (y/n)");
     if (confirm != "y" && confirm != "Y")
       return;
-    for (const auto &p : targets) {
+    for (const auto& p : targets) {
       try {
         fs::remove_all(p);
       } catch (...) {
@@ -1130,7 +1112,7 @@ public:
   }
 
   // --- Drawing ---
-  void drawRoundedBox(WINDOW *win) {
+  void drawRoundedBox(WINDOW* win) {
     int my, mx;
     getmaxyx(win, my, mx);
     for (int i = 1; i < mx - 1; ++i) {
@@ -1163,8 +1145,7 @@ public:
     mvwprintw(winPinned, 0, 2, " 󰐃 Pinned ");
     wattroff(winPinned, A_BOLD | COLOR_PAIR(4));
 
-    for (size_t i = 0;
-         i < pinnedPaths.size() && i < (size_t)getmaxy(winPinned) - 2; ++i) {
+    for (size_t i = 0; i < pinnedPaths.size() && i < (size_t)getmaxy(winPinned) - 2; ++i) {
       wmove(winPinned, i + 1, 1);
       if (focusPinned && i == pinnedIndex) {
         wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
@@ -1204,13 +1185,11 @@ public:
     int start = 0;
     if (highlightIdx > maxLines / 2)
       start = highlightIdx - (maxLines / 2);
-    if (start + maxLines > (int)parentFiles.size() &&
-        (int)parentFiles.size() > maxLines)
+    if (start + maxLines > (int)parentFiles.size() && (int)parentFiles.size() > maxLines)
       start = parentFiles.size() - maxLines;
 
-    for (int i = 0; i < maxLines && (start + i) < (int)parentFiles.size();
-         ++i) {
-      const auto &file = parentFiles[start + i];
+    for (int i = 0; i < maxLines && (start + i) < (int)parentFiles.size(); ++i) {
+      const auto& file = parentFiles[start + i];
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
       wmove(winParent, i + 1, 1);
 
@@ -1228,8 +1207,7 @@ public:
         int selPair = 13;
         if (file.is_directory)
           selPair = 14;
-        else if (VIDEO_EXTS.count(file.extension) ||
-                 AUDIO_EXTS.count(file.extension))
+        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
           selPair = 20;
         else if (IMAGE_EXTS.count(file.extension))
           selPair = 21;
@@ -1256,8 +1234,7 @@ public:
         int selPair = 13;
         if (file.is_directory)
           selPair = 14;
-        else if (VIDEO_EXTS.count(file.extension) ||
-                 AUDIO_EXTS.count(file.extension))
+        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
           selPair = 20;
         else if (IMAGE_EXTS.count(file.extension))
           selPair = 21;
@@ -1284,16 +1261,13 @@ public:
     wattroff(winCurrent, COLOR_PAIR(6));
 
     wattron(winCurrent, A_BOLD | COLOR_PAIR(1));
-    mvwprintw(winCurrent, 0, 2, " 󰉖 %s ",
-              currentPath.filename().string().c_str());
+    mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
     wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
 
     if (!multiSelection.empty()) {
-      std::string selStr =
-          " [" + std::to_string(multiSelection.size()) + " selected] ";
+      std::string selStr = " [" + std::to_string(multiSelection.size()) + " selected] ";
       wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
-      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s",
-                selStr.c_str());
+      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s", selStr.c_str());
       wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
     }
 
@@ -1303,10 +1277,9 @@ public:
     if (selectedIndex >= scrollOffset + (size_t)maxLines)
       scrollOffset = selectedIndex - maxLines + 1;
 
-    for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size();
-         ++i) {
+    for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size(); ++i) {
       int idx = scrollOffset + i;
-      const auto &file = currentFiles[idx];
+      const auto& file = currentFiles[idx];
       wmove(winCurrent, i + 1, 1);
 
       bool isSelected = (!focusPinned && idx == (int)selectedIndex);
@@ -1315,8 +1288,7 @@ public:
       int baseColor = 2;
       if (file.is_directory)
         baseColor = 1;
-      else if (VIDEO_EXTS.count(file.extension) ||
-               AUDIO_EXTS.count(file.extension))
+      else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
         baseColor = 4;
       else if (IMAGE_EXTS.count(file.extension))
         baseColor = 5;
@@ -1329,8 +1301,7 @@ public:
         int selPair = 3;
         if (file.is_directory)
           selPair = 10;
-        else if (VIDEO_EXTS.count(file.extension) ||
-                 AUDIO_EXTS.count(file.extension))
+        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
           selPair = 11;
         else if (IMAGE_EXTS.count(file.extension))
           selPair = 12;
@@ -1358,15 +1329,13 @@ public:
       wprintw(winCurrent, " %c %s %-s", marker, getIcon(file), display.c_str());
 
       std::string sz = formatSize(file.size);
-      mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s",
-                sz.c_str());
+      mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
 
       if (isSelected) {
         int selPair = 3;
         if (file.is_directory)
           selPair = 10;
-        else if (VIDEO_EXTS.count(file.extension) ||
-                 AUDIO_EXTS.count(file.extension))
+        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
           selPair = 11;
         else if (IMAGE_EXTS.count(file.extension))
           selPair = 12;
@@ -1399,7 +1368,7 @@ public:
       wrefresh(winPreview);
       return;
     }
-    const auto &file = currentFiles[selectedIndex];
+    const auto& file = currentFiles[selectedIndex];
     int maxW = getmaxx(winPreview) - 4;
     int maxH = getmaxy(winPreview) - 2;
 
@@ -1410,18 +1379,15 @@ public:
 
     wattron(winPreview, A_DIM);
     mvwprintw(winPreview, 2, 2, " Size: %s", formatSize(file.size).c_str());
-    mvwprintw(winPreview, 3, 2,
-              " Type: %s",
+    mvwprintw(winPreview, 3, 2, " Type: %s",
               file.is_directory ? "Directory"
-                                : (file.extension.empty() ? "File"
-                                                          : file.extension.c_str()));
+                                : (file.extension.empty() ? "File" : file.extension.c_str()));
     wattroff(winPreview, A_DIM);
 
     wattron(winPreview, COLOR_PAIR(6));
     for (int i = 1; i < getmaxx(winPreview) - 1; ++i)
       mvwaddstr(winPreview, 4, i, "─");
     wattroff(winPreview, COLOR_PAIR(6));
-
 
     bool isVid = VIDEO_EXTS.count(file.extension);
     bool isImg = IMAGE_EXTS.count(file.extension);
@@ -1433,7 +1399,7 @@ public:
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
         int line = 7;
-        for (const auto &entry : fs::directory_iterator(file.path)) {
+        for (const auto& entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
           if (line >= height - 3)
@@ -1464,9 +1430,7 @@ public:
                                       ? ICON_IMAGE
                                       : (CODE_EXTS.count(ext)
                                              ? ICON_CODE
-                                             : (ARCHIVE_EXTS.count(ext)
-                                                    ? ICON_ZIP
-                                                    : ICON_FILE)))),
+                                             : (ARCHIVE_EXTS.count(ext) ? ICON_ZIP : ICON_FILE)))),
                     subName.c_str());
           wattroff(winPreview, COLOR_PAIR(cp));
         }
@@ -1509,8 +1473,7 @@ public:
             for (size_t i = 0; i < lineStr.length(); i += maxW) {
               if (line >= height - 3)
                 break;
-              mvwprintw(winPreview, line++, 2, "%s",
-                        lineStr.substr(i, maxW).c_str());
+              mvwprintw(winPreview, line++, 2, "%s", lineStr.substr(i, maxW).c_str());
             }
           }
         }
@@ -1522,7 +1485,7 @@ public:
   void openFile() {
     if (currentFiles.empty())
       return;
-    const auto &file = currentFiles[selectedIndex];
+    const auto& file = currentFiles[selectedIndex];
     if (file.is_directory) {
       clearDirectRender();
       currentPath = file.path;
@@ -1534,11 +1497,10 @@ public:
       def_prog_mode();
       endwin();
       std::string cmd;
-      if (VIDEO_EXTS.count(file.extension) ||
-          AUDIO_EXTS.count(file.extension)) {
+      if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
         cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
       } else if (CODE_EXTS.count(file.extension)) {
-        const char *editor = getenv("EDITOR");
+        const char* editor = getenv("EDITOR");
         if (!editor)
           editor = getenv("VISUAL");
         if (!editor) {
@@ -1567,8 +1529,7 @@ public:
   }
 
   void goUp() {
-    if (currentPath.has_parent_path() &&
-        currentPath != currentPath.parent_path()) {
+    if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
       std::string oldDirName = currentPath.filename().string();
       currentPath = currentPath.parent_path();
@@ -1598,7 +1559,7 @@ public:
             SizeResult res = resultQueue.front();
             resultQueue.pop_front();
             if (res.viewId == currentViewId) {
-              for (auto &f : currentFiles) {
+              for (auto& f : currentFiles) {
                 if (f.path == res.path) {
                   f.size = res.size;
                   updated = true;
@@ -1636,6 +1597,11 @@ public:
           printw(" %s ", statusMessage.c_str());
           attroff(COLOR_PAIR(isError ? 8 : 7) | A_BOLD);
         } else {
+          if (!multiSelection.empty()) {
+            attron(COLOR_PAIR(9) | A_BOLD); // MULTI color
+            printw(" [%zu selected] ", multiSelection.size());
+            attroff(COLOR_PAIR(9) | A_BOLD);
+          }
           attron(COLOR_PAIR(6) | A_BOLD);
           printw(" Fyzenor ");
           attroff(COLOR_PAIR(6) | A_BOLD);
@@ -1784,7 +1750,7 @@ public:
 
 const std::string VERSION = "1.2.0";
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   std::string cwdFileArg;
   if (argc > 1) {
     for (int i = 1; i < argc; ++i) {
@@ -1793,13 +1759,13 @@ int main(int argc, char *argv[]) {
         std::cout << "Fyzenor version " << VERSION << std::endl;
         return 0;
       } else if (arg == "-h" || arg == "--help") {
-        std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager"
-                  << std::endl;
+        std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager" << std::endl;
         std::cout << "Usage: fyzenor [options]" << std::endl;
         std::cout << "Options:" << std::endl;
         std::cout << "  -v, --version         Show version information" << std::endl;
         std::cout << "  -h, --help            Show this help message" << std::endl;
-        std::cout << "  --cwd-file <file>     Write the final working directory to <file> on exit" << std::endl;
+        std::cout << "  --cwd-file <file>     Write the final working directory to <file> on exit"
+                  << std::endl;
         return 0;
       } else if (arg == "--cwd-file" && i + 1 < argc) {
         cwdFileArg = argv[++i];
@@ -1812,4 +1778,3 @@ int main(int argc, char *argv[]) {
   fm.run();
   return 0;
 }
-

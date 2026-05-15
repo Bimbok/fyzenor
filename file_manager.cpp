@@ -222,6 +222,7 @@ private:
   std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
+  std::string cachedEditor;
   std::set<fs::path> multiSelection;
   std::vector<fs::path> pinnedPaths;
   size_t pinnedIndex = 0;
@@ -390,7 +391,7 @@ public:
         winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
     loadPins();
-
+    detectEditor();
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
 
     currentPath = fs::current_path();
@@ -536,6 +537,21 @@ public:
       setStatus("Jumped to pin");
     }
   }
+  void detectEditor() {
+  const char* editor = getenv("EDITOR");
+  const char* visual = getenv("VISUAL");
+
+  if (editor)
+    cachedEditor = editor;
+  else if (visual)
+    cachedEditor = visual;
+  else if (system("which nvim > /dev/null 2>&1") == 0)
+    cachedEditor = "nvim";
+  else if (system("which nano > /dev/null 2>&1") == 0)
+    cachedEditor = "nano";
+  else
+    cachedEditor = "vi";
+}
 
   const char* getIcon(const FileEntry& f) {
     if (f.is_directory)
@@ -1482,50 +1498,48 @@ public:
     }
   }
 
-  void openFile() {
-    if (currentFiles.empty())
-      return;
+ void openFile() {
+    if (currentFiles.empty()) return;
+
     const auto& file = currentFiles[selectedIndex];
+
     if (file.is_directory) {
-      clearDirectRender();
-      currentPath = file.path;
-      selectedIndex = 0;
-      scrollOffset = 0;
-      reloadAll();
-    } else {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
-      std::string cmd;
-      if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
+        clearDirectRender();
+        currentPath = file.path;
+        selectedIndex = 0;
+        scrollOffset = 0;
+        reloadAll();
+        return;
+    }
+
+    clearDirectRender();
+    def_prog_mode();
+    endwin();
+
+    std::string cmd;
+
+    if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
         cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
-      } else if (CODE_EXTS.count(file.extension)) {
-        const char* editor = getenv("EDITOR");
-        if (!editor)
-          editor = getenv("VISUAL");
-        if (!editor) {
-          if (system("which nvim > /dev/null 2>&1") == 0)
-            editor = "nvim";
-          else if (system("which nano > /dev/null 2>&1") == 0)
-            editor = "nano";
-          else
-            editor = "vi";
-        }
-        cmd = std::string(editor) + " \"" + file.path.string() + "\"";
-      } else {
+    }
+    else if (CODE_EXTS.count(file.extension)) {
+        cmd = cachedEditor + " \"" + file.path.string() + "\"";
+    }
+    else {
 #ifdef __APPLE__
         cmd = "open \"" + file.path.string() + "\"";
 #else
         cmd = "xdg-open \"" + file.path.string() + "\"";
 #endif
-        cmd += " > /dev/null 2>&1";
-      }
-      int res = system(cmd.c_str());
-      (void)res;
-      reset_prog_mode();
-      refresh();
-      timeout(50);
     }
+
+    cmd += " > /dev/null 2>&1";
+
+    system(cmd.c_str());
+
+    reset_prog_mode();
+    refresh();
+    timeout(50);
+}
   }
 
   void goUp() {

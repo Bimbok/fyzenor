@@ -1028,8 +1028,15 @@ public:
     std::string newName = promptInput("Rename " + file.name + " to");
     if (newName.empty())
       return;
+
+    fs::path target = currentPath / newName;
+    if (fs::exists(target)) {
+      setStatus("Error: File already exists!");
+      return;
+    }
+
     try {
-      fs::rename(file.path, currentPath / newName);
+      fs::rename(file.path, target);
       setStatus("Renamed");
       reloadAll();
     } catch (...) {

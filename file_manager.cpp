@@ -84,11 +84,31 @@ std::string getCacheDir() {
   return cacheDir.string();
 }
 
+
+std::string sanitizeShellArg(const std::string& input)
+{
+    std::string sanitized;
+
+    for(char c : input)
+    {
+        if(c == '"' || c == ';' || c == '`')
+        {
+            sanitized += '\\';
+        }
+
+        sanitized += c;
+    }
+
+    return sanitized;
+}
+
+
+
 std::string getCachePath(const fs::path& p, int w, int h) {
   try {
     auto mtime = fs::last_write_time(p).time_since_epoch().count();
     std::string to_hash =
-        p.string() + std::to_string(mtime) + std::to_string(w) + std::to_string(h);
+        p.string() + std::to_string(static_cast<long long>(mtime)) + std::to_string(w) + std::to_string(h);
 
     unsigned long hash = 5381;
     for (char c : to_hash)
@@ -706,12 +726,13 @@ public:
                                     ":force_original_aspect_ratio=decrease";
 
           std::string cmd;
+          std::string safeFileCmd = sanitizeShellArg(fileCmd);
           if (isVid) {
-            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
+            cmd = "ffmpeg -y -v error -i \"" + safeFileCmd + "\" -vf \"" + scaleFilter +
                   "\" -frames:v 1 -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
           } else {
-            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter + "\" -f image2 \"" +
-                  cachePath + "\" > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i \"" + safeFileCmd + "\" -vf \"" + scaleFilter +
+                  "\" -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
           }
           int res = system(cmd.c_str());
           (void)res;

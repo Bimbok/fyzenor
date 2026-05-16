@@ -392,7 +392,7 @@ Text previews use `bat` or `batcat` when available. If neither is installed, Fyz
 
 ## 🤝 Contributing
 
-Contributions are welcome.
+Contributions of all size are welcome.
 
 1. Fork the repository.
 2. Create a feature branch.
@@ -400,7 +400,7 @@ Contributions are welcome.
 4. Test locally.
 5. Open a pull request with a clear description.
 
-For detailed contribution Workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For detailed contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
 Community participation is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ---

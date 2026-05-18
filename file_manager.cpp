@@ -1599,7 +1599,6 @@ public:
     refresh();
     timeout(50);
 }
-  }
 
   void goUp() {
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {

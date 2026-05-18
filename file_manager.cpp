@@ -28,6 +28,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -1840,8 +1841,10 @@ int main(int argc, char* argv[]) {
         std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager" << std::endl;
         std::cout << "Usage: fyzenor [options]" << std::endl;
         std::cout << "Options:" << std::endl;
-        std::cout << "  -v, --version         Show version information" << std::endl;
-        std::cout << "  -h, --help            Show this help message" << std::endl;
+       std::cout << std::left << std::setw(25) << "  -v, --version"
+          << "Show version information" << std::endl;
+        std::cout << std::left << std::setw(25) << "  -h, --help"
+          << "Show this help message" << std::endl;
         std::cout << "  --cwd-file <file>     Write the final working directory to <file> on exit"
                   << std::endl;
         return 0;

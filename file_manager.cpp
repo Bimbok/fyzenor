@@ -1272,20 +1272,13 @@ public:
     mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
     wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
 
-  if (!multiSelection.empty()) {
+    if (!multiSelection.empty()) {
       std::string selStr =
-          " [ MULTI-SELECT: " +
-          std::to_string(multiSelection.size()) +
-          " ITEMS ] ";
+          " [ MULTI-SELECT: " + std::to_string(multiSelection.size()) + " ITEMS ] ";
 
       wattron(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
 
-      mvwprintw(
-          winCurrent,
-          0,
-          getmaxx(winCurrent) - selStr.length() - 2,
-          "%s",
-          selStr.c_str());
+      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s", selStr.c_str());
 
       wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
     }
@@ -1416,8 +1409,7 @@ public:
     timeout(50);
 
     delwin(helpWin);
-}
-
+  }
 
   void drawPreview() {
     if (lastWasDirectRender)

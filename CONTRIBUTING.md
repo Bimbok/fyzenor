@@ -11,12 +11,31 @@ Thank you for contributing to Fyzenor.
 ## Local Setup
 
 ### Prerequisites
-
-- `g++` with C++17 support
+- `g++` with full C++17 filesystem support (GCC >= 8 recommended)
 - `libncursesw` development package
 - `ffmpeg`
 - `zip`
 - `bat` or `batcat`
+
+### Windows Notes
+
+Older MinGW GCC versions on Windows may not fully support the `<filesystem>` header required by Fyzenor.
+
+If you encounter:
+
+```bash
+fatal error: filesystem: No such file or directory
+```
+
+Recommended alternatives:
+- MSYS2 MinGW-w64
+- WSL (Windows Subsystem for Linux)
+
+Check compiler version:
+
+```bash
+g++ --version
+```
 
 ### Build
 

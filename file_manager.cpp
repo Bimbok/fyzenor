@@ -38,9 +38,18 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <openssl/sha.h>
+#include <future>
+#include <map>
+
 
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <iomanip>
+
+
+
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -259,6 +268,11 @@ bool is_binary_file(const std::string& path) {
 
 enum class PreviewType { NONE, IMAGE, TEXT };
 
+enum class AppMode {
+    FILE_MANAGER,
+    STORAGE_ANALYZER
+};
+
 // --- Async Size Calculator ---
 struct SizeJob {
   fs::path path;
@@ -271,8 +285,65 @@ struct SizeResult {
   int viewId;
 };
 
+struct StorageEntry {
+    fs::path path;
+    uintmax_t size;
+    bool isDirectory;
+};
+
+struct DuplicateGroup {
+    std::string hash;
+    std::vector<fs::path> files;
+    uintmax_t size;
+};
+
+std::string sha256(const fs::path& file) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256_ctx;
+
+    SHA256_Init(&sha256_ctx);
+
+    std::ifstream f(file, std::ios::binary);
+
+    char buf[8192];
+
+    while (f.good()) {
+        f.read(buf, sizeof(buf));
+        SHA256_Update(&sha256_ctx, buf, f.gcount());
+    }
+
+    SHA256_Final(hash, &sha256_ctx);
+
+    std::stringstream ss;
+
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        ss << std::hex << std::setw(2)
+           << std::setfill('0')
+           << (int)hash[i];
+    }
+
+    return ss.str();
+}
+
 class FileManager {
 private:
+
+AppMode mode = AppMode::FILE_MANAGER;
+
+std::vector<StorageEntry> largeFiles;
+std::vector<StorageEntry> largeFolders;
+
+std::vector<DuplicateGroup> duplicateGroups;
+
+std::vector<fs::path> junkFiles;
+
+std::atomic<bool> analyzerRunning{false};
+
+std::thread analyzerThread;
+
+size_t analyzerIndex = 0;
+
+bool analyzerLoaded = false;
   fs::path currentPath;
   std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
@@ -301,6 +372,8 @@ private:
   struct ImageCacheEntry {
     std::string b64;
     int w, h;
+
+
   };
   std::unordered_map<std::string, ImageCacheEntry> sessionImageCache;
   std::string cachedPath;
@@ -1209,6 +1282,157 @@ public:
     loadDirectory(currentPath, currentFiles);
     loadParent();
   }
+
+  void startStorageAnalyzer() {
+    if (analyzerRunning)
+        return;
+
+    analyzerRunning = true;
+
+    largeFiles.clear();
+    largeFolders.clear();
+    duplicateGroups.clear();
+    junkFiles.clear();
+
+    analyzerThread = std::thread([this]() {
+
+        scanLargeFiles(currentPath);
+
+        scanDuplicateFiles(currentPath);
+
+        scanJunkFiles(currentPath);
+
+        analyzerLoaded = true;
+
+        analyzerRunning = false;
+    });
+
+    analyzerThread.detach();
+}
+
+
+void scanLargeFiles(const fs::path& root) {
+
+    for (const auto& entry :
+         fs::recursive_directory_iterator(
+             root,
+             fs::directory_options::skip_permission_denied)) {
+
+        try {
+
+            if (!fs::is_directory(entry)) {
+
+                uintmax_t sz = fs::file_size(entry);
+
+                if (sz > 100 * 1024 * 1024) {
+
+                    largeFiles.push_back({
+                        entry.path(),
+                        sz,
+                        false
+                    });
+                }
+            }
+
+        } catch (...) {}
+    }
+
+    std::sort(
+        largeFiles.begin(),
+        largeFiles.end(),
+        [](const auto& a, const auto& b) {
+            return a.size > b.size;
+        });
+}
+void scanDuplicateFiles(const fs::path& root) {
+
+    std::unordered_map<
+        uintmax_t,
+        std::vector<fs::path>
+    > sizeGroups;
+
+    for (const auto& entry :
+         fs::recursive_directory_iterator(
+             root,
+             fs::directory_options::skip_permission_denied)) {
+
+        try {
+
+            if (!fs::is_directory(entry)) {
+
+                auto size = fs::file_size(entry);
+
+                sizeGroups[size].push_back(entry.path());
+            }
+
+        } catch (...) {}
+    }
+
+    for (auto& [size, files] : sizeGroups) {
+
+        if (files.size() < 2)
+            continue;
+
+        std::unordered_map<
+            std::string,
+            std::vector<fs::path>
+        > hashGroups;
+
+        for (auto& f : files) {
+
+            try {
+
+                std::string hash = sha256(f);
+
+                hashGroups[hash].push_back(f);
+
+            } catch (...) {}
+        }
+
+        for (auto& [hash, dupFiles] : hashGroups) {
+
+            if (dupFiles.size() > 1) {
+
+                duplicateGroups.push_back({
+                    hash,
+                    dupFiles,
+                    size
+                });
+            }
+        }
+    }
+}
+
+
+void scanJunkFiles(const fs::path& root) {
+
+    const std::set<std::string> junkNames = {
+        ".cache",
+        "__pycache__",
+        "node_modules",
+        ".thumbnails",
+        "dist",
+        "build"
+    };
+
+    for (const auto& entry :
+         fs::recursive_directory_iterator(
+             root,
+             fs::directory_options::skip_permission_denied)) {
+
+        try {
+
+            std::string name =
+                entry.path().filename().string();
+
+            if (junkNames.count(name)) {
+
+                junkFiles.push_back(entry.path());
+            }
+
+        } catch (...) {}
+    }
+}
   void toggleHidden() {
     showHidden = !showHidden;
     reloadAll();
@@ -1399,6 +1623,8 @@ public:
   }
 
   void drawHelpOverlay() {
+    mvwprintw(helpWin, 18, 2,
+           "A            → Storage Analyzer");
     int h = 20;
     int w = 60;
 
@@ -1557,6 +1783,87 @@ public:
     }
   }
 
+
+  void drawStorageAnalyzer() {
+
+    clear();
+
+    attron(A_BOLD | COLOR_PAIR(1));
+
+    mvprintw(1, 2,
+        "󰋊 Smart Storage Analyzer");
+
+    attroff(A_BOLD | COLOR_PAIR(1));
+
+    if (analyzerRunning) {
+
+        mvprintw(3, 2,
+            "Scanning storage...");
+
+        refresh();
+
+        return;
+    }
+
+    int line = 3;
+
+    attron(A_BOLD);
+
+    mvprintw(line++, 2,
+        "Largest Files");
+
+    attroff(A_BOLD);
+
+    for (size_t i = 0;
+         i < std::min<size_t>(
+             10,
+             largeFiles.size());
+         ++i) {
+
+        mvprintw(
+            line++,
+            4,
+            "%s (%s)",
+            largeFiles[i]
+                .path.filename()
+                .string()
+                .c_str(),
+            formatSize(
+                largeFiles[i].size
+            ).c_str());
+    }
+
+    line += 2;
+
+    attron(A_BOLD);
+
+    mvprintw(line++, 2,
+        "Duplicate Files");
+
+    attroff(A_BOLD);
+
+    for (size_t i = 0;
+         i < std::min<size_t>(
+             5,
+             duplicateGroups.size());
+         ++i) {
+
+        mvprintw(
+            line++,
+            4,
+            "%zu duplicates wasting %s",
+            duplicateGroups[i]
+                .files.size(),
+            formatSize(
+                duplicateGroups[i]
+                    .size *
+                duplicateGroups[i]
+                    .files.size()
+            ).c_str());
+    }
+
+    refresh();
+}
   void openFile() {
     if (currentFiles.empty())
       return;
@@ -1658,10 +1965,17 @@ public:
         } else
           selectedIndex = 0;
 
-        drawPinned();
-        drawParent();
-        drawCurrent();
-        drawPreview();
+        if (mode == AppMode::FILE_MANAGER) {
+
+    drawPinned();
+    drawParent();
+    drawCurrent();
+    drawPreview();
+
+} else {
+
+    drawStorageAnalyzer();
+}
 
         move(height - 1, 0);
         clrtoeol();
@@ -1685,8 +1999,8 @@ public:
           if (focusPinned)
             printw(" 󰄾 Nav:j/k Jump:Enter Unpin:d Files:Tab");
           else
-            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z: r:  "
-                   "s: Pins: ");
+           printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  "
+       "z: r:  s:  A:󰋊 Pins: ");
           attroff(A_DIM);
         }
         refresh();
@@ -1694,6 +2008,20 @@ public:
       }
 
       int ch = getch();
+
+
+
+      if (mode == AppMode::STORAGE_ANALYZER) {
+
+    if (ch == 'q' || ch == 27) {
+
+        mode = AppMode::FILE_MANAGER;
+
+        needsRedraw = true;
+    }
+
+    continue;
+}
       if (ch == ERR) {
         if (imageReady) {
           needsRedraw = true;
@@ -1817,14 +2145,26 @@ public:
         case 's':
           toggleSort();
           break;
+           case 'A':
+
+    mode = AppMode::STORAGE_ANALYZER;
+
+    startStorageAnalyzer();
+
+    break;
         case '?':
           drawHelpOverlay();
           break;
+
+       
         }
       }
     }
   }
 };
+
+
+
 
 const std::string VERSION = "1.2.0";
 

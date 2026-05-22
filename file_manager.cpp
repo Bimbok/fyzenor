@@ -282,6 +282,9 @@ private:
   std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
+  std::vector<FileEntry> originalFiles; // Backup of the normal directory listing during search mode
+  bool searchMode = 0; // 1 when currentFiles stores search results
+  std::string presentSearchQuery; // stores the current search query
   std::set<fs::path> multiSelection;
   std::vector<fs::path> pinnedPaths;
   size_t pinnedIndex = 0;
@@ -1568,6 +1571,12 @@ public:
     const auto& file = currentFiles[selectedIndex];
     if (file.is_directory) {
       clearDirectRender();
+
+      if(searchMode){
+        searchMode = 0;
+        originalFiles.clear();
+        presentSearchQuery.clear();
+      }
       currentPath = file.path;
       selectedIndex = 0;
       scrollOffset = 0;
@@ -1611,6 +1620,13 @@ public:
   void goUp() {
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
+
+      if(searchMode){
+        searchMode = 0;
+        originalFiles.clear();
+        presentSearchQuery.clear();
+      }
+
       std::string oldDirName = currentPath.filename().string();
       currentPath = currentPath.parent_path();
       reloadAll();
@@ -1624,7 +1640,54 @@ public:
       scrollOffset = (selectedIndex > 10) ? selectedIndex - 10 : 0;
     }
   }
+void searchByName(){   // This is a recursive search which checks all the subdirectories too
+  std::string originalQuery = promptInput("Search");
+  if (originalQuery.empty()) {
+    statusMessage = "Search cancelled, empty search query";
+    return;
+  }
 
+  if (!searchMode) originalFiles = currentFiles;
+  presentSearchQuery = originalQuery;
+
+  std::string loweredQuery = toLower(originalQuery);
+  std::vector<FileEntry> results;
+
+  try {
+    for (const auto& entry : fs::recursive_directory_iterator(currentPath,fs::directory_options::skip_permission_denied)){
+      fs::path p = entry.path();
+      std::string filename = p.filename().string();
+      if (!showHidden && !filename.empty() && filename[0] == '.') continue;
+      std::string loweredFilename = toLower(filename);
+      if (loweredFilename.find(loweredQuery) != std::string::npos) results.emplace_back(p);
+    }
+  } catch (...) {
+    statusMessage = "Search failed";
+    return;
+  }
+  currentFiles = results;
+  searchMode = true;
+  selectedIndex = 0;
+  scrollOffset = 0;
+  multiSelection.clear();
+
+  statusMessage = "Search: \"" + originalQuery + "\" | " + std::to_string(results.size()) + " result(s)";
+  }
+
+  void clearSearch(){
+    if(!searchMode) return;
+    currentFiles = originalFiles;
+    originalFiles.clear();
+
+    searchMode = 0;
+    presentSearchQuery.clear();
+
+    selectedIndex = 0;
+    scrollOffset = 0;
+    multiSelection.clear();
+    statusMessage = "Search mode closed";
+  }
+  
   void run() {
     updateLayout();
     bool needsRedraw = true;

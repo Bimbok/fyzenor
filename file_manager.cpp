@@ -1439,6 +1439,7 @@ public:
     mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "?            → Show Help");
+    mvwprintw(helpWin, 19, 2, "f            → Search Files");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -1753,8 +1754,8 @@ void searchByName(){   // This is a recursive search which checks all the subdir
           if (focusPinned)
             printw(" 󰄾 Nav:j/k Jump:Enter Unpin:d Files:Tab");
           else
-            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z: r:  "
-                   "s: Pins: ");
+            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z:  r:  "
+                   "s:  Pins:");
           attroff(A_DIM);
         }
         refresh();

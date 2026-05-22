@@ -1687,7 +1687,7 @@ void searchByName(){   // This is a recursive search which checks all the subdir
     multiSelection.clear();
     statusMessage = "Search mode closed";
   }
-  
+
   void run() {
     updateLayout();
     bool needsRedraw = true;
@@ -1784,7 +1784,11 @@ void searchByName(){   // This is a recursive search which checks all the subdir
         focusPinned = !focusPinned;
         continue;
       }
-
+      if (ch == 'f') {
+        focusPinned = false;
+        searchByName();
+        continue;
+      }
       if (focusPinned) {
         switch (ch) {
         case 'j':

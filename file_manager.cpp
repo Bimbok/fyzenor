@@ -117,6 +117,11 @@ std::string getCachePath(const fs::path& p, int w, int h) {
   }
 }
 
+std::string toLower(std::string s){   // converts input string to lowercase with safety
+  std::transform(s.begin(), s.end(), s.begin() , [](unsigned char c){ return tolower(c);});
+  return s;
+}
+
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
 

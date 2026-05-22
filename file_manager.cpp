@@ -60,7 +60,7 @@ const std::set<std::string> DOCUMENTATION_EXTS = {".md",  ".txt",  ".pdf", ".doc
                                                   ".ppt", ".pptx", ".xls", ".xlsx", ".csv"};
 const std::set<std::string> CORE_EXTS = {
     ".py",  ".rb",  ".php",   ".cpp",  ".c",    ".hpp",   ".h",  ".rs", ".java", ".go",
-    ".lua", ".sql", ".cmake", ".make", ".diff", ".patch", ".kt", ".cs", ".scala"};
+    ".lua", ".sql", ".cmake", ".make", ".diff", ".patch", ".kt", ".cs", ".scala" , ".cxx"};
 const std::set<std::string> FONT_EXTS = {".woff", ".woff2", ".ttf", ".eot", ".otf"};
 
 const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
@@ -117,6 +117,10 @@ std::string getCachePath(const fs::path& p, int w, int h) {
   }
 }
 
+std::string toLower(std::string s){   // converts input string to lowercase with safety
+  std::transform(s.begin(), s.end(), s.begin() , [](unsigned char c){ return tolower(c);});
+  return s;
+}
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
 
@@ -136,7 +140,7 @@ struct FileEntry {
     name = p.filename().string();
     is_directory = fs::is_directory(p);
     extension = p.extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+    extension = toLower(extension);
 
     try {
       if (is_directory) {
@@ -277,6 +281,9 @@ private:
   std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
+  std::vector<FileEntry> originalFiles; // Backup of the normal directory listing during search mode
+  bool searchMode = 0; // 1 when currentFiles stores search results
+  std::string presentSearchQuery; // stores the current search query
   std::set<fs::path> multiSelection;
   std::vector<fs::path> pinnedPaths;
   size_t pinnedIndex = 0;
@@ -792,7 +799,7 @@ public:
         std::string cachePath = getCachePath(path, targetW, targetH);
 
         std::string ext = fs::path(path).extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        ext = toLower(ext);
         bool isVid = VIDEO_EXTS.count(ext);
 
         if (!fs::exists(cachePath)) {
@@ -1431,6 +1438,7 @@ public:
     mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "?            → Show Help");
+    mvwprintw(helpWin, 19, 2, "f            → Search by Name");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -1502,7 +1510,7 @@ public:
             subName = subName.substr(0, maxW - 3) + "...";
 
           std::string ext = entry.path().extension().string();
-          std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+          ext = toLower(ext);
           FileStyle s = getFileStyle(ext, fs::is_directory(entry));
 
           wattron(winPreview, COLOR_PAIR(s.pair));
@@ -1563,6 +1571,12 @@ public:
     const auto& file = currentFiles[selectedIndex];
     if (file.is_directory) {
       clearDirectRender();
+      
+      if(searchMode){
+        searchMode = 0;
+        originalFiles.clear();
+        presentSearchQuery.clear();
+      }
       currentPath = file.path;
       selectedIndex = 0;
       scrollOffset = 0;
@@ -1606,9 +1620,17 @@ public:
   void goUp() {
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
+
+      if(searchMode){
+        searchMode = 0;
+        originalFiles.clear();
+        presentSearchQuery.clear();
+      }
+
       std::string oldDirName = currentPath.filename().string();
       currentPath = currentPath.parent_path();
       reloadAll();
+
       selectedIndex = 0;
       for (size_t i = 0; i < currentFiles.size(); ++i) {
         if (currentFiles[i].name == oldDirName) {
@@ -1620,6 +1642,53 @@ public:
     }
   }
 
+  void searchByName(){   // This is a recursive search which checks all the subdirectories too
+  std::string originalQuery = promptInput("Search");
+  if (originalQuery.empty()) {
+    statusMessage = "Search cancelled, empty search query";
+    return;
+  }
+
+  if (!searchMode) originalFiles = currentFiles;
+  presentSearchQuery = originalQuery;
+
+  std::string loweredQuery = toLower(originalQuery);
+  std::vector<FileEntry> results;
+
+  try {
+    for (const auto& entry : fs::recursive_directory_iterator(currentPath,fs::directory_options::skip_permission_denied)){
+      fs::path p = entry.path();
+      std::string filename = p.filename().string();
+      if (!showHidden && !filename.empty() && filename[0] == '.') continue;
+      std::string loweredFilename = toLower(filename);
+      if (loweredFilename.find(loweredQuery) != std::string::npos) results.emplace_back(p);
+    }
+  } catch (...) {
+    statusMessage = "Search failed";
+    return;
+  }
+  currentFiles = results;
+  searchMode = true;
+  selectedIndex = 0;
+  scrollOffset = 0;
+  multiSelection.clear();
+
+  statusMessage = "Search: \"" + originalQuery + "\" | " + std::to_string(results.size()) + " result(s)";
+  }
+
+  void clearSearch(){
+    if(!searchMode) return;
+    currentFiles = originalFiles;
+    originalFiles.clear();
+
+    searchMode = 0;
+    presentSearchQuery.clear();
+
+    selectedIndex = 0;
+    scrollOffset = 0;
+    multiSelection.clear();
+    statusMessage = "Search mode closed";
+  }
   void run() {
     updateLayout();
     bool needsRedraw = true;
@@ -1685,8 +1754,7 @@ public:
           if (focusPinned)
             printw(" 󰄾 Nav:j/k Jump:Enter Unpin:d Files:Tab");
           else
-            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z: r:  "
-                   "s: Pins: ");
+            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z:  r:  s:  f:  Pins:");
           attroff(A_DIM);
         }
         refresh();
@@ -1716,7 +1784,11 @@ public:
         focusPinned = !focusPinned;
         continue;
       }
-
+      if (ch == 'f'){
+        focusPinned = false;
+        searchByName();
+        continue;
+      }
       if (focusPinned) {
         switch (ch) {
         case 'j':
@@ -1781,7 +1853,8 @@ public:
           selectAll();
           break;
         case 27:
-          clearSelection();
+          if(searchMode) clearSearch();
+          else clearSelection();
           break;
         case 'y':
           handleCopy();

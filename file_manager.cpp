@@ -1853,7 +1853,8 @@ void searchByName(){   // This is a recursive search which checks all the subdir
           selectAll();
           break;
         case 27:
-          clearSelection();
+          if(searchMode) clearSearch();
+          else clearSelection();
           break;
         case 'y':
           handleCopy();

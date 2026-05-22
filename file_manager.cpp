@@ -1848,6 +1848,11 @@ int main(int argc, char* argv[]) {
       } else if (arg == "--cwd-file" && i + 1 < argc) {
         cwdFileArg = argv[++i];
       }
+      else if(arg == "--about"){
+        std::cout << "fyzenor: A modern terminal file manager built in C++" << std::endl;
+        std::cout << "Developed as part of GSSoC contribution." << std::endl;
+        return 0;
+      }
     }
   }
   FileManager fm;

@@ -1677,29 +1677,29 @@ public:
             printw(" [%zu selected] ", multiSelection.size());
             attroff(COLOR_PAIR(9) | A_BOLD);
           }
-        attron(COLOR_PAIR(6) | A_BOLD);
-        printw(" Fyzenor ");
-        attroff(COLOR_PAIR(6) | A_BOLD);
+          
+          attron(COLOR_PAIR(6) | A_BOLD);
+          printw(" Fyzenor ");
+          attroff(COLOR_PAIR(6) | A_BOLD);
+          // Directory statistics
+          int folderCount = 0, fileCount = 0;
+          for (const auto& f : currentFiles) {
+            if (f.is_directory)
+              folderCount++;
+            else
+              fileCount++;
+          }
 
-        // Directory statistics
-        int folderCount = 0, fileCount = 0;
-        for (const auto& f : currentFiles) {
-            if (f.is_directory) folderCount++;
-            else fileCount++;            # In PowerShell, open WSL
-            wsl
-            # Then in WSL bash:
-            cd /path/to/fyzenor
-            g++ -std=c++17 -O3 file_manager.cpp -o fm -lncursesw -lpthread
-        }
-        attron(COLOR_PAIR(1) | A_BOLD);
-        printw(" 📁 %d folders", folderCount);
-        attroff(COLOR_PAIR(1) | A_BOLD);
-        attron(A_DIM);
-        printw(" |");
-        attroff(A_DIM);
-        attron(COLOR_PAIR(2) | A_BOLD);
-        printw(" 📄 %d files ", fileCount);
-        attroff(COLOR_PAIR(2) | A_BOLD);
+          attron(COLOR_PAIR(1) | A_BOLD);
+          printw(" 📁 %d folders", folderCount);
+          attroff(COLOR_PAIR(1) | A_BOLD);
+          attron(A_DIM);
+          printw(" |");
+          attroff(A_DIM);
+          attron(COLOR_PAIR(2) | A_BOLD);
+          printw(" 📄 %d files ", fileCount);
+          attroff(COLOR_PAIR(2) | A_BOLD);
+
 
           attron(A_DIM);
           if (focusPinned)

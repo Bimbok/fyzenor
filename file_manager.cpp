@@ -1006,8 +1006,13 @@ public:
   }
 
   void toggleSelection() {
-    if (currentFiles.empty())
+    if (currentFiles.empty()){
+      cout<<"This directory is empty"<<endl;
+      cout<<"Try adding new files."<<endl;
       return;
+
+    }
+      
     fs::path p = currentFiles[selectedIndex].path;
     if (multiSelection.count(p))
       multiSelection.erase(p);

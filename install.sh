@@ -28,6 +28,55 @@ check_dep() {
     fi
 }
 
+detect_platform() {
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) echo "windows";;
+        Darwin*) echo "macos";;
+        Linux*) echo "linux";;
+        *) echo "unknown";;
+    esac
+}
+
+install_hint() {
+    local platform="$1"
+    case "$platform" in
+        windows)
+            if check_dep "pacman"; then
+                echo -e "This looks like an MSYS2-style shell. Install the MinGW packages, then rerun this installer:"
+                echo -e "  ${GREEN}pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-ncurses mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-zip mingw-w64-x86_64-bat${NC}"
+                echo -e "If this is Git Bash rather than MSYS2, use WSL/Ubuntu instead."
+                return
+            fi
+            echo -e "This looks like Windows Git Bash. Git Bash does not include ncurses development headers."
+            echo -e "Do not run the apt command in this Git Bash window."
+            echo -e "Recommended: install and run Fyzenor inside WSL/Ubuntu:"
+            echo -e "  ${GREEN}wsl --install -d Ubuntu${NC}"
+            echo -e "Then open Ubuntu and run:"
+            echo -e "  ${GREEN}cd /mnt/c/projects/fyzenor${NC}"
+            echo -e "  ${GREEN}sudo apt update${NC}"
+            echo -e "  ${GREEN}sudo apt install build-essential libncursesw5-dev ffmpeg zip bat${NC}"
+            echo -e "  ${GREEN}./install.sh${NC}"
+            echo -e "Alternative: install MSYS2, open its MINGW64 shell, then run:"
+            echo -e "  ${GREEN}pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-ncurses mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-zip mingw-w64-x86_64-bat${NC}"
+            ;;
+        macos)
+            echo -e "On macOS:"
+            echo -e "  ${GREEN}brew install ncurses ffmpeg zip bat${NC}"
+            ;;
+        *)
+            echo -e "On Debian/Ubuntu:"
+            echo -e "  ${GREEN}sudo apt install build-essential libncursesw5-dev ffmpeg zip bat${NC}"
+            echo -e "On Fedora:"
+            echo -e "  ${GREEN}sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat${NC}"
+            ;;
+    esac
+}
+
+check_ncurses_header() {
+    check_dep "g++" || return 1
+    printf '#include <ncurses.h>\nint main(){return 0;}\n' | g++ -x c++ -fsyntax-only - >/dev/null 2>&1
+}
+
 # 1. Handle "Run from anywhere" (curl | bash)
 if [ ! -f "file_manager.cpp" ]; then
     echo -e "${YELLOW}Source code not found in current directory.${NC}"
@@ -52,27 +101,50 @@ fi
 
 # 3. Dependencies Check
 echo -e "${BLUE}Checking dependencies...${NC}"
-DEPS=("g++" "ffmpeg" "zip")
-MISSING_DEPS=()
+PLATFORM="$(detect_platform)"
+REQUIRED_DEPS=("g++")
+OPTIONAL_DEPS=("ffmpeg" "zip")
+MISSING_REQUIRED=()
+MISSING_OPTIONAL=()
 
-for dep in "${DEPS[@]}"; do
+for dep in "${REQUIRED_DEPS[@]}"; do
     if ! check_dep "$dep"; then
-        MISSING_DEPS+=("$dep")
+        MISSING_REQUIRED+=("$dep")
+    fi
+done
+
+if ! check_ncurses_header; then
+    MISSING_REQUIRED+=("ncurses development headers (ncurses.h)")
+fi
+
+for dep in "${OPTIONAL_DEPS[@]}"; do
+    if ! check_dep "$dep"; then
+        MISSING_OPTIONAL+=("$dep")
     fi
 done
 
 # Special check for bat/batcat
 if ! check_dep "bat" && ! check_dep "batcat"; then
-    MISSING_DEPS+=("bat (or batcat)")
+    MISSING_OPTIONAL+=("bat (or batcat)")
 fi
 
-if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
-    echo -e "${YELLOW}Warning: The following dependencies are missing:${NC}"
-    for dep in "${MISSING_DEPS[@]}"; do
+if [ ${#MISSING_REQUIRED[@]} -ne 0 ]; then
+    echo -e "${RED}Error: The following required build dependencies are missing:${NC}"
+    for dep in "${MISSING_REQUIRED[@]}"; do
+        echo -e " - $dep"
+    done
+    install_hint "$PLATFORM"
+    exit 1
+fi
+
+if [ ${#MISSING_OPTIONAL[@]} -ne 0 ]; then
+    echo -e "${YELLOW}Warning: The following optional dependencies are missing:${NC}"
+    for dep in "${MISSING_OPTIONAL[@]}"; do
         echo -e " - $dep"
     done
     echo -e "${YELLOW}Some features (previews, zip) might not work until installed.${NC}"
-    echo -e "On Debian/Ubuntu: ${GREEN}sudo apt install libncursesw5-dev ffmpeg zip bat${NC}\n"
+    install_hint "$PLATFORM"
+    echo
 fi
 
 # 4. Compilation

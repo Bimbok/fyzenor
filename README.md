@@ -124,6 +124,14 @@ sudo dnf update
 sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard
 ```
 
+On Windows, Fyzenor is best run from WSL because it depends on `ncursesw`.
+Install Ubuntu or another Linux distribution through WSL, then use the Debian/Ubuntu commands above.
+If you are using MSYS2 MINGW64 instead of WSL, install the matching MinGW packages:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-ncurses mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-zip mingw-w64-x86_64-bat
+```
+
 - **`libncursesw` or `ncurses-devel`**: Essential for wide-character terminal rendering.
 - **`ffmpeg`**: Powers asynchronous thumbnail generation for images and videos.
 - **`zip`**: Required for built-in archive creation.

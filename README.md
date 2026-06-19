@@ -117,8 +117,14 @@ On Debian or Ubuntu based systems:
 sudo apt update
 sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy
 ```
+On Fedora based systems:
 
-- **`libncursesw`**: Essential for wide-character terminal rendering.
+```bash
+sudo dnf update
+sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard
+```
+
+- **`libncursesw` or `ncurses-devel`**: Essential for wide-character terminal rendering.
 - **`ffmpeg`**: Powers asynchronous thumbnail generation for images and videos.
 - **`zip`**: Required for built-in archive creation.
 - **`bat` or `batcat`**: Used for syntax-highlighted text previews.

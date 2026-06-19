@@ -48,11 +48,21 @@ namespace fs = std::filesystem;
 const std::set<std::string> VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm"};
 const std::set<std::string> IMAGE_EXTS = {".png", ".jpg",  ".jpeg", ".gif",
                                           ".bmp", ".webp", ".svg",  ".tiff"};
-const std::set<std::string> CODE_EXTS = {
-    ".cpp",  ".h",    ".hpp",  ".c",     ".cc",   ".py",    ".js",   ".ts",        ".rs",
-    ".go",   ".java", ".rb",   ".php",   ".html", ".css",   ".scss", ".json",      ".xml",
-    ".yaml", ".yml",  ".toml", ".ini",   ".sh",   ".bash",  ".zsh",  ".lua",       ".md",
-    ".txt",  ".conf", ".diff", ".patch", ".sql",  ".cmake", ".make", ".dockerfile"};
+
+const std::set<std::string> FRONTEND_EXTS = {".js",    ".jsx", ".ts",   ".tsx",    ".css",
+                                             ".scss",  ".vue", ".html", ".svelte", ".htm",
+                                             ".astro", ".mjx", ".dart", ".swift"};
+const std::set<std::string> SCRIPTS_EXTS = {".sh", ".bash", ".zsh", ".pl", ".awk", ".ps1", ".psm1"};
+const std::set<std::string> CONFIG_EXTS = {
+    ".json", ".xml",        ".yaml",       ".yml",  ".toml",      ".ini",          ".conf",
+    ".env",  ".dockerfile", ".properties", ".lock", ".gitignore", ".gitattributes"};
+const std::set<std::string> DOCUMENTATION_EXTS = {".md",  ".txt",  ".pdf", ".doc",  ".docx",
+                                                  ".ppt", ".pptx", ".xls", ".xlsx", ".csv"};
+const std::set<std::string> CORE_EXTS = {
+    ".py",  ".rb",  ".php",   ".cpp",  ".c",    ".hpp",   ".h",  ".rs", ".java", ".go",
+    ".lua", ".sql", ".cmake", ".make", ".diff", ".patch", ".kt", ".cs", ".scala"};
+const std::set<std::string> FONT_EXTS = {".woff", ".woff2", ".ttf", ".eot", ".otf"};
+
 const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
                                           ".aac", ".ogg", ".wma",  ".opus"};
 const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z", ".rar", ".xz", ".bz2"};
@@ -60,7 +70,12 @@ const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z", ".rar"
 const char* ICON_DIR = " ";
 const char* ICON_VIDEO = " ";
 const char* ICON_IMAGE = " ";
-const char* ICON_CODE = " ";
+const char* ICON_CORE = " ";
+const char* ICON_FRONTEND = "󰖟 ";
+const char* ICON_CONFIG = " ";
+const char* ICON_SCRIPT = " ";
+const char* ICON_DOCS = " ";
+const char* ICON_FONT = " ";
 const char* ICON_FILE = " ";
 const char* ICON_MUSIC = " ";
 const char* ICON_PIN = " ";
@@ -154,6 +169,46 @@ struct FileEntry {
     }
   }
 };
+struct FileStyle {
+  int pair;
+  const char* icon;
+};
+
+FileStyle getFileStyle(const std::string& ext, bool isDir) {
+  if (isDir)
+    return {1, ICON_DIR};
+
+  if (VIDEO_EXTS.count(ext))
+    return {4, ICON_VIDEO};
+  if (IMAGE_EXTS.count(ext))
+    return {5, ICON_IMAGE};
+  if (AUDIO_EXTS.count(ext))
+    return {4, ICON_MUSIC};
+  if (FRONTEND_EXTS.count(ext))
+    return {24, ICON_FRONTEND};
+  if (CONFIG_EXTS.count(ext))
+    return {25, ICON_CONFIG};
+  if (SCRIPTS_EXTS.count(ext))
+    return {26, ICON_SCRIPT};
+  if (DOCUMENTATION_EXTS.count(ext))
+    return {27, ICON_DOCS};
+  if (FONT_EXTS.count(ext))
+    return {28, ICON_FONT};
+  if (CORE_EXTS.count(ext))
+    return {16, ICON_CORE};
+  if (ARCHIVE_EXTS.count(ext))
+    return {17, ICON_ZIP};
+
+  return {2, ICON_FILE};
+}
+
+int getFinalPair(int base, bool isSelected, bool isSecondary) {
+  if (isSelected)
+    return base + 40;
+  if (isSecondary)
+    return base + 80;
+  return base;
+}
 
 static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                         "abcdefghijklmnopqrstuvwxyz"
@@ -292,9 +347,11 @@ private:
     std::unordered_map<std::string, std::string> colors = {
         {"DIR", "#89b4fa"},     {"FILE", "#cdd6f4"},       {"SEL_BG", "#585b70"},
         {"MEDIA", "#f9e2af"},   {"IMAGE", "#f5c2e7"},      {"BORDER", "#b4befe"},
-        {"SUCCESS", "#a6e3a1"}, {"ERROR", "#f38ba8"},      {"MULTI", "#fab387"},
+        {"SUCCESS", "#a6e3a1"}, {"ERROR", "#f38ba8"},      {"MULTI", "#f5e0dc"},
         {"PIN_BG", "#cba6f7"},  {"PIN_BORDER", "#89b4fa"}, {"SEC_SEL_BG", "#313244"},
-        {"CODE", "#a6e3a1"},    {"ARCHIVE", "#eba0ac"}};
+        {"CORE", "#a6e3a1"},    {"ARCHIVE", "#eba0ac"},    {"FRONTEND", "#fab387"},
+        {"CONFIG", "#94e2d5"},  {"SCRIPT", "#f9e2af"},     {"DOCS", "#f2cdcd"},
+        {"FONT", "#cba6f7"}};
 
     const char* home = getenv("HOME");
     if (home) {
@@ -331,12 +388,17 @@ private:
         f << "BORDER: #b4befe\n";
         f << "SUCCESS: #a6e3a1\n";
         f << "ERROR: #f38ba8\n";
-        f << "MULTI: #fab387\n";
+        f << "MULTI: #f5e0dc\n";
         f << "PIN_BG: #cba6f7\n";
         f << "PIN_BORDER: #89b4fa\n";
         f << "SEC_SEL_BG: #313244\n";
-        f << "CODE: #a6e3a1\n";
+        f << "CORE: #a6e3a1\n";
         f << "ARCHIVE: #eba0ac\n";
+        f << "FRONTEND: #fab387\n";
+        f << "CONFIG: #94e2d5\n";
+        f << "SCRIPT: #f9e2af\n";
+        f << "DOCS: #f2cdcd\n";
+        f << "FONT: #cba6f7\n";
       }
     }
 
@@ -362,32 +424,51 @@ private:
       setHex(29, colors["PIN_BG"]);
       setHex(30, colors["PIN_BORDER"]);
       setHex(31, colors["SEC_SEL_BG"]);
-      setHex(32, colors["CODE"]);
+      setHex(32, colors["CORE"]);
       setHex(33, colors["ARCHIVE"]);
-
-      init_pair(1, 20, -1);  // DIR
-      init_pair(2, 21, -1);  // FILE
-      init_pair(3, 21, 22);  // SEL_FILE
-      init_pair(4, 23, -1);  // MEDIA
-      init_pair(5, 24, -1);  // IMAGE
-      init_pair(6, 25, -1);  // BORDER
-      init_pair(7, 26, -1);  // SUCCESS
-      init_pair(8, 27, -1);  // ERROR
-      init_pair(9, 28, -1);  // MULTI
-      init_pair(10, 20, 22); // SEL_DIR
-      init_pair(11, 23, 22); // SEL_MEDIA
-      init_pair(12, 24, 22); // SEL_IMAGE
-      init_pair(13, 21, 31); // SEC_SEL_FILE
-      init_pair(14, 20, 31); // SEC_SEL_DIR
-      init_pair(15, 30, -1); // PIN_BORDER
-      init_pair(16, 32, -1); // CODE
-      init_pair(17, 33, -1); // ARCHIVE
-      init_pair(18, 32, 22); // SEL_CODE
-      init_pair(19, 33, 22); // SEL_ARCHIVE
-      init_pair(20, 23, 31); // SEC_SEL_MEDIA
-      init_pair(21, 24, 31); // SEC_SEL_IMAGE
-      init_pair(22, 32, 31); // SEC_SEL_CODE
-      init_pair(23, 33, 31); // SEC_SEL_ARCHIVE
+      setHex(34, colors["FRONTEND"]);
+      setHex(35, colors["CONFIG"]);
+      setHex(36, colors["SCRIPT"]);
+      setHex(37, colors["DOCS"]);
+      setHex(38, colors["FONT"]);
+      init_pair(1, 20, -1);   // DIR
+      init_pair(2, 21, -1);   // FILE
+      init_pair(4, 23, -1);   // MEDIA
+      init_pair(5, 24, -1);   // IMAGE
+      init_pair(16, 32, -1);  // CORE
+      init_pair(17, 33, -1);  // ARCHIVE
+      init_pair(24, 34, -1);  // FRONTEND
+      init_pair(25, 35, -1);  // CONFIG
+      init_pair(26, 36, -1);  // SCRIPT
+      init_pair(27, 37, -1);  // DOCS
+      init_pair(28, 38, -1);  // FONT
+      init_pair(41, 20, 22);  // SEL_DIR
+      init_pair(42, 21, 22);  // SEL_FILE
+      init_pair(44, 23, 22);  // SEL_MEDIA
+      init_pair(45, 24, 22);  // SEL_IMAGE
+      init_pair(56, 32, 22);  // SEL_CORE
+      init_pair(57, 33, 22);  // SEL_ARCHIVE
+      init_pair(64, 34, 22);  // SEL_FRONTEND
+      init_pair(65, 35, 22);  // SEL_CONFIG
+      init_pair(66, 36, 22);  // SEL_SCRIPT
+      init_pair(67, 37, 22);  // SEL_DOCS
+      init_pair(68, 38, 22);  // SEL_FONT
+      init_pair(81, 20, 31);  // SEC_SEL_DIR
+      init_pair(82, 21, 31);  // SEC_SEL_FILE
+      init_pair(84, 23, 31);  // SEC_SEL_MEDIA
+      init_pair(85, 24, 31);  // SEC_SEL_IMAGE
+      init_pair(96, 32, 31);  // SEC_SEL_CORE
+      init_pair(97, 33, 31);  // SEC_SEL_ARCHIVE
+      init_pair(104, 34, 31); // SEC_SEL_FRONTEND
+      init_pair(105, 35, 31); // SEC_SEL_CONFIG
+      init_pair(106, 36, 31); // SEC_SEL_SCRIPT
+      init_pair(107, 37, 31); // SEC_SEL_DOCS
+      init_pair(108, 38, 31); // SEC_SEL_FONT
+      init_pair(6, 25, -1);   // BORDER
+      init_pair(7, 26, -1);   // SUCCESS
+      init_pair(8, 27, -1);   // ERROR
+      init_pair(9, 28, -1);   // MULTI
+      init_pair(15, 30, -1);  // PIN_BORDER
     } else {
       init_pair(1, COLOR_CYAN, -1);
       init_pair(2, COLOR_WHITE, -1);
@@ -557,6 +638,11 @@ public:
     }
   }
 
+  bool isCodeFile(const std::string& ext) {
+    return CORE_EXTS.count(ext) || FRONTEND_EXTS.count(ext) || SCRIPTS_EXTS.count(ext) ||
+           CONFIG_EXTS.count(ext) || DOCUMENTATION_EXTS.count(ext);
+  }
+
   const char* getIcon(const FileEntry& f) {
     if (f.is_directory)
       return ICON_DIR;
@@ -566,8 +652,18 @@ public:
       return ICON_IMAGE;
     if (AUDIO_EXTS.count(f.extension))
       return ICON_MUSIC;
-    if (CODE_EXTS.count(f.extension))
-      return ICON_CODE;
+    if (FRONTEND_EXTS.count(f.extension))
+      return ICON_FRONTEND;
+    if (CONFIG_EXTS.count(f.extension))
+      return ICON_CONFIG;
+    if (SCRIPTS_EXTS.count(f.extension))
+      return ICON_SCRIPT;
+    if (DOCUMENTATION_EXTS.count(f.extension))
+      return ICON_DOCS;
+    if (FONT_EXTS.count(f.extension))
+      return ICON_FONT;
+    if (CORE_EXTS.count(f.extension))
+      return ICON_CORE;
     if (ARCHIVE_EXTS.count(f.extension))
       return ICON_ZIP;
     return ICON_FILE;
@@ -1104,6 +1200,7 @@ public:
     (void)res;
     setStatus("Copied path");
   }
+
   void handleDelete() {
     if (currentFiles.empty())
       return;
@@ -1221,58 +1318,28 @@ public:
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
       wmove(winParent, i + 1, 1);
 
-      int colorPair = file.is_directory ? 1 : 2;
-      if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-        colorPair = 4;
-      else if (IMAGE_EXTS.count(file.extension))
-        colorPair = 5;
-      else if (CODE_EXTS.count(file.extension))
-        colorPair = 16;
-      else if (ARCHIVE_EXTS.count(file.extension))
-        colorPair = 17;
+      FileStyle style = getFileStyle(file.extension, file.is_directory);
+      int finalPair = getFinalPair(style.pair, false, isCurrent);
 
       if (isCurrent) {
-        int selPair = 13;
-        if (file.is_directory)
-          selPair = 14;
-        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-          selPair = 20;
-        else if (IMAGE_EXTS.count(file.extension))
-          selPair = 21;
-        else if (CODE_EXTS.count(file.extension))
-          selPair = 22;
-        else if (ARCHIVE_EXTS.count(file.extension))
-          selPair = 23;
-
-        wattron(winParent, COLOR_PAIR(selPair) | A_BOLD);
+        wattron(winParent, COLOR_PAIR(finalPair) | A_BOLD);
         for (int j = 0; j < getmaxx(winParent) - 2; ++j)
           waddch(winParent, ' ');
         wmove(winParent, i + 1, 1);
       } else {
-        wattron(winParent, COLOR_PAIR(colorPair) | A_DIM);
+        wattron(winParent, COLOR_PAIR(finalPair) | A_DIM);
       }
 
       std::string display = file.name;
       if (display.length() > (size_t)getmaxx(winParent) - 8)
         display = display.substr(0, getmaxx(winParent) - 11) + "...";
 
-      wprintw(winParent, " %s %s", getIcon(file), display.c_str());
+      wprintw(winParent, " %s %s", style.icon, display.c_str());
 
       if (isCurrent) {
-        int selPair = 13;
-        if (file.is_directory)
-          selPair = 14;
-        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-          selPair = 20;
-        else if (IMAGE_EXTS.count(file.extension))
-          selPair = 21;
-        else if (CODE_EXTS.count(file.extension))
-          selPair = 22;
-        else if (ARCHIVE_EXTS.count(file.extension))
-          selPair = 23;
-        wattroff(winParent, COLOR_PAIR(selPair) | A_BOLD);
+        wattroff(winParent, COLOR_PAIR(finalPair) | A_BOLD);
       } else {
-        wattroff(winParent, COLOR_PAIR(colorPair) | A_DIM);
+        wattroff(winParent, COLOR_PAIR(finalPair) | A_DIM);
       }
     }
     wrefresh(winParent);
@@ -1293,10 +1360,14 @@ public:
     wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
 
     if (!multiSelection.empty()) {
-      std::string selStr = " [" + std::to_string(multiSelection.size()) + " selected] ";
-      wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
+      std::string selStr =
+          " [ MULTI-SELECT: " + std::to_string(multiSelection.size()) + " ITEMS ] ";
+
+      wattron(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
+
       mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s", selStr.c_str());
-      wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
+
+      wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
     }
 
     int maxLines = height - 3;
@@ -1313,39 +1384,18 @@ public:
       bool isSelected = (!focusPinned && idx == (int)selectedIndex);
       bool isMultiSelected = multiSelection.count(file.path);
 
-      int baseColor = 2;
-      if (file.is_directory)
-        baseColor = 1;
-      else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-        baseColor = 4;
-      else if (IMAGE_EXTS.count(file.extension))
-        baseColor = 5;
-      else if (CODE_EXTS.count(file.extension))
-        baseColor = 16;
-      else if (ARCHIVE_EXTS.count(file.extension))
-        baseColor = 17;
+      FileStyle style = getFileStyle(file.extension, file.is_directory);
+      int finalPair = getFinalPair(style.pair, isSelected, false);
 
       if (isSelected) {
-        int selPair = 3;
-        if (file.is_directory)
-          selPair = 10;
-        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-          selPair = 11;
-        else if (IMAGE_EXTS.count(file.extension))
-          selPair = 12;
-        else if (CODE_EXTS.count(file.extension))
-          selPair = 18;
-        else if (ARCHIVE_EXTS.count(file.extension))
-          selPair = 19;
-
-        wattron(winCurrent, COLOR_PAIR(selPair) | A_BOLD);
+        wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
         for (int j = 0; j < getmaxx(winCurrent) - 2; ++j)
           waddch(winCurrent, ' ');
         wmove(winCurrent, i + 1, 1);
       } else if (isMultiSelected) {
         wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
       } else {
-        wattron(winCurrent, COLOR_PAIR(baseColor));
+        wattron(winCurrent, COLOR_PAIR(finalPair));
       }
 
       std::string display = file.name;
@@ -1354,30 +1404,66 @@ public:
         display = display.substr(0, availWidth - 3) + "...";
 
       char marker = isMultiSelected ? '*' : ' ';
-      wprintw(winCurrent, " %c %s %-s", marker, getIcon(file), display.c_str());
+      wprintw(winCurrent, " %c %s %-s", marker, style.icon, display.c_str());
 
       std::string sz = formatSize(file.size);
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
 
       if (isSelected) {
-        int selPair = 3;
-        if (file.is_directory)
-          selPair = 10;
-        else if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension))
-          selPair = 11;
-        else if (IMAGE_EXTS.count(file.extension))
-          selPair = 12;
-        else if (CODE_EXTS.count(file.extension))
-          selPair = 18;
-        else if (ARCHIVE_EXTS.count(file.extension))
-          selPair = 19;
-        wattroff(winCurrent, COLOR_PAIR(selPair) | A_BOLD);
+        wattroff(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
       } else if (isMultiSelected)
         wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
       else
-        wattroff(winCurrent, COLOR_PAIR(baseColor));
+        wattroff(winCurrent, COLOR_PAIR(finalPair));
     }
     wrefresh(winCurrent);
+  }
+
+  void drawHelpOverlay() {
+    int h = 20;
+    int w = 60;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* helpWin = newwin(h, w, startY, startX);
+
+    wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
+    drawRoundedBox(helpWin);
+    wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
+
+    wattron(helpWin, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(helpWin, 1, 2, "󰘳 Fyzenor Keybindings");
+    wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
+
+    mvwprintw(helpWin, 3, 2, "j / k        → Navigate");
+    mvwprintw(helpWin, 4, 2, "h / l        → Back / Open");
+    mvwprintw(helpWin, 5, 2, "Space / v    → Select");
+    mvwprintw(helpWin, 6, 2, "a            → Select All");
+    mvwprintw(helpWin, 7, 2, "Esc          → Clear Selection");
+    mvwprintw(helpWin, 8, 2, "y            → Copy");
+    mvwprintw(helpWin, 9, 2, "x            → Cut");
+    mvwprintw(helpWin, 10, 2, "p            → Paste");
+    mvwprintw(helpWin, 11, 2, "d            → Delete");
+    mvwprintw(helpWin, 12, 2, "r            → Rename");
+    mvwprintw(helpWin, 13, 2, "n / N        → New File / Folder");
+    mvwprintw(helpWin, 14, 2, "z            → Zip");
+    mvwprintw(helpWin, 15, 2, ".            → Toggle Hidden");
+    mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
+    mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
+    mvwprintw(helpWin, 18, 2, "?            → Show Help");
+
+    wattron(helpWin, A_DIM);
+    mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
+    wattroff(helpWin, A_DIM);
+
+    wrefresh(helpWin);
+
+    timeout(-1);
+    getch();
+    timeout(50);
+
+    delwin(helpWin);
   }
 
   void drawPreview() {
@@ -1419,7 +1505,7 @@ public:
 
     bool isVid = VIDEO_EXTS.count(file.extension);
     bool isImg = IMAGE_EXTS.count(file.extension);
-    bool isCode = CODE_EXTS.count(file.extension);
+    bool isCode = isCodeFile(file.extension);
 
     if (file.is_directory) {
       wattron(winPreview, COLOR_PAIR(1) | A_BOLD);
@@ -1436,31 +1522,13 @@ public:
           if (subName.length() > (size_t)maxW)
             subName = subName.substr(0, maxW - 3) + "...";
 
-          int cp = fs::is_directory(entry) ? 1 : 2;
           std::string ext = entry.path().extension().string();
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-          if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext))
-            cp = 4;
-          else if (IMAGE_EXTS.count(ext))
-            cp = 5;
-          else if (CODE_EXTS.count(ext))
-            cp = 16;
-          else if (ARCHIVE_EXTS.count(ext))
-            cp = 17;
+          FileStyle s = getFileStyle(ext, fs::is_directory(entry));
 
-          wattron(winPreview, COLOR_PAIR(cp));
-          mvwprintw(winPreview, line++, 4, "%s %s",
-                    fs::is_directory(entry)
-                        ? ICON_DIR
-                        : (VIDEO_EXTS.count(ext)
-                               ? ICON_VIDEO
-                               : (IMAGE_EXTS.count(ext)
-                                      ? ICON_IMAGE
-                                      : (CODE_EXTS.count(ext)
-                                             ? ICON_CODE
-                                             : (ARCHIVE_EXTS.count(ext) ? ICON_ZIP : ICON_FILE)))),
-                    subName.c_str());
-          wattroff(winPreview, COLOR_PAIR(cp));
+          wattron(winPreview, COLOR_PAIR(s.pair));
+          mvwprintw(winPreview, line++, 4, "%s %s", s.icon, subName.c_str());
+          wattroff(winPreview, COLOR_PAIR(s.pair));
         }
       } catch (...) {
       }
@@ -1527,7 +1595,7 @@ public:
       std::string cmd;
       if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
         cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
-      } else if (CODE_EXTS.count(file.extension)) {
+      } else if (isCodeFile(file.extension)) {
         const char* editor = getenv("EDITOR");
         if (!editor)
           editor = getenv("VISUAL");
@@ -1769,6 +1837,9 @@ public:
           break;
         case 's':
           toggleSort();
+          break;
+        case '?':
+          drawHelpOverlay();
           break;
         }
       }

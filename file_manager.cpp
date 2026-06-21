@@ -1561,7 +1561,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 20;
+    int h = 22;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -1592,7 +1592,8 @@ public:
     mvwprintw(helpWin, 15, 2, ".            → Toggle Hidden");
     mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
-    mvwprintw(helpWin, 18, 2, "?            → Show Help");
+    mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
+    mvwprintw(helpWin, 19, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -1809,6 +1810,24 @@ public:
     }
   }
 
+  void handleRefresh() {
+    {
+      std::lock_guard<std::mutex> lock(cacheMutex);
+      dirSizeCache.clear();
+    }
+    {
+      std::lock_guard<std::mutex> lock(previewMutex);
+      requestID++;
+      cachedPath = "";
+      requestedPath = "";
+      cachedTextLines.clear();
+      cachedBase64 = "";
+      sessionImageCache.clear();
+    }
+    reloadAll();
+    setStatus("Refreshed");
+  }
+
   void run() {
     updateLayout();
     bool needsRedraw = true;
@@ -1900,6 +1919,10 @@ public:
       if (ch == KEY_RESIZE) {
         clearDirectRender();
         updateLayout();
+        continue;
+      }
+      if (ch == 18 || ch == KEY_F(5)) { // Ctrl+R or F5
+        handleRefresh();
         continue;
       }
       if (ch == '\t') {

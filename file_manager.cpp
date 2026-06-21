@@ -1176,7 +1176,12 @@ public:
     std::string name = promptInput("New File Name");
     if (name.empty())
       return;
-    std::ofstream(currentPath / name).close();
+    fs::path target = currentPath / name;
+    if (fs::exists(target)) {
+      setStatus("Error: File already exists!");
+      return;
+    }
+    std::ofstream(target).close();
     setStatus("Created file");
     reloadAll();
   }
@@ -1184,11 +1189,17 @@ public:
     std::string name = promptInput("New Folder Name");
     if (name.empty())
       return;
+    fs::path target = currentPath / name;
+    if (fs::exists(target)) {
+      setStatus("Error: Folder already exists!");
+      return;
+    }
     try {
-      fs::create_directory(currentPath / name);
+      fs::create_directory(target);
       setStatus("Created folder");
       reloadAll();
     } catch (...) {
+      setStatus("Error: Failed to create folder");
     }
   }
   void handleZip() {
@@ -1203,6 +1214,11 @@ public:
     std::string name = promptInput("Zip Name");
     if (name.empty())
       return;
+    fs::path targetZip = currentPath / (name + ".zip");
+    if (fs::exists(targetZip)) {
+      setStatus("Error: Zip file already exists!");
+      return;
+    }
     std::string cmd = "zip -r -q \"" + name + ".zip\"";
     for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";

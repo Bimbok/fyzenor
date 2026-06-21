@@ -450,6 +450,7 @@ private:
       init_pair(8, 27, -1);   // ERROR
       init_pair(9, 28, -1);   // MULTI
       init_pair(15, 30, -1);  // PIN_BORDER
+      init_pair(10, 31, 29);  // SEL_PIN (foreground SEC_SEL_BG, background PIN_BG)
     } else {
       init_pair(1, COLOR_CYAN, -1);
       init_pair(2, COLOR_WHITE, -1);
@@ -463,6 +464,7 @@ private:
       init_pair(10, COLOR_WHITE, COLOR_BLUE);
       init_pair(11, COLOR_BLUE, -1);
       init_pair(12, COLOR_BLACK, COLOR_WHITE);
+      init_pair(15, COLOR_BLUE, -1);
     }
   }
 
@@ -1243,12 +1245,12 @@ public:
   void drawPinned() {
     werase(winPinned);
     if (focusPinned)
-      wattron(winPinned, COLOR_PAIR(10));
+      wattron(winPinned, COLOR_PAIR(6) | A_BOLD);
     else
       wattron(winPinned, COLOR_PAIR(15));
     drawRoundedBox(winPinned);
     if (focusPinned)
-      wattroff(winPinned, COLOR_PAIR(10));
+      wattroff(winPinned, COLOR_PAIR(6) | A_BOLD);
     else
       wattroff(winPinned, COLOR_PAIR(15));
 

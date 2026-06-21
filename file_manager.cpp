@@ -244,6 +244,12 @@ std::string formatSize(uintmax_t size) {
 }
 
 bool is_binary_file(const std::string& path) {
+  try {
+    if (fs::is_directory(path))
+      return false;
+  } catch (...) {
+    return false;
+  }
   std::ifstream file(path, std::ios::binary);
   if (!file)
     return false;
@@ -477,7 +483,16 @@ public:
 
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
 
-    currentPath = fs::current_path();
+    try {
+      currentPath = fs::current_path();
+    } catch (...) {
+      const char* home = getenv("HOME");
+      if (home) {
+        currentPath = fs::path(home);
+      } else {
+        currentPath = fs::path("/");
+      }
+    }
     loadDirectory(currentPath, currentFiles);
     loadParent();
 
@@ -579,8 +594,12 @@ public:
     std::ifstream f(getPinFile());
     std::string line;
     while (std::getline(f, line)) {
-      if (!line.empty() && fs::exists(line))
-        pinnedPaths.push_back(line);
+      if (!line.empty()) {
+        try {
+          if (fs::exists(line))
+            pinnedPaths.push_back(line);
+        } catch (...) {}
+      }
     }
   }
   void savePins() {
@@ -614,7 +633,21 @@ public:
     if (pinnedPaths.empty())
       return;
     if (pinnedIndex < pinnedPaths.size()) {
-      currentPath = pinnedPaths[pinnedIndex];
+      fs::path target = pinnedPaths[pinnedIndex];
+      try {
+        if (!fs::exists(target)) {
+          setStatus("Error: Pinned path no longer exists!");
+          return;
+        }
+        if (!fs::is_directory(target)) {
+          setStatus("Error: Pinned path is not a directory!");
+          return;
+        }
+      } catch (...) {
+        setStatus("Error: Cannot access pinned path");
+        return;
+      }
+      currentPath = target;
       reloadAll();
       focusPinned = false;
       setStatus("Jumped to pin");
@@ -622,6 +655,10 @@ public:
   }
 
   bool isCodeFile(const std::string& ext) {
+    if (ext == ".pdf" || ext == ".doc" || ext == ".docx" ||
+        ext == ".ppt" || ext == ".pptx" || ext == ".xls" || ext == ".xlsx") {
+      return false;
+    }
     return CORE_EXTS.count(ext) || FRONTEND_EXTS.count(ext) || SCRIPTS_EXTS.count(ext) ||
            CONFIG_EXTS.count(ext) || DOCUMENTATION_EXTS.count(ext);
   }
@@ -687,7 +724,8 @@ public:
           continue;
         target.emplace_back(entry);
       }
-    } catch (...) {
+    } catch (const std::exception& e) {
+      setStatus("Error: " + std::string(e.what()));
     }
 
     // Check cache and only queue what's missing
@@ -1223,11 +1261,20 @@ public:
     for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";
     cmd += " > /dev/null 2>&1";
-    fs::path old = fs::current_path();
-    fs::current_path(currentPath);
+    fs::path old;
+    bool pathSaved = false;
+    try {
+      old = fs::current_path();
+      fs::current_path(currentPath);
+      pathSaved = true;
+    } catch (...) {}
     int res = system(cmd.c_str());
     (void)res;
-    fs::current_path(old);
+    if (pathSaved) {
+      try {
+        fs::current_path(old);
+      } catch (...) {}
+    }
     setStatus("Zipped");
     reloadAll();
   }
@@ -1557,6 +1604,11 @@ public:
     bool isImg = IMAGE_EXTS.count(file.extension);
     bool isCode = isCodeFile(file.extension);
 
+    bool isPdf = (file.extension == ".pdf");
+    bool isDoc = (file.extension == ".doc" || file.extension == ".docx");
+    bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
+    bool isPpt = (file.extension == ".ppt" || file.extension == ".pptx");
+
     if (file.is_directory) {
       wattron(winPreview, COLOR_PAIR(1) | A_BOLD);
       mvwprintw(winPreview, 6, 2, "󰉖 Content:");
@@ -1582,6 +1634,18 @@ public:
         }
       } catch (...) {
       }
+      wnoutrefresh(winPreview);
+    } else if (isPdf || isDoc || isXls || isPpt) {
+      wattron(winPreview, COLOR_PAIR(8));
+      if (isPdf)
+        mvwprintw(winPreview, 6, 2, " [PDF File - No Preview] ");
+      else if (isDoc)
+        mvwprintw(winPreview, 6, 2, " [Word Document - No Preview] ");
+      else if (isXls)
+        mvwprintw(winPreview, 6, 2, " [Excel Spreadsheet - No Preview] ");
+      else if (isPpt)
+        mvwprintw(winPreview, 6, 2, " [PowerPoint Presentation - No Preview] ");
+      wattroff(winPreview, COLOR_PAIR(8));
       wnoutrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
       bool match = false;

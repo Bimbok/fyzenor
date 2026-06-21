@@ -296,7 +296,6 @@ struct SizeResult {
 class FileManager {
 private:
   fs::path currentPath;
-  std::string cwdFile; // Path to write final CWD
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
   std::set<fs::path> multiSelection;
@@ -536,19 +535,6 @@ public:
       sizeWorker.join();
     clearDirectRender();
     endwin();
-
-    if (!cwdFile.empty()) {
-      std::ofstream f(cwdFile);
-      if (f.is_open()) {
-        f << fs::absolute(currentPath).string() << std::endl;
-        f.flush();
-        f.close();
-      }
-    }
-  }
-
-  void setCwdFile(const std::string& path) {
-    cwdFile = path;
   }
 
   // --- Async Size Worker Function ---
@@ -1909,26 +1895,6 @@ public:
         statusMessage = "";
 
       if (ch == 'q') {
-        fs::path exitPath = currentPath;
-        if (focusPinned) {
-          if (pinnedIndex < pinnedPaths.size()) {
-            exitPath = pinnedPaths[pinnedIndex];
-          }
-        } else if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
-          const auto& file = currentFiles[selectedIndex];
-          if (file.is_directory) {
-            exitPath = file.path;
-          }
-        }
-        if (!cwdFile.empty()) {
-          std::ofstream f(cwdFile);
-          if (f.is_open()) {
-            f << fs::absolute(exitPath).string() << std::endl;
-            f.flush();
-            f.close();
-          }
-          cwdFile = ""; // Clear cwdFile so the destructor won't overwrite it
-        }
         return;
       }
       if (ch == KEY_RESIZE) {
@@ -2053,7 +2019,6 @@ public:
 const std::string VERSION = "1.2.0";
 
 int main(int argc, char* argv[]) {
-  std::string cwdFileArg;
   if (argc > 1) {
     for (int i = 1; i < argc; ++i) {
       std::string arg = argv[i];
@@ -2066,17 +2031,11 @@ int main(int argc, char* argv[]) {
         std::cout << "Options:" << std::endl;
         std::cout << "  -v, --version         Show version information" << std::endl;
         std::cout << "  -h, --help            Show this help message" << std::endl;
-        std::cout << "  --cwd-file <file>     Write the final working directory to <file> on exit"
-                  << std::endl;
         return 0;
-      } else if (arg == "--cwd-file" && i + 1 < argc) {
-        cwdFileArg = argv[++i];
       }
     }
   }
   FileManager fm;
-  if (!cwdFileArg.empty())
-    fm.setCwdFile(cwdFileArg);
   fm.run();
   return 0;
 }

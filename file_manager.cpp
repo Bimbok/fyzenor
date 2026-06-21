@@ -1927,6 +1927,7 @@ public:
             f.flush();
             f.close();
           }
+          cwdFile = ""; // Clear cwdFile so the destructor won't overwrite it
         }
         return;
       }

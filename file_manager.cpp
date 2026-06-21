@@ -1908,8 +1908,28 @@ public:
       if (ch != ERR)
         statusMessage = "";
 
-      if (ch == 'q')
+      if (ch == 'q') {
+        fs::path exitPath = currentPath;
+        if (focusPinned) {
+          if (pinnedIndex < pinnedPaths.size()) {
+            exitPath = pinnedPaths[pinnedIndex];
+          }
+        } else if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+          const auto& file = currentFiles[selectedIndex];
+          if (file.is_directory) {
+            exitPath = file.path;
+          }
+        }
+        if (!cwdFile.empty()) {
+          std::ofstream f(cwdFile);
+          if (f.is_open()) {
+            f << fs::absolute(exitPath).string() << std::endl;
+            f.flush();
+            f.close();
+          }
+        }
         return;
+      }
       if (ch == KEY_RESIZE) {
         clearDirectRender();
         updateLayout();

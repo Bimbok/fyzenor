@@ -120,6 +120,9 @@ function f() {
 		fi
 	fi
 }
+if ! command -v y &>/dev/null; then
+	alias y=f
+fi
 "
 
 setup_shell() {

@@ -39,6 +39,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <chrono>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -241,6 +242,21 @@ std::string formatSize(uintmax_t size) {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%.1f %s", dSize, units[i]);
   return std::string(buffer);
+}
+
+std::string getFileModifiedTime(const fs::path& path) {
+  try {
+    auto ftime = fs::last_write_time(path);
+    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+    std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
+    std::tm* ltime = std::localtime(&ctime);
+    char buffer[64];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", ltime);
+    return std::string(buffer);
+  } catch (...) {
+    return "Unknown";
+  }
 }
 
 bool is_binary_file(const std::string& path) {
@@ -963,9 +979,9 @@ public:
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
                          int offX = 0, int offY = 0) {
     // Move cursor to start of preview area (1-indexed for terminal)
-    // pY+1 is the start of the window, we have 7 lines of header/padding +
+    // pY+1 is the start of the window, we have 8 lines of header/padding +
     // offY.
-    std::cout << "\033[" << (pY + 7 + offY) << ";" << (pX + 3 + offX) << "H";
+    std::cout << "\033[" << (pY + 8 + offY) << ";" << (pX + 3 + offX) << "H";
     const size_t chunk_size = 4096;
     size_t total = b64Data.length();
     size_t offset = 0;
@@ -996,10 +1012,10 @@ public:
       int cols = (cachedImgW + 9) / 10;
       int rows = (cachedImgH + 19) / 20;
 
-      // Box starts at line 7, ends at pH-2. Total height = pH - 8.
+      // Box starts at line 8, ends at pH-2. Total height = pH - 9.
       // Width starts at pX+3, ends at pX+pW-2. Total width = pW - 4.
       int boxW = pW - 4;
-      int boxH = pH - 8;
+      int boxH = pH - 9;
 
       int offX = (boxW - cols) / 2;
       int offY = (boxH - rows) / 2;
@@ -1019,13 +1035,13 @@ public:
       return;
 
     int maxW = getmaxx(winPreview) - 4;
-    int lineLimit = std::min((int)cachedTextLines.size(), getmaxy(winPreview) - 8);
+    int lineLimit = std::min((int)cachedTextLines.size(), getmaxy(winPreview) - 9);
 
     for (int i = 0; i < lineLimit; ++i) {
       std::string line = cachedTextLines[i];
       if ((int)line.size() > maxW)
         line = line.substr(0, maxW);
-      mvwprintw(winPreview, 6 + i, 2, "%-*s", maxW, line.c_str());
+      mvwprintw(winPreview, 7 + i, 2, "%-*s", maxW, line.c_str());
     }
   }
   // ----------------------------
@@ -1034,22 +1050,65 @@ public:
     statusMessage = msg;
   }
 
-  std::string promptInput(const std::string& prompt) {
+  std::string promptInput(const std::string& prompt, const std::string& defaultVal = "") {
     move(height - 1, 0);
     clrtoeol();
     attron(COLOR_PAIR(7) | A_BOLD);
     mvprintw(height - 1, 0, "%s: ", prompt.c_str());
     attroff(COLOR_PAIR(7) | A_BOLD);
     refresh();
+
+    int startCol = prompt.length() + 2;
+    std::string input = defaultVal;
+    int cursorIdx = defaultVal.length();
+
     timeout(-1);
-    echo();
-    curs_set(1);
-    char buf[256];
-    getnstr(buf, 255);
     noecho();
+    curs_set(1);
+
+    while (true) {
+      move(height - 1, startCol);
+      clrtoeol();
+      printw("%s", input.c_str());
+      move(height - 1, startCol + cursorIdx);
+      refresh();
+
+      int ch = getch();
+      if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
+        break;
+      } else if (ch == 27) {
+        input = "";
+        break;
+      } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+        if (cursorIdx > 0 && !input.empty()) {
+          input.erase(cursorIdx - 1, 1);
+          cursorIdx--;
+        }
+      } else if (ch == KEY_DC) {
+        if (cursorIdx < (int)input.length()) {
+          input.erase(cursorIdx, 1);
+        }
+      } else if (ch == KEY_LEFT) {
+        if (cursorIdx > 0)
+          cursorIdx--;
+      } else if (ch == KEY_RIGHT) {
+        if (cursorIdx < (int)input.length())
+          cursorIdx++;
+      } else if (ch == KEY_HOME || ch == 1) { // Home / Ctrl-A
+        cursorIdx = 0;
+      } else if (ch == KEY_END || ch == 5) { // End / Ctrl-E
+        cursorIdx = input.length();
+      } else if (ch >= 32 && ch <= 126) {
+        if (input.length() < 255) {
+          input.insert(cursorIdx, 1, (char)ch);
+          cursorIdx++;
+        }
+      }
+    }
+
     curs_set(0);
     timeout(50);
-    return std::string(buf);
+    return input;
   }
 
   void toggleSelection() {
@@ -1192,7 +1251,7 @@ public:
     if (currentFiles.empty())
       return;
     const auto& file = currentFiles[selectedIndex];
-    std::string newName = promptInput("Rename " + file.name + " to");
+    std::string newName = promptInput("Rename " + file.name + " to", file.name);
     if (newName.empty())
       return;
 
@@ -1593,11 +1652,12 @@ public:
     mvwprintw(winPreview, 3, 2, " Type: %s",
               file.is_directory ? "Directory"
                                 : (file.extension.empty() ? "File" : file.extension.c_str()));
+    mvwprintw(winPreview, 4, 2, " Modified: %s", getFileModifiedTime(file.path).c_str());
     wattroff(winPreview, A_DIM);
 
     wattron(winPreview, COLOR_PAIR(6));
     for (int i = 1; i < getmaxx(winPreview) - 1; ++i)
-      mvwaddstr(winPreview, 4, i, "─");
+      mvwaddstr(winPreview, 5, i, "─");
     wattroff(winPreview, COLOR_PAIR(6));
 
     bool isVid = VIDEO_EXTS.count(file.extension);
@@ -1611,10 +1671,10 @@ public:
 
     if (file.is_directory) {
       wattron(winPreview, COLOR_PAIR(1) | A_BOLD);
-      mvwprintw(winPreview, 6, 2, "󰉖 Content:");
+      mvwprintw(winPreview, 7, 2, "󰉖 Content:");
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
-        int line = 7;
+        int line = 8;
         for (const auto& entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
@@ -1638,13 +1698,13 @@ public:
     } else if (isPdf || isDoc || isXls || isPpt) {
       wattron(winPreview, COLOR_PAIR(8));
       if (isPdf)
-        mvwprintw(winPreview, 6, 2, " [PDF File - No Preview] ");
+        mvwprintw(winPreview, 7, 2, " [PDF File - No Preview] ");
       else if (isDoc)
-        mvwprintw(winPreview, 6, 2, " [Word Document - No Preview] ");
+        mvwprintw(winPreview, 7, 2, " [Word Document - No Preview] ");
       else if (isXls)
-        mvwprintw(winPreview, 6, 2, " [Excel Spreadsheet - No Preview] ");
+        mvwprintw(winPreview, 7, 2, " [Excel Spreadsheet - No Preview] ");
       else if (isPpt)
-        mvwprintw(winPreview, 6, 2, " [PowerPoint Presentation - No Preview] ");
+        mvwprintw(winPreview, 7, 2, " [PowerPoint Presentation - No Preview] ");
       wattroff(winPreview, COLOR_PAIR(8));
       wnoutrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
@@ -1661,21 +1721,21 @@ public:
           pendingDirectRenderType = PreviewType::IMAGE;
       } else if (requestedPath != file.path.string()) {
         wattron(winPreview, A_ITALIC | A_DIM);
-        mvwprintw(winPreview, 6, 4, "Generating preview...");
+        mvwprintw(winPreview, 7, 4, "Generating preview...");
         wattroff(winPreview, A_ITALIC | A_DIM);
         PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
-        startAsyncPreview(file.path.string(), type, maxH - 8, maxW);
+        startAsyncPreview(file.path.string(), type, maxH - 9, maxW);
       }
     } else {
       if (is_binary_file(file.path.string())) {
         wattron(winPreview, COLOR_PAIR(8));
-        mvwprintw(winPreview, 6, 2, " [Binary File - No Preview] ");
+        mvwprintw(winPreview, 7, 2, " [Binary File - No Preview] ");
         wattroff(winPreview, COLOR_PAIR(8));
       } else {
         std::ifstream f(file.path);
         if (f.is_open()) {
           std::string lineStr;
-          int line = 6;
+          int line = 7;
           while (std::getline(f, lineStr) && line < height - 3) {
             std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
             for (size_t i = 0; i < lineStr.length(); i += maxW) {

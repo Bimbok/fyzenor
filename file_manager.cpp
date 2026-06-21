@@ -1068,6 +1068,21 @@ public:
     multiSelection.clear();
   }
 
+  fs::path getNonConflictingPath(const fs::path& base) {
+    if (!fs::exists(base))
+      return base;
+    fs::path parent = base.parent_path();
+    std::string stem = base.stem().string();
+    std::string ext = base.extension().string();
+    int counter = 1;
+    while (true) {
+      fs::path newPath = parent / (stem + "_" + std::to_string(counter) + ext);
+      if (!fs::exists(newPath))
+        return newPath;
+      counter++;
+    }
+  }
+
   void handlePaste() {
     if (clipboard.paths.empty()) {
       setStatus("Clipboard empty");
@@ -1076,8 +1091,38 @@ public:
     int successCount = 0;
     for (const auto& src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
-      if (fs::exists(dest) && !clipboard.isCut && src != dest)
-        continue;
+      if (fs::exists(dest)) {
+        if (clipboard.isCut && src == dest) {
+          continue;
+        }
+        std::string filename = src.filename().string();
+        if (filename.length() > 30) {
+          filename = filename.substr(0, 27) + "...";
+        }
+        std::string promptStr = "'" + filename + "' exists. [r]eplace, [k]eep both, [c]ancel";
+        std::string ans = promptInput(promptStr);
+        char choice = 'c';
+        if (!ans.empty()) {
+          choice = std::tolower(ans[0]);
+        }
+        
+        if (choice == 'r') {
+          if (src == dest) {
+            successCount++;
+            continue;
+          }
+          try {
+            fs::remove_all(dest);
+          } catch (...) {
+            setStatus("Error: Failed to replace " + dest.filename().string());
+            continue;
+          }
+        } else if (choice == 'k') {
+          dest = getNonConflictingPath(dest);
+        } else {
+          continue;
+        }
+      }
       try {
         if (clipboard.isCut) {
           try {

@@ -298,6 +298,7 @@ private:
   std::string cachedBase64;
   int cachedImgW = 0, cachedImgH = 0;
   std::vector<std::string> cachedTextLines;
+  PreviewType pendingDirectRenderType = PreviewType::NONE;
   struct ImageCacheEntry {
     std::string b64;
     int w, h;
@@ -844,7 +845,7 @@ public:
         if (is_binary_file(path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
-          std::string cmd = "bat --color=always --style=plain --paging=never "
+          std::string cmd = "bat --color=never --style=plain --paging=never "
                             "--wrap=character --line-range=:" +
                             std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
           FILE* pipe = popen(cmd.c_str(), "r");
@@ -862,7 +863,7 @@ public:
           }
           if (!gotOutput) {
             lines.clear();
-            cmd = "batcat --color=always --style=plain --paging=never "
+            cmd = "batcat --color=never --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
                   std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
             pipe = popen(cmd.c_str(), "r");
@@ -969,16 +970,22 @@ public:
 
       sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY);
       lastWasDirectRender = true;
-    } else if (type == PreviewType::TEXT && !cachedTextLines.empty()) {
-      std::cout << "\033[?7l";
-      int lineLimit = std::min((int)cachedTextLines.size(), pH - 8);
-      for (int i = 0; i < lineLimit; ++i) {
-        std::cout << "\033[" << (pY + 7 + i) << ";" << (pX + 2) << "H";
-        std::cout << cachedTextLines[i];
-      }
-      std::cout << "\033[?7h";
-      std::cout << std::flush;
-      lastWasDirectRender = true;
+    }
+  }
+
+  void drawCachedTextPreview() {
+    std::lock_guard<std::mutex> lock(previewMutex);
+    if (cachedTextLines.empty())
+      return;
+
+    int maxW = getmaxx(winPreview) - 4;
+    int lineLimit = std::min((int)cachedTextLines.size(), getmaxy(winPreview) - 8);
+
+    for (int i = 0; i < lineLimit; ++i) {
+      std::string line = cachedTextLines[i];
+      if ((int)line.size() > maxW)
+        line = line.substr(0, maxW);
+      mvwprintw(winPreview, 6 + i, 2, "%-*s", maxW, line.c_str());
     }
   }
   // ----------------------------
@@ -1269,7 +1276,7 @@ public:
       if (focusPinned && i == pinnedIndex)
         wattroff(winPinned, COLOR_PAIR(10) | A_BOLD);
     }
-    wrefresh(winPinned);
+    wnoutrefresh(winPinned);
   }
 
   void drawParent() {
@@ -1321,7 +1328,7 @@ public:
         wattroff(winParent, COLOR_PAIR(finalPair) | A_DIM);
       }
     }
-    wrefresh(winParent);
+    wnoutrefresh(winParent);
   }
 
   void drawCurrent() {
@@ -1395,7 +1402,7 @@ public:
       else
         wattroff(winCurrent, COLOR_PAIR(finalPair));
     }
-    wrefresh(winCurrent);
+    wnoutrefresh(winCurrent);
   }
 
   void drawHelpOverlay() {
@@ -1446,9 +1453,10 @@ public:
   }
 
   void drawPreview() {
+    pendingDirectRenderType = PreviewType::NONE;
     if (lastWasDirectRender)
       clearDirectRender();
-    wclear(winPreview);
+    werase(winPreview);
     wattron(winPreview, COLOR_PAIR(6));
     drawRoundedBox(winPreview);
     wattroff(winPreview, COLOR_PAIR(6));
@@ -1458,7 +1466,7 @@ public:
     wattroff(winPreview, A_BOLD | COLOR_PAIR(5));
 
     if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
-      wrefresh(winPreview);
+      wnoutrefresh(winPreview);
       return;
     }
     const auto& file = currentFiles[selectedIndex];
@@ -1511,9 +1519,8 @@ public:
         }
       } catch (...) {
       }
-      wrefresh(winPreview);
+      wnoutrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
-      wrefresh(winPreview);
       bool match = false;
       {
         std::lock_guard<std::mutex> lock(previewMutex);
@@ -1522,14 +1529,13 @@ public:
       }
       if (match) {
         if (isCode)
-          drawFromCache(PreviewType::TEXT);
+          drawCachedTextPreview();
         else
-          drawFromCache(PreviewType::IMAGE);
+          pendingDirectRenderType = PreviewType::IMAGE;
       } else if (requestedPath != file.path.string()) {
         wattron(winPreview, A_ITALIC | A_DIM);
         mvwprintw(winPreview, 6, 4, "Generating preview...");
         wattroff(winPreview, A_ITALIC | A_DIM);
-        wrefresh(winPreview);
         PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
         startAsyncPreview(file.path.string(), type, maxH - 8, maxW);
       }
@@ -1553,7 +1559,17 @@ public:
           }
         }
       }
-      wrefresh(winPreview);
+    }
+    wnoutrefresh(winPreview);
+  }
+
+  void flushScreen() {
+    wnoutrefresh(stdscr);
+    doupdate();
+
+    if (pendingDirectRenderType != PreviewType::NONE) {
+      drawFromCache(pendingDirectRenderType);
+      pendingDirectRenderType = PreviewType::NONE;
     }
   }
 
@@ -1689,7 +1705,7 @@ public:
                    "s: Pins: ");
           attroff(A_DIM);
         }
-        refresh();
+        flushScreen();
         needsRedraw = false;
       }
 

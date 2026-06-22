@@ -32,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <ncurses.h>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -489,6 +490,164 @@ private:
     }
   }
 
+  int get_or_create_color_pair(short fg, short bg) {
+    static std::map<std::pair<short, short>, int> pairCache;
+    static int nextPairId = 110;
+
+    auto key = std::make_pair(fg, bg);
+    auto it = pairCache.find(key);
+    if (it != pairCache.end()) {
+      return it->second;
+    }
+    if (nextPairId < COLOR_PAIRS) {
+      init_pair(nextPairId, fg, bg);
+      pairCache[key] = nextPairId;
+      return nextPairId++;
+    }
+    return 0;
+  }
+
+  void wprintw_ansi(WINDOW* win, int y, int x, const std::string& line, int maxW) {
+    wmove(win, y, x);
+    int visibleCount = 0;
+
+    attr_t currentAttrs = A_NORMAL;
+    short fg = -1;
+    short bg = -1;
+
+    size_t i = 0;
+    while (i < line.size() && visibleCount < maxW) {
+      if (line[i] == '\033' && i + 1 < line.size() && line[i + 1] == '[') {
+        i += 2;
+        std::string seq;
+        while (i < line.size() && !isalpha(line[i])) {
+          seq += line[i];
+          i++;
+        }
+        if (i >= line.size()) break;
+        char cmd = line[i];
+        i++;
+
+        if (cmd == 'm') {
+          std::vector<int> params;
+          int val = 0;
+          bool hasVal = false;
+          for (char c : seq) {
+            if (c == ';') {
+              params.push_back(hasVal ? val : 0);
+              val = 0;
+              hasVal = false;
+            } else if (c >= '0' && c <= '9') {
+              val = val * 10 + (c - '0');
+              hasVal = true;
+            }
+          }
+          if (hasVal) {
+            params.push_back(val);
+          }
+          if (params.empty()) {
+            params.push_back(0);
+          }
+
+          for (size_t p = 0; p < params.size(); ++p) {
+            int valParam = params[p];
+            if (valParam == 0) {
+              currentAttrs = A_NORMAL;
+              fg = -1;
+              bg = -1;
+            } else if (valParam == 1) {
+              currentAttrs |= A_BOLD;
+            } else if (valParam == 2) {
+              currentAttrs |= A_DIM;
+            } else if (valParam == 3) {
+              currentAttrs |= A_ITALIC;
+            } else if (valParam == 4) {
+              currentAttrs |= A_UNDERLINE;
+            } else if (valParam == 22) {
+              currentAttrs &= ~A_BOLD;
+              currentAttrs &= ~A_DIM;
+            } else if (valParam == 23) {
+              currentAttrs &= ~A_ITALIC;
+            } else if (valParam == 24) {
+              currentAttrs &= ~A_UNDERLINE;
+            } else if (valParam >= 30 && valParam <= 37) {
+              fg = valParam - 30;
+            } else if (valParam == 39) {
+              fg = -1;
+            } else if (valParam >= 40 && valParam <= 47) {
+              bg = valParam - 40;
+            } else if (valParam == 49) {
+              bg = -1;
+            } else if (valParam >= 90 && valParam <= 97) {
+              fg = valParam - 90 + 8;
+            } else if (valParam >= 100 && valParam <= 107) {
+              bg = valParam - 100 + 8;
+            } else if (valParam == 38) {
+              if (p + 2 < params.size() && params[p + 1] == 5) {
+                fg = params[p + 2];
+                p += 2;
+              } else if (p + 4 < params.size() && params[p + 1] == 2) {
+                int r = params[p + 2];
+                int g = params[p + 3];
+                int b = params[p + 4];
+                if (r == g && g == b) {
+                  if (r < 8) fg = 16;
+                  else if (r > 248) fg = 231;
+                  else fg = 232 + (r - 8) * 24 / 240;
+                } else {
+                  int qr = (r * 5 + 127) / 255;
+                  int qg = (g * 5 + 127) / 255;
+                  int qb = (b * 5 + 127) / 255;
+                  fg = 16 + 36 * qr + 6 * qg + qb;
+                }
+                p += 4;
+              }
+            } else if (valParam == 48) {
+              if (p + 2 < params.size() && params[p + 1] == 5) {
+                bg = params[p + 2];
+                p += 2;
+              } else if (p + 4 < params.size() && params[p + 1] == 2) {
+                int r = params[p + 2];
+                int g = params[p + 3];
+                int b = params[p + 4];
+                if (r == g && g == b) {
+                  if (r < 8) bg = 16;
+                  else if (r > 248) bg = 231;
+                  else bg = 232 + (r - 8) * 24 / 240;
+                } else {
+                  int qr = (r * 5 + 127) / 255;
+                  int qg = (g * 5 + 127) / 255;
+                  int qb = (b * 5 + 127) / 255;
+                  bg = 16 + 36 * qr + 6 * qg + qb;
+                }
+                p += 4;
+              }
+            }
+          }
+
+          wattrset(win, currentAttrs);
+          if (fg != -1 || bg != -1) {
+            int pair = get_or_create_color_pair(fg, bg);
+            wattron(win, COLOR_PAIR(pair));
+          } else {
+            wattron(win, COLOR_PAIR(2));
+          }
+        }
+      } else {
+        waddch(win, (unsigned char)line[i]);
+        visibleCount++;
+        i++;
+      }
+    }
+
+    wattrset(win, A_NORMAL);
+    wattron(win, COLOR_PAIR(2));
+    while (visibleCount < maxW) {
+      waddch(win, ' ');
+      visibleCount++;
+    }
+  }
+
 public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
@@ -887,7 +1046,7 @@ public:
         if (is_binary_file(path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
-          std::string cmd = "bat --color=never --style=plain --paging=never "
+          std::string cmd = "bat --color=always --style=plain --paging=never "
                             "--wrap=character --line-range=:" +
                             std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
           FILE* pipe = popen(cmd.c_str(), "r");
@@ -905,7 +1064,7 @@ public:
           }
           if (!gotOutput) {
             lines.clear();
-            cmd = "batcat --color=never --style=plain --paging=never "
+            cmd = "batcat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
                   std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
             pipe = popen(cmd.c_str(), "r");
@@ -1024,10 +1183,7 @@ public:
     int lineLimit = std::min((int)cachedTextLines.size(), getmaxy(winPreview) - 9);
 
     for (int i = 0; i < lineLimit; ++i) {
-      std::string line = cachedTextLines[i];
-      if ((int)line.size() > maxW)
-        line = line.substr(0, maxW);
-      mvwprintw(winPreview, 7 + i, 2, "%-*s", maxW, line.c_str());
+      wprintw_ansi(winPreview, 7 + i, 2, cachedTextLines[i], maxW);
     }
   }
   // ----------------------------

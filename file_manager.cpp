@@ -878,7 +878,10 @@ public:
       std::lock_guard<std::mutex> lock(queueMutex);
       sizeQueue.clear();
     }
-
+    {
+      std::lock_guard<std::mutex> lock(resultMutex);
+      resultQueue.clear();
+    }
     try {
       for (const auto& entry : fs::directory_iterator(path)) {
         if (!showHidden && entry.path().filename().string().front() == '.')

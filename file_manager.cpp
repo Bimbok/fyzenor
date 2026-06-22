@@ -331,6 +331,17 @@ private:
   long long requestID = 0;
   bool lastWasDirectRender = false;
 
+  struct PreviewJob {
+    std::string path;
+    PreviewType type;
+    int previewHeight;
+    int previewWidth;
+    long long reqId;
+  };
+  std::unique_ptr<PreviewJob> nextPreviewJob;
+  std::condition_variable previewCv;
+  std::thread previewWorker;
+
   // Async Size Calculation State
   std::unordered_map<std::string, uintmax_t> dirSizeCache;
   std::mutex cacheMutex;
@@ -656,6 +667,7 @@ public:
     loadPins();
 
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
+    previewWorker = std::thread(&FileManager::processPreviewWorker, this);
 
     try {
       currentPath = fs::current_path();
@@ -690,8 +702,11 @@ public:
   ~FileManager() {
     stopWorker = true;
     queueCv.notify_all();
+    previewCv.notify_all();
     if (sizeWorker.joinable())
       sizeWorker.join();
+    if (previewWorker.joinable())
+      previewWorker.join();
     clearDirectRender();
     endwin();
   }
@@ -982,26 +997,52 @@ public:
       }
     }
 
-    std::thread([this, path, type, previewHeight, previewWidth, reqId = requestID]() {
+    {
+      std::lock_guard<std::mutex> lock(previewMutex);
+      nextPreviewJob = std::make_unique<PreviewJob>(PreviewJob{path, type, previewHeight, previewWidth, requestID});
+    }
+    previewCv.notify_one();
+  }
+
+  void processPreviewWorker() {
+    while (!stopWorker) {
+      std::unique_ptr<PreviewJob> job;
+      {
+        std::unique_lock<std::mutex> lock(previewMutex);
+        previewCv.wait(lock, [this] { return nextPreviewJob != nullptr || stopWorker; });
+        if (stopWorker)
+          break;
+        job = std::move(nextPreviewJob);
+      }
+
+      if (!job)
+        continue;
+
+      if (job->reqId != requestID)
+        continue;
+
       std::string b64;
       std::vector<std::string> lines;
 
-      if (type == PreviewType::IMAGE) {
-        int targetW = (int)((previewWidth - 4) * 10);
-        int targetH = (int)((previewHeight - 4) * 20);
+      if (job->type == PreviewType::IMAGE) {
+        int targetW = (int)((job->previewWidth - 4) * 10);
+        int targetH = (int)((job->previewHeight - 4) * 20);
         if (targetW < 10)
           targetW = 10;
         if (targetH < 10)
           targetH = 10;
 
-        std::string cachePath = getCachePath(path, targetW, targetH);
+        std::string cachePath = getCachePath(job->path, targetW, targetH);
 
-        std::string ext = fs::path(path).extension().string();
+        std::string ext = fs::path(job->path).extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         bool isVid = VIDEO_EXTS.count(ext);
 
+        if (job->reqId != requestID)
+          continue;
+
         if (!fs::exists(cachePath)) {
-          std::string fileCmd = "\"" + path + "\"";
+          std::string fileCmd = "\"" + job->path + "\"";
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
                                     std::to_string(targetH) +
                                     ":force_original_aspect_ratio=decrease";
@@ -1018,7 +1059,9 @@ public:
           (void)res;
         }
 
-        // Get actual scaled dimensions
+        if (job->reqId != requestID)
+          continue;
+
         int finalW = 0, finalH = 0;
         std::string probeCmd = "ffprobe -v error -select_streams v:0 -show_entries "
                                "stream=width,height -of csv=s=x:p=0 \"" +
@@ -1032,6 +1075,9 @@ public:
           pclose(p);
         }
 
+        if (job->reqId != requestID)
+          continue;
+
         std::ifstream file(cachePath, std::ios::binary);
         if (file) {
           std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
@@ -1040,23 +1086,32 @@ public:
 
         {
           std::lock_guard<std::mutex> lock(previewMutex);
-          if (reqId == requestID) {
+          if (job->reqId == requestID) {
             cachedImgW = finalW;
             cachedImgH = finalH;
+            cachedBase64 = b64;
+            sessionImageCache[job->path] = {b64, cachedImgW, cachedImgH};
+            cachedPath = job->path;
+            imageReady = true;
           }
         }
-      } else if (type == PreviewType::TEXT) {
-        if (is_binary_file(path)) {
+      } else if (job->type == PreviewType::TEXT) {
+        if (is_binary_file(job->path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
+          if (job->reqId != requestID)
+            continue;
+
           std::string cmd = "bat --color=always --style=plain --paging=never "
                             "--wrap=character --line-range=:" +
-                            std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
+                            std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
           FILE* pipe = popen(cmd.c_str(), "r");
           bool gotOutput = false;
           if (pipe) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+              if (job->reqId != requestID)
+                break;
               std::string line(buffer);
               if (!line.empty() && line.back() == '\n')
                 line.pop_back();
@@ -1065,15 +1120,21 @@ public:
             }
             pclose(pipe);
           }
+
+          if (job->reqId != requestID)
+            continue;
+
           if (!gotOutput) {
             lines.clear();
             cmd = "batcat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
-                  std::to_string(previewHeight * 2) + " \"" + path + "\" 2>/dev/null";
+                  std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
             pipe = popen(cmd.c_str(), "r");
             if (pipe) {
               char buffer[1024];
               while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+                if (job->reqId != requestID)
+                  break;
                 std::string line(buffer);
                 if (!line.empty() && line.back() == '\n')
                   line.pop_back();
@@ -1083,13 +1144,19 @@ public:
               pclose(pipe);
             }
           }
+
+          if (job->reqId != requestID)
+            continue;
+
           if (!gotOutput) {
             lines.clear();
-            std::ifstream f(path);
+            std::ifstream f(job->path);
             if (f.is_open()) {
               std::string lineStr;
               int count = 0;
-              while (std::getline(f, lineStr) && count < previewHeight) {
+              while (std::getline(f, lineStr) && count < job->previewHeight) {
+                if (job->reqId != requestID)
+                  break;
                 std::string clean;
                 for (char c : lineStr) {
                   if (c == '\t')
@@ -1097,31 +1164,25 @@ public:
                   else
                     clean += c;
                 }
-                if (clean.length() > (size_t)previewWidth)
-                  clean = clean.substr(0, previewWidth);
+                if (clean.length() > (size_t)job->previewWidth)
+                  clean = clean.substr(0, job->previewWidth);
                 lines.push_back(clean);
                 count++;
               }
             }
           }
         }
-      }
 
-      {
-        std::lock_guard<std::mutex> lock(previewMutex);
-        if (reqId == requestID) {
-          if (type == PreviewType::IMAGE) {
-            cachedBase64 = b64;
-            sessionImageCache[path] = {b64, cachedImgW, cachedImgH};
-          } else {
+        {
+          std::lock_guard<std::mutex> lock(previewMutex);
+          if (job->reqId == requestID) {
             cachedTextLines = lines;
+            cachedPath = job->path;
+            imageReady = true;
           }
-          cachedPath = path;
         }
       }
-      if (reqId == requestID)
-        imageReady = true;
-    }).detach();
+    }
   }
 
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,

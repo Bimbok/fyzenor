@@ -1255,8 +1255,8 @@ public:
 
   void toggleSelection() {
     if (currentFiles.empty()){
-      cout<<"This directory is empty"<<endl;
-      cout<<"Try adding new files."<<endl;
+      std::cout<<"This directory is empty"<<std::endl;
+      std::cout<<"Try adding new files."<<std::endl;
       return;
 
     }

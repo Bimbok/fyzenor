@@ -311,6 +311,7 @@ private:
 
   Clipboard clipboard;
   std::string statusMessage;
+  std::chrono::steady_clock::time_point statusTime;
   bool showHidden = false;
   bool sortBySize = false;
   bool isSearching = false;
@@ -1292,32 +1293,91 @@ public:
 
   void setStatus(const std::string& msg) {
     statusMessage = msg;
+    statusTime = std::chrono::steady_clock::now();
+  }
+
+  void drawStatusToast() {
+    if (statusMessage.empty())
+      return;
+
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
+      statusMessage = "";
+      return;
+    }
+
+    int w = statusMessage.length() + 4;
+    int h = 3;
+    int y = height - 4;
+    int x = width - w - 2;
+
+    WINDOW* toastWin = newwin(h, w, y, x);
+    if (!toastWin) return;
+
+    bool isError = statusMessage.find("Failed") != std::string::npos ||
+                   statusMessage.find("Error") != std::string::npos;
+    int colorPair = isError ? 8 : 7;
+
+    wattron(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
+    drawRoundedBox(toastWin);
+    wattroff(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
+
+    mvwprintw(toastWin, 1, 2, "%s", statusMessage.c_str());
+    wnoutrefresh(toastWin);
+    delwin(toastWin);
   }
 
   std::string promptInput(const std::string& prompt, const std::string& defaultVal = "") {
-    move(height - 1, 0);
-    clrtoeol();
-    attron(COLOR_PAIR(7) | A_BOLD);
-    mvprintw(height - 1, 0, "%s: ", prompt.c_str());
-    attroff(COLOR_PAIR(7) | A_BOLD);
-    refresh();
+    int w = std::max((int)prompt.length() + 10, 50);
+    if (w > width - 4)
+      w = width - 4;
+    int h = 5;
+    int y = (height - h) / 2;
+    int x = (width - w) / 2;
 
-    int startCol = prompt.length() + 2;
+    WINDOW* win = newwin(h, w, y, x);
+    if (!win) return defaultVal;
+    keypad(win, TRUE);
+
+    wattron(win, COLOR_PAIR(6) | A_BOLD);
+    drawRoundedBox(win);
+    wattroff(win, COLOR_PAIR(6) | A_BOLD);
+
+    wattron(win, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(win, 1, 2, "%s", prompt.c_str());
+    wattroff(win, COLOR_PAIR(1) | A_BOLD);
+
     std::string input = defaultVal;
     int cursorIdx = defaultVal.length();
+    int inputFieldX = 2;
+    int inputFieldY = 3;
+    int maxInputW = w - 4;
 
     timeout(-1);
     noecho();
     curs_set(1);
 
     while (true) {
-      move(height - 1, startCol);
-      clrtoeol();
-      printw("%s", input.c_str());
-      move(height - 1, startCol + cursorIdx);
-      refresh();
+      wmove(win, inputFieldY, inputFieldX);
+      for (int i = 0; i < maxInputW; ++i) {
+        waddch(win, ' ');
+      }
 
-      int ch = getch();
+      int startIdx = 0;
+      if (cursorIdx >= maxInputW) {
+        startIdx = cursorIdx - maxInputW + 1;
+      }
+      std::string visibleInput = input.substr(startIdx);
+      if ((int)visibleInput.length() > maxInputW) {
+        visibleInput = visibleInput.substr(0, maxInputW);
+      }
+      mvwprintw(win, inputFieldY, inputFieldX, "%s", visibleInput.c_str());
+
+      int cursorCol = inputFieldX + (cursorIdx - startIdx);
+      wmove(win, inputFieldY, cursorCol);
+      wrefresh(win);
+
+      int ch = wgetch(win);
       if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
         break;
       } else if (ch == 27) {
@@ -1338,9 +1398,9 @@ public:
       } else if (ch == KEY_RIGHT) {
         if (cursorIdx < (int)input.length())
           cursorIdx++;
-      } else if (ch == KEY_HOME || ch == 1) { // Home / Ctrl-A
+      } else if (ch == KEY_HOME || ch == 1) {
         cursorIdx = 0;
-      } else if (ch == KEY_END || ch == 5) { // End / Ctrl-E
+      } else if (ch == KEY_END || ch == 5) {
         cursorIdx = input.length();
       } else if (ch >= 32 && ch <= 126) {
         if (input.length() < 255) {
@@ -1352,6 +1412,9 @@ public:
 
     curs_set(0);
     timeout(50);
+    delwin(win);
+
+    updateLayout();
     return input;
   }
 
@@ -2291,37 +2354,38 @@ public:
 
         move(height - 1, 0);
         clrtoeol();
-        if (!statusMessage.empty()) {
-          bool isError = statusMessage.find("Failed") != std::string::npos ||
-                         statusMessage.find("Error") != std::string::npos;
-          attron(COLOR_PAIR(isError ? 8 : 7) | A_BOLD);
-          printw(" %s ", statusMessage.c_str());
-          attroff(COLOR_PAIR(isError ? 8 : 7) | A_BOLD);
-        } else {
-          if (!multiSelection.empty()) {
-            attron(COLOR_PAIR(9) | A_BOLD); // MULTI color
-            printw(" [%zu selected] ", multiSelection.size());
-            attroff(COLOR_PAIR(9) | A_BOLD);
-          }
-          attron(COLOR_PAIR(6) | A_BOLD);
-          printw(" Fyzenor ");
-          attroff(COLOR_PAIR(6) | A_BOLD);
 
-          attron(A_DIM);
-          if (focusPinned)
-            printw(" 󰄾 Nav:j/k Jump:Enter Unpin:d Files:Tab");
-          else
-            printw(" 󰄾 Space:  y:  x:  p:  d:󱂥  z: r:  "
-                   "s: Pins: ");
-          attroff(A_DIM);
+        attron(COLOR_PAIR(6) | A_BOLD);
+        printw(" Fyzenor ");
+        attroff(COLOR_PAIR(6) | A_BOLD);
+
+        if (!multiSelection.empty()) {
+          attron(COLOR_PAIR(9) | A_BOLD);
+          printw(" [%zu selected] ", multiSelection.size());
+          attroff(COLOR_PAIR(9) | A_BOLD);
         }
+
+        attron(A_DIM);
+        printw(" %s", currentPath.string().c_str());
+        attroff(A_DIM);
+
+        drawStatusToast();
+
         flushScreen();
         needsRedraw = false;
       }
 
       int ch = getch();
       if (ch == ERR) {
-        if (imageReady || searchReady) {
+        bool statusTimedOut = false;
+        if (!statusMessage.empty()) {
+          auto now = std::chrono::steady_clock::now();
+          if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
+            statusMessage = "";
+            statusTimedOut = true;
+          }
+        }
+        if (imageReady || searchReady || statusTimedOut) {
           needsRedraw = true;
           imageReady = false;
           searchReady = false;
@@ -2329,8 +2393,9 @@ public:
         continue;
       }
       needsRedraw = true;
-      if (ch != ERR)
+      if (ch != ERR) {
         statusMessage = "";
+      }
 
       if (ch == 'q') {
         return;
@@ -2461,7 +2526,7 @@ public:
   }
 };
 
-const std::string VERSION = "1.3.0";
+const std::string VERSION = "1.3.1";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

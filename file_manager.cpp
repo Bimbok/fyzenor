@@ -707,6 +707,14 @@ public:
       sizeWorker.join();
     if (previewWorker.joinable())
       previewWorker.join();
+    if (winPinned)
+      delwin(winPinned);
+    if (winParent)
+      delwin(winParent);
+    if (winCurrent)
+      delwin(winCurrent);
+    if (winPreview)
+      delwin(winPreview);
     clearDirectRender();
     endwin();
   }

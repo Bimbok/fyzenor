@@ -372,7 +372,7 @@ Now run `f` instead of `fyzenor` to jump to the last visited directory after exi
 | `G`                   | Go to bottom of list            |
 | `/`                   | **Search** content (ripgrep)    |
 
-> **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
+> **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, or `vi`. Media files are opened with `mpv` if available, while other file types fallback to the system's default opener.
 
 ### File Operations
 
@@ -437,7 +437,7 @@ Contributions are welcome.
 4. Test locally.
 5. Open a pull request with a clear description.
 
-For detailed contribution Workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For a detailed contribution workflow, please refer to [CONTRIBUTING.md](CONTRIBUTING.md).
 Community participation is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ---

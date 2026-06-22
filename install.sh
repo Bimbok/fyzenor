@@ -104,38 +104,6 @@ else
     exit 1
 fi
 
-# 6. Shell Integration (CWD on exit)
-echo -e "${BLUE}Setting up shell integration for directory jumping...${NC}"
-
-MARKER="# Fyzenor CWD Integration"
-SHELL_FUNC="$MARKER
-function f() {
-	local tmp=\"\$(mktemp -t \"fyzenor-cwd.XXXXXX\")\" cwd
-	fyzenor \"\$@\" --cwd-file=\"\$tmp\"
-	if [ -f \"\$tmp\" ]; then
-		cwd=\$(cat \"\$tmp\")
-		rm -f -- \"\$tmp\"
-		if [ -n \"\$cwd\" ] && [ \"\$cwd\" != \"\$PWD\" ]; then
-			builtin cd -- \"\$cwd\"
-		fi
-	fi
-}
-"
-
-setup_shell() {
-    local config_file="$1"
-    if [ -f "$config_file" ]; then
-        if ! grep -q "$MARKER" "$config_file"; then
-            echo -e "\n$SHELL_FUNC" >> "$config_file"
-            echo -e "${GREEN}Shell integration added to $config_file${NC}"
-        else
-            echo -e "${YELLOW}Shell integration already exists in $config_file (skipping)${NC}"
-        fi
-    fi
-}
-
-setup_shell "$HOME/.bashrc"
-setup_shell "$HOME/.zshrc"
 
 # 7. Cleanup if we used a temp dir
 if [[ "$PWD" == "/tmp/"* ]]; then

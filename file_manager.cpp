@@ -313,6 +313,7 @@ private:
   std::string statusMessage;
   bool showHidden = false;
   bool sortBySize = false;
+  bool isSearching = false;
 
   // Async Preview State
   std::mutex previewMutex;
@@ -341,6 +342,17 @@ private:
   std::unique_ptr<PreviewJob> nextPreviewJob;
   std::condition_variable previewCv;
   std::thread previewWorker;
+
+  std::thread searchThread;
+  FILE* searchPipe = nullptr;
+  std::mutex searchMutex;
+  long long searchRequestID = 0;
+  std::atomic<bool> searchReady{false};
+
+  std::vector<FileEntry> pendingSearchResults;
+  std::string pendingSearchStatus;
+  bool hasPendingSearchResults = false;
+  std::mutex searchResultMutex;
 
   // Async Size Calculation State
   std::unordered_map<std::string, uintmax_t> dirSizeCache;
@@ -703,10 +715,27 @@ public:
     stopWorker = true;
     queueCv.notify_all();
     previewCv.notify_all();
+
+    FILE* pipeToClose = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(searchMutex);
+      searchRequestID++;
+      if (searchPipe) {
+        pipeToClose = searchPipe;
+        searchPipe = nullptr;
+      }
+    }
+    if (pipeToClose) {
+      fclose(pipeToClose);
+    }
+
     if (sizeWorker.joinable())
       sizeWorker.join();
     if (previewWorker.joinable())
       previewWorker.join();
+    if (searchThread.joinable())
+      searchThread.join();
+
     if (winPinned)
       delwin(winPinned);
     if (winParent)
@@ -894,6 +923,7 @@ public:
   }
 
   void loadDirectory(const fs::path& path, std::vector<FileEntry>& target) {
+    isSearching = false;
     target.clear();
     multiSelection.clear();
     currentViewId++;
@@ -1352,6 +1382,115 @@ public:
     setStatus(sortBySize ? "Sorted by Size (Desc)" : "Sorted by Name");
   }
 
+  std::string escapeDoubleQuotes(const std::string& str) {
+    std::string result;
+    for (char c : str) {
+      if (c == '"' || c == '\\' || c == '$' || c == '`') {
+        result += '\\';
+      }
+      result += c;
+    }
+    return result;
+  }
+
+  void handleSearch() {
+    if (system("which rg > /dev/null 2>&1") != 0) {
+      setStatus("Error: ripgrep ('rg') is not installed");
+      return;
+    }
+
+    std::string query = promptInput("Search (ripgrep)");
+    if (query.empty())
+      return;
+
+    setStatus("Searching...");
+    isSearching = true;
+    currentFiles.clear();
+    selectedIndex = 0;
+    scrollOffset = 0;
+    refresh();
+
+    FILE* pipeToClose = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(searchMutex);
+      searchRequestID++;
+      if (searchPipe) {
+        pipeToClose = searchPipe;
+        searchPipe = nullptr;
+      }
+    }
+    if (pipeToClose) {
+      fclose(pipeToClose);
+    }
+    if (searchThread.joinable()) {
+      searchThread.join();
+    }
+
+    long long reqId = searchRequestID;
+
+    searchThread = std::thread([this, query, reqId]() {
+      std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" \"" +
+                        escapeDoubleQuotes(query) + "\" \"" +
+                        escapeDoubleQuotes(currentPath.string()) + "\" 2>/dev/null";
+      FILE* pipe = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(searchMutex);
+        if (reqId != searchRequestID) return;
+        searchPipe = popen(cmd.c_str(), "r");
+        pipe = searchPipe;
+      }
+      if (!pipe) {
+        {
+          std::lock_guard<std::mutex> lock(searchMutex);
+          if (searchPipe == pipe) searchPipe = nullptr;
+        }
+        if (reqId == searchRequestID) {
+          setStatus("Error: Failed to run ripgrep");
+        }
+        return;
+      }
+
+      std::vector<FileEntry> results;
+      char buffer[4096];
+      while (true) {
+        char* res = fgets(buffer, sizeof(buffer), pipe);
+        if (!res || reqId != searchRequestID) break;
+        std::string pathStr(buffer);
+        if (!pathStr.empty() && pathStr.back() == '\n')
+          pathStr.pop_back();
+        if (!pathStr.empty()) {
+          try {
+            fs::path p(pathStr);
+            if (fs::exists(p)) {
+              results.emplace_back(p);
+            }
+          } catch (...) {
+          }
+        }
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(searchMutex);
+        if (searchPipe == pipe) {
+          searchPipe = nullptr;
+        } else {
+          pipe = nullptr;
+        }
+      }
+      if (pipe) {
+        pclose(pipe);
+      }
+
+      if (reqId == searchRequestID) {
+        std::lock_guard<std::mutex> lock(searchResultMutex);
+        pendingSearchResults = results;
+        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Found " + std::to_string(results.size()) + " matches");
+        hasPendingSearchResults = true;
+        searchReady = true;
+      }
+    });
+  }
+
   void handleCopy() {
     if (currentFiles.empty())
       return;
@@ -1725,8 +1864,22 @@ public:
     wattroff(winCurrent, COLOR_PAIR(6));
 
     wattron(winCurrent, A_BOLD | COLOR_PAIR(1));
-    mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
+    if (isSearching) {
+      mvwprintw(winCurrent, 0, 2, " 󰉖 Search Results ");
+    } else {
+      mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
+    }
     wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
+
+    if (isSearching && currentFiles.empty()) {
+      int my = getmaxy(winCurrent);
+      int mx = getmaxx(winCurrent);
+      wattron(winCurrent, COLOR_PAIR(7) | A_BOLD);
+      mvwprintw(winCurrent, my / 2, (mx - 12) / 2, "Searching...");
+      wattroff(winCurrent, COLOR_PAIR(7) | A_BOLD);
+      wnoutrefresh(winCurrent);
+      return;
+    }
 
     if (!multiSelection.empty()) {
       std::string selStr =
@@ -1768,6 +1921,13 @@ public:
       }
 
       std::string display = file.name;
+      if (isSearching) {
+        try {
+          display = fs::relative(file.path, currentPath).string();
+        } catch (...) {
+          display = file.name;
+        }
+      }
       int availWidth = getmaxx(winCurrent) - 16;
       if (display.length() > (size_t)availWidth)
         display = display.substr(0, availWidth - 3) + "...";
@@ -1789,7 +1949,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 22;
+    int h = 23;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -1821,7 +1981,8 @@ public:
     mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
-    mvwprintw(helpWin, 19, 2, "?            → Show Help");
+    mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
+    mvwprintw(helpWin, 20, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -1984,6 +2145,7 @@ public:
       currentPath = file.path;
       selectedIndex = 0;
       scrollOffset = 0;
+      isSearching = false;
       reloadAll();
     } else {
       clearDirectRender();
@@ -2022,6 +2184,14 @@ public:
   }
 
   void goUp() {
+    if (isSearching) {
+      isSearching = false;
+      reloadAll();
+      selectedIndex = 0;
+      scrollOffset = 0;
+      setStatus("Search cleared");
+      return;
+    }
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
       std::string oldDirName = currentPath.filename().string();
@@ -2087,6 +2257,26 @@ public:
         }
       }
 
+      // Check for async search updates
+      {
+        std::lock_guard<std::mutex> lock(searchResultMutex);
+        if (hasPendingSearchResults) {
+          if (pendingSearchResults.empty()) {
+            isSearching = false;
+            reloadAll();
+          } else {
+            isSearching = true;
+            currentFiles = pendingSearchResults;
+            sortList(currentFiles);
+            selectedIndex = 0;
+            scrollOffset = 0;
+          }
+          setStatus(pendingSearchStatus);
+          hasPendingSearchResults = false;
+          needsRedraw = true;
+        }
+      }
+
       if (needsRedraw) {
         if (!currentFiles.empty()) {
           if (selectedIndex >= currentFiles.size())
@@ -2131,9 +2321,10 @@ public:
 
       int ch = getch();
       if (ch == ERR) {
-        if (imageReady) {
+        if (imageReady || searchReady) {
           needsRedraw = true;
           imageReady = false;
+          searchReady = false;
         }
         continue;
       }
@@ -2258,6 +2449,9 @@ public:
         case 's':
           toggleSort();
           break;
+        case '/':
+          handleSearch();
+          break;
         case '?':
           drawHelpOverlay();
           break;
@@ -2267,7 +2461,7 @@ public:
   }
 };
 
-const std::string VERSION = "1.2.0";
+const std::string VERSION = "1.3.0";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=flat)](#-cli-usage)
 
 ### Maintainer
 
@@ -78,6 +78,8 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Rich File Operations**           | Create files/folders, rename entries, zip selections, copy absolute paths, and manage content without leaving the TUI.                                |
 | **Theme Support**                  | Customize the UI through `~/.config/fyzenor/colors.fz`, with optional Matugen-powered wallpaper theming.                                              |
 | **Editor Integration**             | Opens text/code files with your configured editor via `$EDITOR` or `$VISUAL`, with sensible fallbacks.                                                |
+| **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
+| **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
 
 ---
 
@@ -94,7 +96,8 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 
 - **Preview Rendering:** Kitty Graphics Protocol
 - **Image & Video Thumbnailing:** `ffmpeg`
-- **Syntax Highlighting:** `bat` or `batcat`
+- **Syntax Highlighting:** `bat` or `batcat` (rendered in color via custom ncurses ANSI parser)
+- **File Content Searching:** `ripgrep` (`rg`)
 - **Archive Support:** `zip`
 - **Clipboard Support:** `xclip`, `wl-copy`, or `pbcopy`
 
@@ -115,7 +118,7 @@ On Debian-based or Ubuntu-based systems:
 
 ```bash
 sudo apt update
-sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy
+sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy ripgrep
 ```
 On Fedora based systems:
 
@@ -363,10 +366,11 @@ Now run `f` instead of `fyzenor` to jump to the last visited directory after exi
 | :-------------------- | :------------------------------ |
 | `k` or `↑`            | Move selection up               |
 | `j` or `↓`            | Move selection down             |
-| `h` or `←` or `BS`    | Go to parent directory          |
+| `h` or `←` or `BS`    | Go to parent directory / Clear search results |
 | `l` or `→` or `Enter` | **Open file** / Enter directory |
 | `g`                   | Go to top of list               |
 | `G`                   | Go to bottom of list            |
+| `/`                   | **Search** content (ripgrep)    |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 
@@ -395,6 +399,7 @@ Now run `f` instead of `fyzenor` to jump to the last visited directory after exi
 | `s`            | Toggle sorting by **Size** vs Name          |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** |
+| `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `q`            | Quit Fyzenor                                |
 
 ### Pin Mode Controls

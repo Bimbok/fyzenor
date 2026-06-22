@@ -1307,9 +1307,21 @@ public:
     }
 
     int w = statusMessage.length() + 4;
+    if (w > width - 4) {
+      w = width - 4;
+    }
+    if (w < 6) {
+      w = 6;
+    }
     int h = 3;
-    int y = height - 4;
+    int y = height - h - 1;
+    if (y < 1) {
+      y = 1;
+    }
     int x = width - w - 2;
+    if (x < 1) {
+      x = 1;
+    }
 
     WINDOW* toastWin = newwin(h, w, y, x);
     if (!toastWin) return;
@@ -1322,7 +1334,12 @@ public:
     drawRoundedBox(toastWin);
     wattroff(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
 
-    mvwprintw(toastWin, 1, 2, "%s", statusMessage.c_str());
+    std::string dispMsg = statusMessage;
+    if ((int)dispMsg.length() > w - 4) {
+      dispMsg = dispMsg.substr(0, w - 7) + "...";
+    }
+
+    mvwprintw(toastWin, 1, 2, "%s", dispMsg.c_str());
     wnoutrefresh(toastWin);
     delwin(toastWin);
   }
@@ -2526,7 +2543,7 @@ public:
   }
 };
 
-const std::string VERSION = "1.3.1";
+const std::string VERSION = "1.3.2";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

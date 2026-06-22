@@ -111,7 +111,7 @@ To unleash the full power of Fyzenor, especially image previews, your system nee
 
 ### 2. System Dependencies
 
-On Debian or Ubuntu based systems:
+On Debian-based or Ubuntu-based systems:
 
 ```bash
 sudo apt update
@@ -135,6 +135,32 @@ sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboar
 ## ⚙️ Installation & Update
 
 The easiest way to install or update Fyzenor is using the universal installation script.
+### Windows Compiler Compatibility
+
+Fyzenor requires a compiler with proper C++17 filesystem support.
+
+Older MinGW GCC versions (such as GCC 6.x) may fail during compilation with:
+
+```bash
+fatal error: filesystem: No such file or directory
+```
+
+Recommended environments for Windows users:
+
+- MSYS2 MinGW-w64
+- WSL (Windows Subsystem for Linux)
+
+Recommended compiler version:
+
+Recommended compiler:
+- GCC 8+
+- Clang 7+
+
+You can check your compiler version using:
+
+```bash
+g++ --version
+```
 
 ### One-Liner
 

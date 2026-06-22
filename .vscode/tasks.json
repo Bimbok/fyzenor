@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Fyzenor: build in WSL",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "bash",
+        "-lc",
+        "cd \"$(wslpath '${workspaceFolder}')\" && mkdir -p output && g++ -std=c++17 -Wall -Wextra -g3 file_manager.cpp -o output/fyzenor -lncursesw -lpthread"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Fyzenor: install in WSL",
+      "type": "shell",
+      "command": "wsl",
+      "args": [
+        "bash",
+        "-lc",
+        "cd \"$(wslpath '${workspaceFolder}')\" && ./install.sh"
+      ],
+      "problemMatcher": "$gcc"
+    }
+  ]
+}

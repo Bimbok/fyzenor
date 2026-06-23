@@ -124,7 +124,7 @@ On Fedora based systems:
 
 ```bash
 sudo dnf update
-sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard
+sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard ripgrep
 ```
 
 - **`libncursesw` or `ncurses-devel`**: Essential for wide-character terminal rendering.
@@ -153,9 +153,7 @@ Recommended environments for Windows users:
 - MSYS2 MinGW-w64
 - WSL (Windows Subsystem for Linux)
 
-Recommended compiler version:
-
-Recommended compiler:
+Recommended compiler versions:
 - GCC 8+
 - Clang 7+
 
@@ -278,11 +276,10 @@ matugen image /path/to/your/wallpaper.jpg
 
 Fyzenor supports the following command-line arguments:
 
-| Option              | Description                                            |
-| :------------------ | :----------------------------------------------------- |
-| `-v`, `--version`   | Display the current version of Fyzenor.                |
-| `-h`, `--help`      | Show the help message and exit.                        |
-| `--cwd-file <file>` | Write the final working directory to `<file>` on exit. |
+| Option            | Description                            |
+| :---------------- | :------------------------------------- |
+| `-v`, `--version` | Display the current version of Fyzenor. |
+| `-h`, `--help`    | Show the help message and exit.        |
 
 ```bash
 fyzenor --version

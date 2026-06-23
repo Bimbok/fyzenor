@@ -536,14 +536,20 @@ private:
 
   void wprintw_ansi(WINDOW* win, int y, int x, const std::string& line, int maxW) {
     wmove(win, y, x);
-    int visibleCount = 0;
+    int startX = x;
 
     attr_t currentAttrs = A_NORMAL;
     short fg = -1;
     short bg = -1;
 
     size_t i = 0;
-    while (i < line.size() && visibleCount < maxW) {
+    while (i < line.size()) {
+      int cy, cx;
+      getyx(win, cy, cx);
+      if (cx >= startX + maxW) {
+        break;
+      }
+
       if (line[i] == '\033' && i + 1 < line.size() && line[i + 1] == '[') {
         i += 2;
         std::string seq;
@@ -661,17 +667,38 @@ private:
           }
         }
       } else {
-        waddch(win, (unsigned char)line[i]);
-        visibleCount++;
-        i++;
+        char c = line[i];
+        if (c == '\r' || c == '\n') {
+          i++;
+          continue;
+        }
+        if (c == '\t') {
+          int spacesToPrint = 4 - ((cx - startX) % 4);
+          for (int s = 0; s < spacesToPrint; ++s) {
+            getyx(win, cy, cx);
+            if (cx >= startX + maxW) break;
+            waddch(win, ' ');
+          }
+          i++;
+        } else {
+          waddch(win, (unsigned char)c);
+          i++;
+        }
       }
     }
 
     wattrset(win, A_NORMAL);
     wattron(win, COLOR_PAIR(2));
-    while (visibleCount < maxW) {
+    int cy, cx;
+    getyx(win, cy, cx);
+    int prevCx = cx;
+    while (cx < startX + maxW) {
       waddch(win, ' ');
-      visibleCount++;
+      getyx(win, cy, cx);
+      if (cx <= prevCx) {
+        break;
+      }
+      prevCx = cx;
     }
   }
 

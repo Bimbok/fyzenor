@@ -43,6 +43,9 @@
 #include <chrono>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <pwd.h>
+#include <grp.h>
 
 namespace fs = std::filesystem;
 
@@ -2028,8 +2031,244 @@ public:
     wnoutrefresh(winCurrent);
   }
 
+  struct FileDetails {
+    std::string name;
+    std::string absolutePath;
+    std::string type;
+    bool isSymlink = false;
+    std::string symlinkTarget;
+    uintmax_t size;
+    bool isDir = false;
+    std::string permissionsSymbolic;
+    std::string permissionsOctal;
+    std::string ownerName;
+    std::string groupName;
+    uid_t uid;
+    gid_t gid;
+    std::string accessTime;
+    std::string modifyTime;
+    std::string statusChangeTime;
+  };
+
+  FileDetails getFileDetails(const fs::path& p) {
+    FileDetails details;
+    details.name = p.filename().string();
+    try {
+      details.absolutePath = fs::absolute(p).string();
+    } catch (...) {
+      details.absolutePath = p.string();
+    }
+
+    struct stat st;
+    if (lstat(details.absolutePath.c_str(), &st) != 0) {
+      if (lstat(p.string().c_str(), &st) != 0) {
+        details.type = "Unknown";
+        details.permissionsSymbolic = "???";
+        details.permissionsOctal = "???";
+        details.ownerName = "unknown";
+        details.groupName = "unknown";
+        details.size = 0;
+        return details;
+      }
+    }
+
+    details.isDir = S_ISDIR(st.st_mode);
+    if (S_ISLNK(st.st_mode)) {
+      details.type = "Symbolic Link";
+      details.isSymlink = true;
+      details.isDir = false;
+      try {
+        details.symlinkTarget = fs::read_symlink(p).string();
+      } catch (...) {
+        details.symlinkTarget = "Unknown";
+      }
+    } else if (S_ISREG(st.st_mode)) {
+      details.type = "Regular File";
+    } else if (S_ISDIR(st.st_mode)) {
+      details.type = "Directory";
+    } else if (S_ISCHR(st.st_mode)) {
+      details.type = "Character Device";
+    } else if (S_ISBLK(st.st_mode)) {
+      details.type = "Block Device";
+    } else if (S_ISFIFO(st.st_mode)) {
+      details.type = "FIFO (Named Pipe)";
+    } else if (S_ISSOCK(st.st_mode)) {
+      details.type = "Socket";
+    } else {
+      details.type = "Unknown";
+    }
+
+    char perm[11];
+    perm[0] = S_ISLNK(st.st_mode) ? 'l' :
+              S_ISDIR(st.st_mode) ? 'd' :
+              S_ISCHR(st.st_mode) ? 'c' :
+              S_ISBLK(st.st_mode) ? 'b' :
+              S_ISFIFO(st.st_mode) ? 'p' :
+              S_ISSOCK(st.st_mode) ? 's' : '-';
+    perm[1] = (st.st_mode & S_IRUSR) ? 'r' : '-';
+    perm[2] = (st.st_mode & S_IWUSR) ? 'w' : '-';
+    perm[3] = (st.st_mode & S_IXUSR) ? 'x' : '-';
+    perm[4] = (st.st_mode & S_IRGRP) ? 'r' : '-';
+    perm[5] = (st.st_mode & S_IWGRP) ? 'w' : '-';
+    perm[6] = (st.st_mode & S_IXGRP) ? 'x' : '-';
+    perm[7] = (st.st_mode & S_IROTH) ? 'r' : '-';
+    perm[8] = (st.st_mode & S_IWOTH) ? 'w' : '-';
+    perm[9] = (st.st_mode & S_IXOTH) ? 'x' : '-';
+    perm[10] = '\0';
+
+    if (st.st_mode & S_ISUID) perm[3] = (st.st_mode & S_IXUSR) ? 's' : 'S';
+    if (st.st_mode & S_ISGID) perm[6] = (st.st_mode & S_IXGRP) ? 's' : 'S';
+    if (st.st_mode & S_ISVTX) perm[9] = (st.st_mode & S_IXOTH) ? 't' : 'T';
+
+    details.permissionsSymbolic = perm;
+
+    char oct[8];
+    snprintf(oct, sizeof(oct), "0%o", st.st_mode & 07777);
+    details.permissionsOctal = oct;
+
+    details.size = st.st_size;
+    if (details.isDir) {
+      std::lock_guard<std::mutex> lock(cacheMutex);
+      auto it = dirSizeCache.find(details.absolutePath);
+      if (it != dirSizeCache.end()) {
+        details.size = it->second;
+      } else {
+        it = dirSizeCache.find(p.string());
+        if (it != dirSizeCache.end()) {
+          details.size = it->second;
+        } else {
+          bool found = false;
+          for (const auto& f : currentFiles) {
+            if (f.path == p) {
+              details.size = f.size;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            details.size = SIZE_CALCULATING;
+          }
+        }
+      }
+    }
+
+    details.uid = st.st_uid;
+    struct passwd* pw = getpwuid(st.st_uid);
+    if (pw) {
+      details.ownerName = pw->pw_name;
+    } else {
+      details.ownerName = std::to_string(st.st_uid);
+    }
+
+    details.gid = st.st_gid;
+    struct group* gr = getgrgid(st.st_gid);
+    if (gr) {
+      details.groupName = gr->gr_name;
+    } else {
+      details.groupName = std::to_string(st.st_gid);
+    }
+
+    auto formatTime = [](time_t t) -> std::string {
+      struct tm* ltime = std::localtime(&t);
+      if (!ltime) return "Unknown";
+      char buffer[64];
+      std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", ltime);
+      return std::string(buffer);
+    };
+
+    details.accessTime = formatTime(st.st_atime);
+    details.modifyTime = formatTime(st.st_mtime);
+    details.statusChangeTime = formatTime(st.st_ctime);
+
+    return details;
+  }
+
+  void showFileDetails() {
+    if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
+      setStatus("No file selected");
+      return;
+    }
+    const auto& file = currentFiles[selectedIndex];
+    FileDetails details = getFileDetails(file.path);
+
+    int h = details.isSymlink ? 17 : 16;
+    int w = 70;
+    if (w > width - 4) w = width - 4;
+    if (h > height - 2) h = height - 2;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* detWin = newwin(h, w, startY, startX);
+    if (!detWin) return;
+
+    wattron(detWin, COLOR_PAIR(6) | A_BOLD);
+    drawRoundedBox(detWin);
+    wattroff(detWin, COLOR_PAIR(6) | A_BOLD);
+
+    // Title
+    wattron(detWin, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(detWin, 1, 2, "󰋽 File Information");
+    wattroff(detWin, COLOR_PAIR(1) | A_BOLD);
+
+    auto printField = [&](int row, const std::string& label, const std::string& val, int valColorPair) {
+      mvwprintw(detWin, row, 2, "%-15s", label.c_str());
+      int maxValW = w - 20;
+      std::string showVal = val;
+      if ((int)showVal.length() > maxValW) {
+        showVal = showVal.substr(0, maxValW - 3) + "...";
+      }
+      wattron(detWin, COLOR_PAIR(valColorPair));
+      mvwprintw(detWin, row, 18, "%s", showVal.c_str());
+      wattroff(detWin, COLOR_PAIR(valColorPair));
+    };
+
+    int row = 3;
+    printField(row++, "Name:", details.name, details.isDir ? 1 : 2);
+    printField(row++, "Path:", details.absolutePath, 2);
+
+    if (details.isSymlink) {
+      printField(row++, "Target:", details.symlinkTarget, 4);
+    }
+
+    printField(row++, "Type:", details.type, 2);
+
+    std::string sizeStr;
+    if (details.size == SIZE_CALCULATING) {
+      sizeStr = "Calculating...";
+    } else {
+      sizeStr = formatSize(details.size) + " (" + std::to_string(details.size) + " bytes)";
+    }
+    printField(row++, "Size:", sizeStr, 2);
+
+    std::string permStr = details.permissionsSymbolic + " (" + details.permissionsOctal + ")";
+    printField(row++, "Permissions:", permStr, 5);
+
+    std::string ownerStr = details.ownerName + " (" + std::to_string(details.uid) + ")";
+    printField(row++, "Owner:", ownerStr, 2);
+
+    std::string groupStr = details.groupName + " (" + std::to_string(details.gid) + ")";
+    printField(row++, "Group:", groupStr, 2);
+
+    printField(row++, "Accessed:", details.accessTime, 2);
+    printField(row++, "Modified:", details.modifyTime, 2);
+    printField(row++, "Changed:", details.statusChangeTime, 2);
+
+    wattron(detWin, A_DIM);
+    mvwprintw(detWin, h - 2, 2, "Press any key to close...");
+    wattroff(detWin, A_DIM);
+
+    wrefresh(detWin);
+
+    timeout(-1);
+    getch();
+    timeout(50);
+
+    delwin(detWin);
+  }
+
   void drawHelpOverlay() {
-    int h = 23;
+    int h = 24;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -2062,7 +2301,8 @@ public:
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
     mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
-    mvwprintw(helpWin, 20, 2, "?            → Show Help");
+    mvwprintw(helpWin, 20, 2, "i            → Show File Details");
+    mvwprintw(helpWin, 21, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -2534,6 +2774,9 @@ public:
         case '/':
           handleSearch();
           break;
+        case 'i':
+          showFileDetails();
+          break;
         case '?':
           drawHelpOverlay();
           break;
@@ -2543,7 +2786,7 @@ public:
   }
 };
 
-const std::string VERSION = "1.3.2";
+const std::string VERSION = "1.4.0";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

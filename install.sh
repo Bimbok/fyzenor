@@ -99,6 +99,41 @@ if sudo mv fyzenor "$INSTALL_PATH"; then
     else
         echo -e "${YELLOW}Failed to create symlink 'fm'. You can do it manually: sudo ln -sf $INSTALL_PATH /usr/local/bin/fm${NC}"
     fi
+
+    # 6. Create Desktop Entry
+    echo -e "${BLUE}Creating desktop entry...${NC}"
+    DESKTOP_FILE="/usr/share/applications/fyzenor.desktop"
+    ICON_SOURCE="fyzenor.png"
+    ICON_DEST="/usr/share/pixmaps/fyzenor.png"
+
+    # Copy icon if it exists in the current directory
+    if [ -f "$ICON_SOURCE" ]; then
+        if sudo cp "$ICON_SOURCE" "$ICON_DEST"; then
+            echo -e "${GREEN}Icon installed at $ICON_DEST${NC}"
+        else
+            echo -e "${YELLOW}Failed to install icon at $ICON_DEST${NC}"
+        fi
+    fi
+
+    # Create the .desktop file
+    cat <<EOF | sudo tee "$DESKTOP_FILE" > /dev/null
+[Desktop Entry]
+Type=Application
+Name=Fyzenor
+Comment=The Blazing Fast Modern C++ File Manager
+Icon=fyzenor
+Exec=fyzenor
+Terminal=true
+Categories=System;FileTools;FileManager;Utility;
+Keywords=file;manager;terminal;tui;cpp;
+EOF
+
+    if [ -f "$DESKTOP_FILE" ]; then
+        sudo chmod 644 "$DESKTOP_FILE"
+        echo -e "${GREEN}Desktop entry created at $DESKTOP_FILE${NC}"
+    else
+        echo -e "${YELLOW}Failed to create desktop entry.${NC}"
+    fi
 else
     echo -e "${RED}Failed to move binary to $INSTALL_PATH. You may need to move it manually.${NC}"
     exit 1

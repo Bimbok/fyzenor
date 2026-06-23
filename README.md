@@ -187,6 +187,7 @@ The installer:
 1. Compiles the C++ source into an optimized binary.
 2. Installs `fyzenor` into `/usr/local/bin/`.
 3. Creates an `fm` symlink for faster access.
+4. Installs the desktop application shortcut and branding icon globally.
 
 ---
 

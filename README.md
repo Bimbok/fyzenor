@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-1.3.2-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-1.4.0-blue?style=flat)](#-cli-usage)
 
 ### Maintainer
 
@@ -28,7 +28,7 @@
       <br />
       <a href="https://github.com/Bimbok"><strong>@Bimbok</strong></a>
       <br />
-      <sub>Author, Maintainer, and Lead Developer</sub>
+      <sub>Creator / Maintainer</sub>
     </td>
   </tr>
 </table>
@@ -189,7 +189,6 @@ The installer:
 1. Compiles the C++ source into an optimized binary.
 2. Installs `fyzenor` into `/usr/local/bin/`.
 3. Creates an `fm` symlink for faster access.
-4. Appends the `f` shell function to `.bashrc` or `.zshrc` for "jump to CWD on exit".
 
 ---
 
@@ -334,30 +333,6 @@ flowchart TD
 
 ---
 
-## 🔌 Shell Integration (Jump to CWD on exit)
-
-Fyzenor can change your shell's current working directory upon exit. If you use the installer, this is handled automatically for `.bashrc` and `.zshrc`.
-
-Otherwise, add this function to your shell configuration:
-
-```bash
-function f() {
-	local tmp="$(mktemp -t "fyzenor-cwd.XXXXXX")" cwd
-	fyzenor "$@" --cwd-file="$tmp"
-	if [ -f "$tmp" ]; then
-		cwd=$(cat "$tmp")
-		rm -f -- "$tmp"
-		if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-			builtin cd -- "$cwd"
-		fi
-	fi
-}
-```
-
-Now run `f` instead of `fyzenor` to jump to the last visited directory after exit.
-
----
-
 ## ⌨️ Controls
 
 ### Navigation
@@ -400,6 +375,7 @@ Now run `f` instead of `fyzenor` to jump to the last visited directory after exi
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
+| `i`            | Show **File Details** (permissions, owner, size, times) |
 | `q`            | Quit Fyzenor                                |
 
 ### Pin Mode Controls

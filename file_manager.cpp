@@ -2195,9 +2195,13 @@ public:
     int w = 70;
     if (w > width - 4) w = width - 4;
     if (h > height - 2) h = height - 2;
+    if (w < 10) w = 10;
+    if (h < 5) h = 5;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
+    if (startY < 0) startY = 0;
+    if (startX < 0) startX = 0;
 
     WINDOW* detWin = newwin(h, w, startY, startX);
     if (!detWin) return;
@@ -2214,9 +2218,12 @@ public:
     auto printField = [&](int row, const std::string& label, const std::string& val, int valColorPair) {
       mvwprintw(detWin, row, 2, "%-15s", label.c_str());
       int maxValW = w - 20;
+      if (maxValW < 5) maxValW = 5;
       std::string showVal = val;
       if ((int)showVal.length() > maxValW) {
-        showVal = showVal.substr(0, maxValW - 3) + "...";
+        int subLen = maxValW - 3;
+        if (subLen < 1) subLen = 1;
+        showVal = showVal.substr(0, subLen) + "...";
       }
       wattron(detWin, COLOR_PAIR(valColorPair));
       mvwprintw(detWin, row, 18, "%s", showVal.c_str());

@@ -192,7 +192,24 @@ The installer:
 4. Appends the `f` shell function to `.bashrc` or `.zshrc` for "jump to CWD on exit".
 
 ---
+### macOS Installation
 
+1. Install Homebrew (if not installed):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+2. Clone the repository:
+
+```bash
+git clone https://github.com/Bimbok/fyzenor.git
+cd fyzenor
+```
+3. Run the installer:
+
+```bash
+./install.sh
+```
 ## 🚀 Quick Start
 
 If you want to build and run Fyzenor manually instead of using the installer:

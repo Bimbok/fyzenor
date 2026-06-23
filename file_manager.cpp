@@ -773,7 +773,7 @@ public:
         if (fs::exists(job.path) && fs::is_directory(job.path)) {
           for (const auto& entry : fs::recursive_directory_iterator(
                    job.path, fs::directory_options::skip_permission_denied)) {
-            if (job.viewId != currentViewId)
+            if (job.viewId != currentViewId || stopWorker)
               break;
             try {
               if (!fs::is_directory(entry.status())) {
@@ -1152,7 +1152,7 @@ public:
           if (pipe) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-              if (job->reqId != requestID)
+              if (job->reqId != requestID || stopWorker)
                 break;
               std::string line(buffer);
               if (!line.empty() && line.back() == '\n')
@@ -1175,7 +1175,7 @@ public:
             if (pipe) {
               char buffer[1024];
               while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-                if (job->reqId != requestID)
+                if (job->reqId != requestID || stopWorker)
                   break;
                 std::string line(buffer);
                 if (!line.empty() && line.back() == '\n')
@@ -1197,7 +1197,7 @@ public:
               std::string lineStr;
               int count = 0;
               while (std::getline(f, lineStr) && count < job->previewHeight) {
-                if (job->reqId != requestID)
+                if (job->reqId != requestID || stopWorker)
                   break;
                 std::string clean;
                 for (char c : lineStr) {

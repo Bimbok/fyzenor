@@ -2837,6 +2837,11 @@ int main(int argc, char* argv[]) {
         std::cout << "  -h, --help            Show this help message" << std::endl;
         return 0;
       }
+      else if(arg == "--about"){
+        std::cout << "fyzenor: A modern terminal file manager built in C++" << std::endl;
+        std::cout << "Developed as part of GSSoC contribution." << std::endl;
+        return 0;
+      }
     }
   }
   FileManager fm;

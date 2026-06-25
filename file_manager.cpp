@@ -742,11 +742,7 @@ public:
     lastWasDirectRender = false;
   }
 
-  ~FileManager() {
-    stopWorker = true;
-    queueCv.notify_all();
-    previewCv.notify_all();
-
+  void cancelSearch() {
     FILE* pipeToClose = nullptr;
     {
       std::lock_guard<std::mutex> lock(searchMutex);
@@ -759,13 +755,22 @@ public:
     if (pipeToClose) {
       fclose(pipeToClose);
     }
+    if (searchThread.joinable()) {
+      searchThread.join();
+    }
+  }
+
+  ~FileManager() {
+    stopWorker = true;
+    queueCv.notify_all();
+    previewCv.notify_all();
+
+    cancelSearch();
 
     if (sizeWorker.joinable())
       sizeWorker.join();
     if (previewWorker.joinable())
       previewWorker.join();
-    if (searchThread.joinable())
-      searchThread.join();
 
     if (winPinned)
       delwin(winPinned);
@@ -954,6 +959,7 @@ public:
   }
 
   void loadDirectory(const fs::path& path, std::vector<FileEntry>& target) {
+    cancelSearch();
     isSearching = false;
     target.clear();
     multiSelection.clear();
@@ -1520,21 +1526,7 @@ public:
     scrollOffset = 0;
     refresh();
 
-    FILE* pipeToClose = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(searchMutex);
-      searchRequestID++;
-      if (searchPipe) {
-        pipeToClose = searchPipe;
-        searchPipe = nullptr;
-      }
-    }
-    if (pipeToClose) {
-      fclose(pipeToClose);
-    }
-    if (searchThread.joinable()) {
-      searchThread.join();
-    }
+    cancelSearch();
 
     long long reqId = searchRequestID;
 
@@ -1562,6 +1554,8 @@ public:
 
       std::vector<FileEntry> results;
       char buffer[4096];
+      auto lastUpdate = std::chrono::steady_clock::now();
+
       while (true) {
         char* res = fgets(buffer, sizeof(buffer), pipe);
         if (!res || reqId != searchRequestID) break;
@@ -1576,6 +1570,18 @@ public:
             }
           } catch (...) {
           }
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 && !results.empty()) {
+          if (reqId == searchRequestID) {
+            std::lock_guard<std::mutex> lock(searchResultMutex);
+            pendingSearchResults = results;
+            pendingSearchStatus = "Searching... Found " + std::to_string(results.size()) + " matches";
+            hasPendingSearchResults = true;
+            searchReady = true;
+          }
+          lastUpdate = now;
         }
       }
 
@@ -1594,7 +1600,7 @@ public:
       if (reqId == searchRequestID) {
         std::lock_guard<std::mutex> lock(searchResultMutex);
         pendingSearchResults = results;
-        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Found " + std::to_string(results.size()) + " matches");
+        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Search finished. Found " + std::to_string(results.size()) + " matches");
         hasPendingSearchResults = true;
         searchReady = true;
       }
@@ -2539,6 +2545,7 @@ public:
 
   void goUp() {
     if (isSearching) {
+      cancelSearch();
       isSearching = false;
       reloadAll();
       selectedIndex = 0;
@@ -2615,16 +2622,36 @@ public:
       {
         std::lock_guard<std::mutex> lock(searchResultMutex);
         if (hasPendingSearchResults) {
-          if (pendingSearchResults.empty()) {
-            isSearching = false;
-            reloadAll();
+          isSearching = true;
+
+          // Remember previously selected path to restore cursor position
+          fs::path prevSelectedPath;
+          if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+            prevSelectedPath = currentFiles[selectedIndex].path;
+          }
+
+          currentFiles = pendingSearchResults;
+          sortList(currentFiles);
+
+          if (!prevSelectedPath.empty()) {
+            bool found = false;
+            for (size_t idx = 0; idx < currentFiles.size(); ++idx) {
+              if (currentFiles[idx].path == prevSelectedPath) {
+                selectedIndex = idx;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              if (selectedIndex >= currentFiles.size()) {
+                selectedIndex = currentFiles.empty() ? 0 : currentFiles.size() - 1;
+              }
+            }
           } else {
-            isSearching = true;
-            currentFiles = pendingSearchResults;
-            sortList(currentFiles);
             selectedIndex = 0;
             scrollOffset = 0;
           }
+
           setStatus(pendingSearchStatus);
           hasPendingSearchResults = false;
           needsRedraw = true;

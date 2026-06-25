@@ -52,7 +52,7 @@ fi
 
 # 3. Dependencies Check
 echo -e "${BLUE}Checking dependencies...${NC}"
-DEPS=("g++" "ffmpeg" "zip" "rg" "fzf")
+DEPS=("g++" "ffmpeg" "zip" "rg")
 MISSING_DEPS=()
 
 for dep in "${DEPS[@]}"; do
@@ -72,7 +72,7 @@ if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
         echo -e " - $dep"
     done
     echo -e "${YELLOW}Some features (previews, zip, search, fuzzy find) might not work until installed.${NC}"
-    echo -e "On Debian/Ubuntu: ${GREEN}sudo apt install libncursesw5-dev ffmpeg zip bat ripgrep fzf${NC}\n"
+    echo -e "On Debian/Ubuntu: ${GREEN}sudo apt install libncursesw5-dev ffmpeg zip bat ripgrep${NC}\n"
 fi
 
 # 4. Compilation

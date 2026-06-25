@@ -98,7 +98,6 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 - **Image & Video Thumbnailing:** `ffmpeg`
 - **Syntax Highlighting:** `bat` or `batcat` (rendered in color via custom ncurses ANSI parser)
 - **File Content Searching:** `ripgrep` (`rg`)
-- **Fuzzy Finding:** `fzf`
 - **Archive Support:** `zip`
 - **Clipboard Support:** `xclip`, `wl-copy`, or `pbcopy`
 
@@ -119,20 +118,19 @@ On Debian-based or Ubuntu-based systems:
 
 ```bash
 sudo apt update
-sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy ripgrep fzf
+sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy ripgrep
 ```
 On Fedora based systems:
 
 ```bash
 sudo dnf update
-sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard ripgrep fzf
+sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard ripgrep
 ```
 
 - **`libncursesw` or `ncurses-devel`**: Essential for wide-character terminal rendering.
 - **`ffmpeg`**: Powers asynchronous thumbnail generation for images and videos.
 - **`zip`**: Required for built-in archive creation.
 - **`bat` or `batcat`**: Used for syntax-highlighted text previews.
-- **`fzf`**: Essential for fuzzy finding files recursively.
 - **`xclip` / `wl-copy` / `pbcopy`**: Used for the copy-path feature.
 
 ---
@@ -346,7 +344,7 @@ flowchart TD
 | `g`                   | Go to top of list               |
 | `G`                   | Go to bottom of list            |
 | `/`                   | **Search** content (ripgrep)    |
-| `f`                   | **Fuzzy Find** files (fzf)      |
+| `f`                   | **Fuzzy Find** files (internal) |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 

@@ -21,6 +21,7 @@
 #include <array>
 #include <atomic>
 #include <clocale>
+#include <cctype>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -1509,6 +1510,20 @@ public:
     return result;
   }
 
+  bool fuzzyMatch(const std::string& str, const std::string& query) {
+    if (query.empty()) return true;
+    size_t queryIdx = 0;
+    for (char c : str) {
+      if (tolower(c) == tolower(query[queryIdx])) {
+        queryIdx++;
+        if (queryIdx == query.length()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   void handleSearch() {
     if (system("which rg > /dev/null 2>&1") != 0) {
       setStatus("Error: ripgrep ('rg') is not installed");
@@ -2308,74 +2323,98 @@ public:
   }
 
   void handleFuzzyFind() {
-    if (system("which fzf > /dev/null 2>&1") != 0) {
-      setStatus("Error: fzf is not installed");
+    std::string query = promptInput("Fuzzy Find");
+    if (query.empty())
       return;
-    }
 
-    clearDirectRender();
-    def_prog_mode();
-    endwin();
-
-    char tempPattern[] = "/tmp/fyzenor-fzf.XXXXXX";
-    int tempFd = mkstemp(tempPattern);
-    std::string tempFile;
-    if (tempFd != -1) {
-      close(tempFd);
-      tempFile = tempPattern;
-    } else {
-      tempFile = "/tmp/fyzenor-fzf.txt";
-    }
-
-    std::string cmd = "fzf --height 40% --layout=reverse --border --prompt=\"Fuzzy Find: \" < /dev/tty > \"" + tempFile + "\"";
-    int status = system(cmd.c_str());
-
-    reset_prog_mode();
+    setStatus("Searching...");
+    isSearching = true;
+    currentFiles.clear();
+    selectedIndex = 0;
+    scrollOffset = 0;
     refresh();
-    updateLayout();
 
-    if (status == 0) {
-      std::ifstream f(tempFile);
-      std::string selectedPathStr;
-      if (f.is_open() && std::getline(f, selectedPathStr)) {
-        if (!selectedPathStr.empty()) {
+    cancelSearch();
+
+    long long reqId = searchRequestID;
+
+    searchThread = std::thread([this, query, reqId]() {
+      std::string cmd = "find \"" + escapeDoubleQuotes(currentPath.string()) + "\" -name .git -prune -o -print 2>/dev/null";
+      FILE* pipe = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(searchMutex);
+        if (reqId != searchRequestID) return;
+        searchPipe = popen(cmd.c_str(), "r");
+        pipe = searchPipe;
+      }
+      if (!pipe) {
+        {
+          std::lock_guard<std::mutex> lock(searchMutex);
+          if (searchPipe == pipe) searchPipe = nullptr;
+        }
+        if (reqId == searchRequestID) {
+          setStatus("Error: Failed to run find");
+        }
+        return;
+      }
+
+      std::vector<FileEntry> results;
+      char buffer[4096];
+      auto lastUpdate = std::chrono::steady_clock::now();
+
+      while (true) {
+        char* res = fgets(buffer, sizeof(buffer), pipe);
+        if (!res || reqId != searchRequestID) break;
+        std::string pathStr(buffer);
+        if (!pathStr.empty() && pathStr.back() == '\n')
+          pathStr.pop_back();
+        if (!pathStr.empty()) {
           try {
-            fs::path p = currentPath / selectedPathStr;
-            p = fs::absolute(p).lexically_normal();
-            if (fs::exists(p)) {
-              if (fs::is_directory(p)) {
-                currentPath = p;
-                reloadAll();
-                selectedIndex = 0;
-                scrollOffset = 0;
-              } else {
-                currentPath = p.parent_path();
-                reloadAll();
-                bool found = false;
-                for (size_t i = 0; i < currentFiles.size(); ++i) {
-                  if (currentFiles[i].path == p) {
-                    selectedIndex = i;
-                    found = true;
-                    break;
-                  }
-                }
-                if (found) {
-                  scrollOffset = (selectedIndex > 10) ? selectedIndex - 10 : 0;
-                } else {
-                  selectedIndex = 0;
-                  scrollOffset = 0;
-                }
+            fs::path p(pathStr);
+            if (p == currentPath) continue;
+            std::string relPath = fs::relative(p, currentPath).string();
+            if (fuzzyMatch(relPath, query)) {
+              if (fs::exists(p)) {
+                results.emplace_back(p);
               }
-              setStatus("Jumped to " + p.filename().string());
             }
           } catch (...) {
-            setStatus("Error: Invalid path returned from fzf");
           }
         }
-      }
-    }
 
-    std::remove(tempFile.c_str());
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 && !results.empty()) {
+          if (reqId == searchRequestID) {
+            std::lock_guard<std::mutex> lock(searchResultMutex);
+            pendingSearchResults = results;
+            pendingSearchStatus = "Fuzzy Find: Searching... Found " + std::to_string(results.size()) + " matches";
+            hasPendingSearchResults = true;
+            searchReady = true;
+          }
+          lastUpdate = now;
+        }
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(searchMutex);
+        if (searchPipe == pipe) {
+          searchPipe = nullptr;
+        } else {
+          pipe = nullptr;
+        }
+      }
+      if (pipe) {
+        pclose(pipe);
+      }
+
+      if (reqId == searchRequestID) {
+        std::lock_guard<std::mutex> lock(searchResultMutex);
+        pendingSearchResults = results;
+        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Fuzzy Find finished. Found " + std::to_string(results.size()) + " matches");
+        hasPendingSearchResults = true;
+        searchReady = true;
+      }
+    });
   }
 
   void drawHelpOverlay() {
@@ -2412,7 +2451,7 @@ public:
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
     mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
-    mvwprintw(helpWin, 20, 2, "f            → Fuzzy Find (fzf)");
+    mvwprintw(helpWin, 20, 2, "f            → Fuzzy Find");
     mvwprintw(helpWin, 21, 2, "i            → Show File Details");
     mvwprintw(helpWin, 22, 2, "?            → Show Help");
 

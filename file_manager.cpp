@@ -2307,8 +2307,79 @@ public:
     delwin(detWin);
   }
 
+  void handleFuzzyFind() {
+    if (system("which fzf > /dev/null 2>&1") != 0) {
+      setStatus("Error: fzf is not installed");
+      return;
+    }
+
+    clearDirectRender();
+    def_prog_mode();
+    endwin();
+
+    char tempPattern[] = "/tmp/fyzenor-fzf.XXXXXX";
+    int tempFd = mkstemp(tempPattern);
+    std::string tempFile;
+    if (tempFd != -1) {
+      close(tempFd);
+      tempFile = tempPattern;
+    } else {
+      tempFile = "/tmp/fyzenor-fzf.txt";
+    }
+
+    std::string cmd = "fzf --height 40% --layout=reverse --border --prompt=\"Fuzzy Find: \" < /dev/tty > \"" + tempFile + "\"";
+    int status = system(cmd.c_str());
+
+    reset_prog_mode();
+    refresh();
+    updateLayout();
+
+    if (status == 0) {
+      std::ifstream f(tempFile);
+      std::string selectedPathStr;
+      if (f.is_open() && std::getline(f, selectedPathStr)) {
+        if (!selectedPathStr.empty()) {
+          try {
+            fs::path p = currentPath / selectedPathStr;
+            p = fs::absolute(p).lexically_normal();
+            if (fs::exists(p)) {
+              if (fs::is_directory(p)) {
+                currentPath = p;
+                reloadAll();
+                selectedIndex = 0;
+                scrollOffset = 0;
+              } else {
+                currentPath = p.parent_path();
+                reloadAll();
+                bool found = false;
+                for (size_t i = 0; i < currentFiles.size(); ++i) {
+                  if (currentFiles[i].path == p) {
+                    selectedIndex = i;
+                    found = true;
+                    break;
+                  }
+                }
+                if (found) {
+                  scrollOffset = (selectedIndex > 10) ? selectedIndex - 10 : 0;
+                } else {
+                  selectedIndex = 0;
+                  scrollOffset = 0;
+                }
+              }
+              setStatus("Jumped to " + p.filename().string());
+            }
+          } catch (...) {
+            setStatus("Error: Invalid path returned from fzf");
+          }
+        }
+      }
+    }
+
+    std::remove(tempFile.c_str());
+  }
+
   void drawHelpOverlay() {
-    int h = 24;
+    int h = 25;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -2341,8 +2412,9 @@ public:
     mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
     mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
     mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
-    mvwprintw(helpWin, 20, 2, "i            → Show File Details");
-    mvwprintw(helpWin, 21, 2, "?            → Show Help");
+    mvwprintw(helpWin, 20, 2, "f            → Fuzzy Find (fzf)");
+    mvwprintw(helpWin, 21, 2, "i            → Show File Details");
+    mvwprintw(helpWin, 22, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -2837,6 +2909,9 @@ public:
           break;
         case 'i':
           showFileDetails();
+          break;
+        case 'f':
+          handleFuzzyFind();
           break;
         case '?':
           drawHelpOverlay();

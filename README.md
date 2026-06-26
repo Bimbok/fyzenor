@@ -66,6 +66,12 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | Feature                            | Description                                                                                                                                           |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Three-Column Layout**            | Navigate with a Miller-style layout showing pinned items, parent/current directories, and a live preview pane.                                        |
+| **Asynchronous Tabs**              | Open multiple directories in native tabs, navigating easily with `[`/`]` and number keys `1`-`9`, preserving your selections.                       |
+| **Interactive Shell Commands**     | Execute shell commands globally with `:`. Supports foreground utilities, background tasks (`&`), and path placeholders (`$f`/`$s`).                 |
+| **Bulk Rename via Editor**         | Select multiple files and press `r` to rename them all at once inside your default text editor (e.g. `nvim`, `nano`).                                 |
+| **Simultaneous Multi-Open**        | Open all selected files simultaneously; code/text files load in a single editor, media in an `mpv` playlist, others in background launchers.         |
+| **Robust Symlink Management**     | Custom link icons (`󰌹`), detailed resolution preview (detects broken paths), and quick absolute symlink pasting with Shift+Y (`Y`).                 |
+| **Dynamic Sorting Modes**          | Toggle sorting order dynamically by pressing `s`, cycling between **Name**, **Size (Desc)**, and **Date Modified (Desc)**.                             |
 | **Async Media Preview**            | Generate image and video previews in the background using the Kitty Graphics Protocol and `ffmpeg`, without freezing navigation.                      |
 | **Modern & Polished UI**           | A clean, minimal interface featuring rounded corners, optimized spacing, and an elegant color palette designed for long-term readability and comfort. |
 | **Syntax-Aware Text Preview**      | Preview code and text files with `bat` or `batcat`, with fallback to plain text when needed.                                                          |
@@ -356,8 +362,9 @@ flowchart TD
 | `y`             | **Yank** (Copy) selected items to internal clipboard |
 | `x`             | **Cut** selected items                               |
 | `p`             | **Paste** items from clipboard                       |
+| `Y`             | **Paste as Symlink** (absolute symlinks of clipboard)|
 | `d` or `Delete` | **Delete** selected items with confirmation          |
-| `r`             | **Rename** current item                              |
+| `r`             | **Rename** current item (Bulk rename if multi-selected) |
 | `n`             | Create **New File**                                  |
 | `N`             | Create **New Folder**                                |
 | `z`             | **Zip** selected items into an archive               |
@@ -371,12 +378,22 @@ flowchart TD
 | `a`            | Select **All** files in current directory   |
 | `Esc`          | **Clear** all active selections             |
 | `.`            | Toggle hidden files                         |
-| `s`            | Toggle sorting by **Size** vs Name          |
+| `s`            | Cycle sorting (**Name** $\rightarrow$ **Size** $\rightarrow$ **Date Modified**) |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `i`            | Show **File Details** (permissions, owner, size, times) |
+| `:`            | **Execute Shell Command** (suspend TUI / background `&`) |
 | `q`            | Quit Fyzenor                                |
+
+### Tab Controls
+
+| Key             | Action                                      |
+| :-------------- | :------------------------------------------ |
+| `t`             | **Create New Tab**                          |
+| `W` or `Ctrl+W` | **Close Current Tab**                       |
+| `[` or `]`      | Switch to **Previous / Next Tab**           |
+| `1` - `9`       | Switch directly to **Tab 1 - 9**            |
 
 ### Pin Mode Controls
 

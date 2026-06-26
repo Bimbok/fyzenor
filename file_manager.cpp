@@ -3037,7 +3037,11 @@ public:
 
     // Header info with better colors
     wattron(winPreview, A_BOLD | COLOR_PAIR(1));
-    mvwprintw(winPreview, 1, 2, " %s ", file.name.c_str());
+    std::string dispName = file.name;
+    if ((int)dispName.length() > maxW) {
+      dispName = dispName.substr(0, maxW - 3) + "...";
+    }
+    mvwprintw(winPreview, 1, 2, " %s ", dispName.c_str());
     wattroff(winPreview, A_BOLD | COLOR_PAIR(1));
 
     wattron(winPreview, A_DIM);

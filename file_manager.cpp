@@ -2409,11 +2409,13 @@ public:
         wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
         wprintw(winCurrent, " ❯ %s ", style.icon);
       } else {
-        char marker = isMultiSelected ? '*' : ' ';
-        if (inClipboard) {
-          marker = clipboard.isCut ? 'x' : 'y';
+        std::string marker = " ";
+        if (isMultiSelected) {
+          marker = "*";
+        } else if (inClipboard) {
+          marker = clipboard.isCut ? "󰆐" : "󰆏";
         }
-        wprintw(winCurrent, "  %c %s ", marker, style.icon);
+        wprintw(winCurrent, "  %s %s ", marker.c_str(), style.icon);
       }
 
       if (isSearching && !dirPart.empty()) {
@@ -3343,10 +3345,11 @@ public:
           }
         }
         if (runningCount > 0) {
+          int visualLen = 12 + std::to_string(runningCount).length();
           attron(COLOR_PAIR(4) | A_BOLD);
-          mvprintw(height - 1, width - 10, "󰙵  [%d]", runningCount);
+          mvprintw(height - 1, width - visualLen - 2, "󰙵  Tasks • %d", runningCount);
           attroff(COLOR_PAIR(4) | A_BOLD);
-          rightOffset += 10;
+          rightOffset += visualLen + 2;
         }
 
         if (!clipboard.paths.empty()) {
@@ -3354,13 +3357,13 @@ public:
           std::string clipStr;
           int colorPair = 0;
           if (clipboard.isCut) {
-            clipStr = "󰆐  [Cut: " + std::to_string(count) + "]";
+            clipStr = "󰆐  Cut • " + std::to_string(count);
             colorPair = 8; // Red/warning
           } else {
-            clipStr = "󰆏  [Yank: " + std::to_string(count) + "]";
+            clipStr = "󰆏  Yank • " + std::to_string(count);
             colorPair = 28; // Purple/Font
           }
-          int visualLen = 10 + std::to_string(count).length();
+          int visualLen = (clipboard.isCut ? 10 : 11) + std::to_string(count).length();
           attron(COLOR_PAIR(colorPair) | A_BOLD);
           mvprintw(height - 1, width - rightOffset - visualLen, "%s", clipStr.c_str());
           attroff(COLOR_PAIR(colorPair) | A_BOLD);

@@ -1810,8 +1810,15 @@ public:
     setStatus("Selected all");
   }
   void clearSelection() {
-    multiSelection.clear();
-    setStatus("Cleared selection");
+    if (!multiSelection.empty()) {
+      multiSelection.clear();
+      setStatus("Cleared selection");
+    } else if (!clipboard.paths.empty()) {
+      clipboard.paths.clear();
+      setStatus("Cleared clipboard selection");
+    } else {
+      setStatus("Nothing to clear");
+    }
   }
 
   void toggleSort() {
@@ -2338,6 +2345,15 @@ public:
       bool isSelected = (!focusPinned && idx == (int)selectedIndex);
       bool isMultiSelected = multiSelection.count(file.path);
 
+      bool inClipboard = false;
+      for (const auto& p : clipboard.paths) {
+        if (p == file.path) {
+          inClipboard = true;
+          break;
+        }
+      }
+      bool isDimmed = inClipboard && clipboard.isCut && !isSelected;
+
       FileStyle style = getFileStyle(file.extension, file.is_directory);
       int finalPair = getFinalPair(style.pair, isSelected, false);
 
@@ -2350,6 +2366,9 @@ public:
         wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
       } else {
         wattron(winCurrent, COLOR_PAIR(finalPair));
+      }
+      if (isDimmed) {
+        wattron(winCurrent, A_DIM);
       }
 
       std::string dirPart = "";
@@ -2391,6 +2410,9 @@ public:
         wprintw(winCurrent, " ❯ %s ", style.icon);
       } else {
         char marker = isMultiSelected ? '*' : ' ';
+        if (inClipboard) {
+          marker = clipboard.isCut ? 'x' : 'y';
+        }
         wprintw(winCurrent, "  %c %s ", marker, style.icon);
       }
 
@@ -2410,6 +2432,9 @@ public:
       std::string sz = formatSize(file.size);
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
 
+      if (isDimmed) {
+        wattroff(winCurrent, A_DIM);
+      }
       if (isSelected) {
         wattroff(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
       } else if (isMultiSelected)
@@ -3298,13 +3323,15 @@ public:
 
         attron(A_DIM);
         std::string pathStr = currentPath.string();
-        int maxPathW = width - 25;
+        int maxPathW = width - 35;
         if (maxPathW < 10) maxPathW = 10;
         if ((int)pathStr.length() > maxPathW) {
           pathStr = "..." + pathStr.substr(pathStr.length() - maxPathW + 3);
         }
         printw(" %s", pathStr.c_str());
         attroff(A_DIM);
+
+        int rightOffset = 2; // Right padding
 
         int runningCount = 0;
         {
@@ -3319,6 +3346,24 @@ public:
           attron(COLOR_PAIR(4) | A_BOLD);
           mvprintw(height - 1, width - 10, "󰙵  [%d]", runningCount);
           attroff(COLOR_PAIR(4) | A_BOLD);
+          rightOffset += 10;
+        }
+
+        if (!clipboard.paths.empty()) {
+          int count = clipboard.paths.size();
+          std::string clipStr;
+          int colorPair = 0;
+          if (clipboard.isCut) {
+            clipStr = "󰆐  [Cut: " + std::to_string(count) + "]";
+            colorPair = 8; // Red/warning
+          } else {
+            clipStr = "󰆏  [Yank: " + std::to_string(count) + "]";
+            colorPair = 28; // Purple/Font
+          }
+          int visualLen = 10 + std::to_string(count).length();
+          attron(COLOR_PAIR(colorPair) | A_BOLD);
+          mvprintw(height - 1, width - rightOffset - visualLen, "%s", clipStr.c_str());
+          attroff(COLOR_PAIR(colorPair) | A_BOLD);
         }
 
         drawStatusToast();

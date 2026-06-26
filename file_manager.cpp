@@ -507,6 +507,37 @@ private:
       init_pair(3, COLOR_BLACK, COLOR_CYAN);
       init_pair(4, COLOR_YELLOW, -1);
       init_pair(5, COLOR_MAGENTA, -1);
+      init_pair(16, COLOR_GREEN, -1);
+      init_pair(17, COLOR_RED, -1);
+      init_pair(24, COLOR_YELLOW, -1);
+      init_pair(25, COLOR_WHITE, -1);
+      init_pair(26, COLOR_CYAN, -1);
+      init_pair(27, COLOR_RED, -1);
+      init_pair(28, COLOR_MAGENTA, -1);
+
+      short selBg = COLOR_BLUE;
+      short secSelBg = COLOR_CYAN;
+
+      std::vector<int> bases = {1, 2, 4, 5, 16, 17, 24, 25, 26, 27, 28};
+      for (int base : bases) {
+        short fg = COLOR_WHITE;
+        if (base == 1) fg = COLOR_CYAN;
+        else if (base == 4) fg = COLOR_YELLOW;
+        else if (base == 5) fg = COLOR_MAGENTA;
+        else if (base == 16) fg = COLOR_GREEN;
+        else if (base == 17) fg = COLOR_RED;
+        else if (base == 24) fg = COLOR_YELLOW;
+        else if (base == 25) fg = COLOR_WHITE;
+        else if (base == 26) fg = COLOR_CYAN;
+        else if (base == 27) fg = COLOR_RED;
+        else if (base == 28) fg = COLOR_MAGENTA;
+
+        if (base + 40 < COLOR_PAIRS)
+          init_pair(base + 40, fg, selBg);
+        if (base + 80 < COLOR_PAIRS)
+          init_pair(base + 80, fg, secSelBg);
+      }
+
       init_pair(6, COLOR_BLUE, -1);
       init_pair(7, COLOR_GREEN, -1);
       init_pair(8, COLOR_RED, -1);
@@ -1924,23 +1955,28 @@ public:
 
     for (size_t i = 0; i < pinnedPaths.size() && i < (size_t)getmaxy(winPinned) - 2; ++i) {
       wmove(winPinned, i + 1, 1);
-      if (focusPinned && i == pinnedIndex) {
-        wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
-        for (int j = 0; j < getmaxx(winPinned) - 2; ++j)
-          waddch(winPinned, ' ');
-        wmove(winPinned, i + 1, 1);
-      }
-
       std::string name = pinnedPaths[i].filename().string();
       if (name.empty())
         name = pinnedPaths[i].string();
       if (name.length() > (size_t)getmaxx(winPinned) - 6)
         name = name.substr(0, getmaxx(winPinned) - 6);
 
-      wprintw(winPinned, " %s %s", ICON_PIN, name.c_str());
+      if (focusPinned && i == pinnedIndex) {
+        wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
+        for (int j = 0; j < getmaxx(winPinned) - 2; ++j)
+          waddch(winPinned, ' ');
+        wmove(winPinned, i + 1, 1);
 
-      if (focusPinned && i == pinnedIndex)
+        wattron(winPinned, COLOR_PAIR(4) | A_BOLD);
+        waddstr(winPinned, "┃");
+        wattroff(winPinned, COLOR_PAIR(4) | A_BOLD);
+
+        wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
+        wprintw(winPinned, " %s %s", ICON_PIN, name.c_str());
         wattroff(winPinned, COLOR_PAIR(10) | A_BOLD);
+      } else {
+        wprintw(winPinned, "  %s %s", ICON_PIN, name.c_str());
+      }
     }
     wnoutrefresh(winPinned);
   }
@@ -1973,24 +2009,26 @@ public:
       FileStyle style = getFileStyle(file.extension, file.is_directory);
       int finalPair = getFinalPair(style.pair, false, isCurrent);
 
+      std::string display = file.name;
+      if (display.length() > (size_t)getmaxx(winParent) - 8)
+        display = display.substr(0, getmaxx(winParent) - 11) + "...";
+
       if (isCurrent) {
         wattron(winParent, COLOR_PAIR(finalPair) | A_BOLD);
         for (int j = 0; j < getmaxx(winParent) - 2; ++j)
           waddch(winParent, ' ');
         wmove(winParent, i + 1, 1);
-      } else {
-        wattron(winParent, COLOR_PAIR(finalPair) | A_DIM);
-      }
 
-      std::string display = file.name;
-      if (display.length() > (size_t)getmaxx(winParent) - 8)
-        display = display.substr(0, getmaxx(winParent) - 11) + "...";
+        wattron(winParent, COLOR_PAIR(6) | A_BOLD);
+        waddstr(winParent, "┃");
+        wattroff(winParent, COLOR_PAIR(6) | A_BOLD);
 
-      wprintw(winParent, " %s %s", style.icon, display.c_str());
-
-      if (isCurrent) {
+        wattron(winParent, COLOR_PAIR(finalPair) | A_BOLD);
+        wprintw(winParent, " %s %s", style.icon, display.c_str());
         wattroff(winParent, COLOR_PAIR(finalPair) | A_BOLD);
       } else {
+        wattron(winParent, COLOR_PAIR(finalPair) | A_DIM);
+        wprintw(winParent, "  %s %s", style.icon, display.c_str());
         wattroff(winParent, COLOR_PAIR(finalPair) | A_DIM);
       }
     }
@@ -2094,8 +2132,17 @@ public:
         }
       }
 
-      char marker = isMultiSelected ? '*' : ' ';
-      wprintw(winCurrent, " %c %s ", marker, style.icon);
+      if (isSelected) {
+        wattron(winCurrent, COLOR_PAIR(6) | A_BOLD);
+        waddstr(winCurrent, "┃");
+        wattroff(winCurrent, COLOR_PAIR(6) | A_BOLD);
+
+        wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
+        wprintw(winCurrent, " ❯ %s ", style.icon);
+      } else {
+        char marker = isMultiSelected ? '*' : ' ';
+        wprintw(winCurrent, "  %c %s ", marker, style.icon);
+      }
 
       if (isSearching && !dirPart.empty()) {
         if (isSelected) {

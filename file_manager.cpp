@@ -304,8 +304,10 @@ struct AsyncTask {
   std::string description;
   std::atomic<int> progress{0}; // 0 to 100
   std::atomic<bool> isFinished{false};
+  std::atomic<bool> isCancelled{false};
   bool notified = false;
   std::string statusMessage = "Running";
+  fs::path destPath;
 };
 
 class FileManager {
@@ -418,6 +420,9 @@ private:
 
     char buffer[65536];
     while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
+      if (task->isCancelled.load()) {
+        return false;
+      }
       out.write(buffer, in.gcount());
       if (out.fail()) {
         return false;
@@ -468,6 +473,10 @@ private:
       int failCount = 0;
 
       for (const auto& job : jobs) {
+        if (task->isCancelled.load()) {
+          failCount = jobs.size() - successCount;
+          break;
+        }
         fs::path src = job.first;
         fs::path dest = job.second;
         bool jobOk = false;
@@ -478,6 +487,10 @@ private:
             std::vector<fs::path> filesToKeep;
             try {
               for (const auto& entry : fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied)) {
+                if (task->isCancelled.load()) {
+                  dirCopiedFully = false;
+                  break;
+                }
                 fs::path rel = fs::relative(entry.path(), src);
                 fs::path d = dest / rel;
                 if (fs::is_directory(entry.status())) {
@@ -531,7 +544,9 @@ private:
       }
 
       task->progress = 100;
-      if (failCount > 0) {
+      if (task->isCancelled.load()) {
+        task->statusMessage = "Cancelled";
+      } else if (failCount > 0) {
         task->statusMessage = "Finished with errors (pasted " + std::to_string(successCount) + " items, " + std::to_string(failCount) + " failed)";
       } else {
         task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
@@ -559,6 +574,7 @@ private:
       int processed = 0;
 
       for (const auto& p : targets) {
+        if (task->isCancelled.load()) break;
         try {
           fs::remove_all(p);
         } catch (...) {}
@@ -567,31 +583,69 @@ private:
       }
 
       task->progress = 100;
-      task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
+      if (task->isCancelled.load()) {
+        task->statusMessage = "Cancelled";
+      } else {
+        task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
+      }
       task->isFinished = true;
     }).detach();
   }
 
-  void startZipTask(const std::string& cmd, const std::string& zipName) {
+  void startZipTask(const std::string& zipCmd, const std::string& zipName, const fs::path& zipDir) {
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
       task->id = nextTaskId++;
       task->type = "Zip";
       task->description = "Creating " + zipName;
+      task->destPath = zipDir / zipName;
       activeTasks.push_back(task);
     }
 
     setStatus("Zip task started in background");
 
-    std::thread([this, task, cmd]() {
-      int res = system(cmd.c_str());
+    std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
+    std::string wrappedCmd = "cd \"" + zipDir.string() + "\" && (" + zipCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
+
+    std::thread([this, task, wrappedCmd]() {
+      int res = system(wrappedCmd.c_str());
       (void)res;
 
+      std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
+      try { fs::remove(pidFile); } catch(...) {}
+
       task->progress = 100;
-      task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+      if (task->isCancelled.load()) {
+        task->statusMessage = "Cancelled";
+      } else {
+        task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+      }
       task->isFinished = true;
     }).detach();
+  }
+
+  void cancelTask(std::shared_ptr<AsyncTask> task) {
+    if (!task || task->isFinished) return;
+    task->isCancelled = true;
+
+    if (task->type == "Zip") {
+      std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
+      std::ifstream f(pidFile);
+      if (f.is_open()) {
+        std::string pidStr;
+        if (std::getline(f, pidStr)) {
+          std::string killCmd = "kill -9 " + pidStr + " 2>/dev/null";
+          int res = system(killCmd.c_str());
+          (void)res;
+        }
+        f.close();
+      }
+      try { fs::remove(pidFile); } catch(...) {}
+      if (!task->destPath.empty()) {
+        try { fs::remove(task->destPath); } catch(...) {}
+      }
+    }
   }
 
   void initColors() {
@@ -2060,12 +2114,11 @@ public:
       setStatus("Error: Zip file already exists!");
       return;
     }
-    std::string cmd = "cd \"" + currentPath.string() + "\" && zip -r -q \"" + name + ".zip\"";
+    std::string cmd = "zip -r -q \"" + name + ".zip\"";
     for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";
-    cmd += " > /dev/null 2>&1";
 
-    startZipTask(cmd, name + ".zip");
+    startZipTask(cmd, name + ".zip", currentPath);
     multiSelection.clear();
   }
   void handleCopyPath() {
@@ -2770,6 +2823,8 @@ public:
     keypad(taskWin, TRUE);
     wtimeout(taskWin, 200);
 
+    size_t highlightedIndex = 0;
+
     while (true) {
       werase(taskWin);
       wattron(taskWin, COLOR_PAIR(6) | A_BOLD);
@@ -2799,16 +2854,35 @@ public:
         wattron(taskWin, A_DIM);
         mvwprintw(taskWin, h / 2, (w - 20) / 2, "No background tasks");
         wattroff(taskWin, A_DIM);
+        highlightedIndex = 0;
       } else {
+        if (highlightedIndex >= tasksCopy.size()) {
+          highlightedIndex = tasksCopy.empty() ? 0 : tasksCopy.size() - 1;
+        }
+
         for (size_t i = 0; i < tasksCopy.size() && i < (size_t)maxDisplay; ++i) {
           const auto& task = tasksCopy[i];
           int y = 3 + i;
-          
-          wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
-          mvwprintw(taskWin, y, 2, "[%d] %s", task->id, task->type.c_str());
-          wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+          bool isSelected = (i == highlightedIndex);
 
-          int barW = 20;
+          if (isSelected) {
+            wattron(taskWin, COLOR_PAIR(10) | A_BOLD);
+            for (int x = 1; x < w - 1; ++x) {
+              mvwaddch(taskWin, y, x, ' ');
+            }
+            wattron(taskWin, COLOR_PAIR(4) | A_BOLD);
+            mvwprintw(taskWin, y, 1, "┃");
+            wattroff(taskWin, COLOR_PAIR(4) | A_BOLD);
+
+            wattron(taskWin, COLOR_PAIR(10) | A_BOLD);
+            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, task->type.c_str());
+          } else {
+            wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
+            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, task->type.c_str());
+            wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+          }
+
+          int barW = 18;
           int prog = task->progress;
           if (prog < 0) prog = 0;
           if (prog > 100) prog = 100;
@@ -2820,9 +2894,13 @@ public:
           }
           bar += "]";
 
-          wattron(taskWin, COLOR_PAIR(7));
-          mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
-          wattroff(taskWin, COLOR_PAIR(7));
+          if (isSelected) {
+            mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
+          } else {
+            wattron(taskWin, COLOR_PAIR(7));
+            mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
+            wattroff(taskWin, COLOR_PAIR(7));
+          }
 
           std::string desc = task->description;
           int maxDescW = w - 42;
@@ -2830,11 +2908,15 @@ public:
             desc = desc.substr(0, maxDescW - 3) + "...";
           }
           mvwprintw(taskWin, y, 40, "%s", desc.c_str());
+
+          if (isSelected) {
+            wattroff(taskWin, COLOR_PAIR(10) | A_BOLD);
+          }
         }
       }
 
       wattron(taskWin, A_DIM);
-      mvwprintw(taskWin, h - 2, 2, "Press 'c' to clear finished tasks | Press any other key to close...");
+      mvwprintw(taskWin, h - 2, 2, "j/k: Navigate | c: Clear Finished | x/d: Kill Task | Esc: Close");
       wattroff(taskWin, A_DIM);
 
       wrefresh(taskWin);
@@ -2848,7 +2930,20 @@ public:
                            [](const std::shared_ptr<AsyncTask>& t) { return t->isFinished.load(); }),
             activeTasks.end()
           );
-        } else {
+        } else if (ch == 'j' || ch == KEY_DOWN) {
+          if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size() - 1) {
+            highlightedIndex++;
+          }
+        } else if (ch == 'k' || ch == KEY_UP) {
+          if (highlightedIndex > 0) {
+            highlightedIndex--;
+          }
+        } else if (ch == 'x' || ch == 'X' || ch == 'd' || ch == 'D') {
+          if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size()) {
+            auto taskToCancel = tasksCopy[highlightedIndex];
+            cancelTask(taskToCancel);
+          }
+        } else if (ch == 27 || ch == 'q' || ch == 'Q') {
           break;
         }
       }

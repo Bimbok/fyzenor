@@ -407,9 +407,15 @@ private:
     size_t scrollOffset = 0;
     bool isSearching = false;
     std::set<fs::path> multiSelection;
+    std::vector<FileEntry> currentFiles;
   };
   std::vector<Tab> tabs;
   size_t activeTabIndex = 0;
+
+  bool isDualPaneMode = false;
+  size_t leftTabIndex = 0;
+  size_t rightTabIndex = 1;
+  bool focusLeftPane = true;
 
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
@@ -1153,6 +1159,7 @@ public:
 
     loadDirectory(currentPath, currentFiles);
     loadParent();
+    tabs[activeTabIndex].currentFiles = currentFiles;
 
     initscr();
     cbreak();
@@ -1477,6 +1484,23 @@ public:
 
   void updateLayout() {
     getmaxyx(stdscr, height, width);
+
+    if (isDualPaneMode) {
+      int w1 = width / 2;
+      int w2 = width - w1;
+
+      if (winPinned) { delwin(winPinned); winPinned = nullptr; }
+      if (winParent) { delwin(winParent); winParent = nullptr; }
+      if (winCurrent) delwin(winCurrent);
+      if (winPreview) delwin(winPreview);
+
+      winCurrent = newwin(height - 2, w1, 1, 0);
+      winPreview = newwin(height - 2, w2, 1, w1);
+
+      refresh();
+      return;
+    }
+
     // Adjusted widths for a more modern Miller Column feel (2:3:5 ratio
     // roughly)
     int w1 = static_cast<int>(width * 0.18); // Pins/Parent
@@ -2590,11 +2614,48 @@ public:
   void reloadAll() {
     loadDirectory(currentPath, currentFiles);
     loadParent();
+    tabs[activeTabIndex].currentFiles = currentFiles;
+    if (isDualPaneMode) {
+      size_t inactiveIdx = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
+      if (inactiveIdx < tabs.size()) {
+        tabs[inactiveIdx].currentFiles.clear();
+      }
+    }
   }
   void toggleHidden() {
     showHidden = !showHidden;
     reloadAll();
     setStatus(showHidden ? "Showing hidden" : "Hidden masked");
+  }
+
+  void toggleDualPaneMode() {
+    isDualPaneMode = !isDualPaneMode;
+    if (isDualPaneMode) {
+      if (tabs.size() < 2) {
+        Tab newTab;
+        newTab.currentPath = currentPath;
+        newTab.selectedIndex = 0;
+        newTab.scrollOffset = 0;
+        newTab.isSearching = false;
+        newTab.multiSelection = {};
+        newTab.currentFiles = {};
+        tabs.push_back(newTab);
+      }
+      leftTabIndex = activeTabIndex;
+      if (leftTabIndex == 0) {
+        rightTabIndex = 1;
+      } else {
+        rightTabIndex = 0;
+      }
+      focusLeftPane = (activeTabIndex == leftTabIndex);
+      size_t inactiveIdx = focusLeftPane ? rightTabIndex : leftTabIndex;
+      loadInactiveTabDirectoryIfNeeded(inactiveIdx);
+      setStatus("Entered dual-pane mode");
+    } else {
+      setStatus("Exited dual-pane mode");
+    }
+    updateLayout();
+    reloadAll();
   }
 
   // --- Drawing ---
@@ -2616,6 +2677,7 @@ public:
   }
 
   void drawPinned() {
+    if (!winPinned) return;
     werase(winPinned);
     if (focusPinned)
       wattron(winPinned, COLOR_PAIR(6) | A_BOLD);
@@ -2660,6 +2722,7 @@ public:
   }
 
   void drawParent() {
+    if (!winParent) return;
     werase(winParent);
     wattron(winParent, COLOR_PAIR(6));
     drawRoundedBox(winParent);
@@ -2723,6 +2786,10 @@ public:
     int x = 2;
     for (size_t i = 0; i < tabs.size(); ++i) {
       bool isActive = (i == activeTabIndex);
+      bool isLeft = isDualPaneMode && (i == leftTabIndex);
+      bool isRight = isDualPaneMode && (i == rightTabIndex);
+      bool isPaneTab = isLeft || isRight;
+
       std::string tabName = tabs[i].currentPath.filename().string();
       if (tabName.empty()) {
         tabName = "/";
@@ -2745,6 +2812,18 @@ public:
         attron(COLOR_PAIR(6) | A_BOLD);
         printw("");
         attroff(COLOR_PAIR(6) | A_BOLD);
+      } else if (isPaneTab) {
+        attron(COLOR_PAIR(6));
+        mvprintw(0, x, "");
+        attroff(COLOR_PAIR(6));
+
+        attron(COLOR_PAIR(6) | A_BOLD);
+        printw("%s", disp.c_str());
+        attroff(COLOR_PAIR(6) | A_BOLD);
+
+        attron(COLOR_PAIR(6));
+        printw("");
+        attroff(COLOR_PAIR(6));
       } else {
         attron(COLOR_PAIR(6) | A_DIM);
         mvprintw(0, x, "  %s  ", disp.c_str());
@@ -2760,6 +2839,7 @@ public:
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].multiSelection = multiSelection;
+    tabs[activeTabIndex].currentFiles = currentFiles;
 
     Tab newTab;
     newTab.currentPath = currentPath;
@@ -2767,11 +2847,13 @@ public:
     newTab.scrollOffset = scrollOffset;
     newTab.isSearching = false;
     newTab.multiSelection = {};
+    newTab.currentFiles = {};
 
     tabs.push_back(newTab);
     activeTabIndex = tabs.size() - 1;
 
     reloadAll();
+    onTabSwitched();
     setStatus("Tab created");
   }
 
@@ -2781,20 +2863,38 @@ public:
       return;
     }
 
+    if (isDualPaneMode && tabs.size() <= 2) {
+      isDualPaneMode = false;
+      setStatus("Exited dual-pane mode (need at least 2 tabs)");
+    }
+
     tabs.erase(tabs.begin() + activeTabIndex);
     if (activeTabIndex >= tabs.size()) {
       activeTabIndex = tabs.size() - 1;
+    }
+
+    if (isDualPaneMode) {
+      leftTabIndex = activeTabIndex;
+      if (leftTabIndex == 0) {
+        rightTabIndex = 1;
+      } else {
+        rightTabIndex = 0;
+      }
+      focusLeftPane = (activeTabIndex == leftTabIndex);
     }
 
     currentPath = tabs[activeTabIndex].currentPath;
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
     isSearching = tabs[activeTabIndex].isSearching;
+    currentFiles = tabs[activeTabIndex].currentFiles;
     
     auto savedSelection = tabs[activeTabIndex].multiSelection;
     reloadAll();
     multiSelection = savedSelection;
-    setStatus("Tab closed");
+    if (!isDualPaneMode) {
+      setStatus("Tab closed");
+    }
   }
 
   void switchTab(size_t index) {
@@ -2805,70 +2905,117 @@ public:
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].multiSelection = multiSelection;
+    tabs[activeTabIndex].currentFiles = currentFiles;
 
     activeTabIndex = index;
     currentPath = tabs[activeTabIndex].currentPath;
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
     isSearching = tabs[activeTabIndex].isSearching;
+    currentFiles = tabs[activeTabIndex].currentFiles;
 
     auto savedSelection = tabs[activeTabIndex].multiSelection;
     reloadAll();
     multiSelection = savedSelection;
+
+    onTabSwitched();
   }
 
-  void drawCurrent() {
-    werase(winCurrent);
-    if (!focusPinned)
-      wattron(winCurrent, COLOR_PAIR(6) | A_BOLD);
-    else
-      wattron(winCurrent, COLOR_PAIR(6));
-    drawRoundedBox(winCurrent);
-    wattroff(winCurrent, A_BOLD);
-    wattroff(winCurrent, COLOR_PAIR(6));
-
-    wattron(winCurrent, A_BOLD | COLOR_PAIR(1));
-    if (isSearching) {
-      mvwprintw(winCurrent, 0, 2, "  Search Results ");
+  void onTabSwitched() {
+    if (!isDualPaneMode) return;
+    if (focusLeftPane) {
+      if (activeTabIndex == rightTabIndex) {
+        rightTabIndex = leftTabIndex;
+      }
+      leftTabIndex = activeTabIndex;
     } else {
-      mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
+      if (activeTabIndex == leftTabIndex) {
+        leftTabIndex = rightTabIndex;
+      }
+      rightTabIndex = activeTabIndex;
     }
-    wattroff(winCurrent, A_BOLD | COLOR_PAIR(1));
+  }
 
-    if (isSearching && currentFiles.empty()) {
-      int my = getmaxy(winCurrent);
-      int mx = getmaxx(winCurrent);
-      wattron(winCurrent, COLOR_PAIR(7) | A_BOLD);
-      mvwprintw(winCurrent, my / 2, (mx - 15) / 2, "  Searching... ");
-      wattroff(winCurrent, COLOR_PAIR(7) | A_BOLD);
-      wnoutrefresh(winCurrent);
+  void loadInactiveTabDirectoryIfNeeded(size_t inactiveIdx) {
+    if (inactiveIdx >= tabs.size()) return;
+    if (tabs[inactiveIdx].currentFiles.empty()) {
+      try {
+        std::vector<FileEntry> tempFiles;
+        for (const auto& entry : fs::directory_iterator(tabs[inactiveIdx].currentPath)) {
+          if (!showHidden && entry.path().filename().string().front() == '.')
+            continue;
+          tempFiles.emplace_back(entry);
+        }
+        sortList(tempFiles);
+        tabs[inactiveIdx].currentFiles = tempFiles;
+      } catch (...) {
+        tabs[inactiveIdx].currentFiles.clear();
+      }
+    }
+  }
+
+  void drawPane(WINDOW* win, const fs::path& panePath, const std::vector<FileEntry>& paneFiles,
+                size_t paneSelectedIndex, size_t& paneScrollOffset,
+                const std::set<fs::path>& paneMultiSelection, bool paneIsSearching,
+                bool hasFocus) {
+    werase(win);
+    if (hasFocus)
+      wattron(win, COLOR_PAIR(6) | A_BOLD);
+    else
+      wattron(win, COLOR_PAIR(6));
+    drawRoundedBox(win);
+    wattroff(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(6));
+
+    wattron(win, A_BOLD | COLOR_PAIR(1));
+    if (paneIsSearching) {
+      mvwprintw(win, 0, 2, "  Search Results ");
+    } else {
+      mvwprintw(win, 0, 2, " 󰉖 %s ", panePath.filename().string().c_str());
+    }
+    wattroff(win, A_BOLD | COLOR_PAIR(1));
+
+    if (paneIsSearching && paneFiles.empty()) {
+      int my = getmaxy(win);
+      int mx = getmaxx(win);
+      wattron(win, COLOR_PAIR(7) | A_BOLD);
+      mvwprintw(win, my / 2, (mx - 15) / 2, "  Searching... ");
+      wattroff(win, COLOR_PAIR(7) | A_BOLD);
+      wnoutrefresh(win);
       return;
     }
 
-    if (!multiSelection.empty()) {
+    if (!paneMultiSelection.empty()) {
       std::string selStr =
-          " [ MULTI-SELECT: " + std::to_string(multiSelection.size()) + " ITEMS ] ";
-
-      wattron(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
-
-      mvwprintw(winCurrent, 0, getmaxx(winCurrent) - selStr.length() - 2, "%s", selStr.c_str());
-
-      wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
+          " [ MULTI-SELECT: " + std::to_string(paneMultiSelection.size()) + " ITEMS ] ";
+      wattron(win, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
+      mvwprintw(win, 0, getmaxx(win) - selStr.length() - 2, "%s", selStr.c_str());
+      wattroff(win, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
     }
 
-    int maxLines = getmaxy(winCurrent) - 2;
-    if (selectedIndex < scrollOffset)
-      scrollOffset = selectedIndex;
-    if (selectedIndex >= scrollOffset + (size_t)maxLines)
-      scrollOffset = selectedIndex - maxLines + 1;
+    int maxLines = getmaxy(win) - 2;
+    if (paneFiles.empty()) {
+      wnoutrefresh(win);
+      return;
+    }
 
-    for (int i = 0; i < maxLines && (scrollOffset + i) < currentFiles.size(); ++i) {
-      int idx = scrollOffset + i;
-      const auto& file = currentFiles[idx];
-      wmove(winCurrent, i + 1, 1);
+    size_t safeSelectedIndex = paneSelectedIndex;
+    if (safeSelectedIndex >= paneFiles.size()) {
+      safeSelectedIndex = paneFiles.size() - 1;
+    }
 
-      bool isSelected = (!focusPinned && idx == (int)selectedIndex);
-      bool isMultiSelected = multiSelection.count(file.path);
+    if (safeSelectedIndex < paneScrollOffset)
+      paneScrollOffset = safeSelectedIndex;
+    if (safeSelectedIndex >= paneScrollOffset + (size_t)maxLines)
+      paneScrollOffset = safeSelectedIndex - maxLines + 1;
+
+    for (int i = 0; i < maxLines && (paneScrollOffset + i) < paneFiles.size(); ++i) {
+      int idx = paneScrollOffset + i;
+      const auto& file = paneFiles[idx];
+      wmove(win, i + 1, 1);
+
+      bool isSelected = (hasFocus && idx == (int)safeSelectedIndex);
+      bool isMultiSelected = paneMultiSelection.count(file.path);
 
       bool inClipboard = false;
       for (const auto& p : clipboard.paths) {
@@ -2886,24 +3033,24 @@ public:
       int finalPair = getFinalPair(style.pair, isSelected, false);
 
       if (isSelected) {
-        wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
-        for (int j = 0; j < getmaxx(winCurrent) - 2; ++j)
-          waddch(winCurrent, ' ');
-        wmove(winCurrent, i + 1, 1);
+        wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+        for (int j = 0; j < getmaxx(win) - 2; ++j)
+          waddch(win, ' ');
+        wmove(win, i + 1, 1);
       } else if (isMultiSelected) {
-        wattron(winCurrent, COLOR_PAIR(9) | A_BOLD);
+        wattron(win, COLOR_PAIR(9) | A_BOLD);
       } else {
-        wattron(winCurrent, COLOR_PAIR(finalPair));
+        wattron(win, COLOR_PAIR(finalPair));
       }
       if (isDimmed) {
-        wattron(winCurrent, A_DIM);
+        wattron(win, A_DIM);
       }
 
       std::string dirPart = "";
       std::string filePart = file.name;
-      if (isSearching) {
+      if (paneIsSearching) {
         try {
-          std::string relPath = fs::relative(file.path, currentPath).string();
+          std::string relPath = fs::relative(file.path, panePath).string();
           size_t lastSlash = relPath.find_last_of("/\\");
           if (lastSlash != std::string::npos) {
             dirPart = relPath.substr(0, lastSlash + 1);
@@ -2917,7 +3064,7 @@ public:
       }
 
       std::string sz = formatSize(file.size);
-      int availWidth = getmaxx(winCurrent) - sz.length() - 11;
+      int availWidth = getmaxx(win) - sz.length() - 11;
       if (availWidth < 10) availWidth = 10;
 
       std::string fullDisplay = dirPart + filePart;
@@ -2945,7 +3092,7 @@ public:
           size_t maxSymLen = availWidth - fullLen;
           if (maxSymLen >= 7) {
             std::string symTarget = file.symlink_target;
-            symTarget = utf8_safe_truncate(symTarget, maxSymLen - 4); // 4 columns for " 󰌹 "
+            symTarget = utf8_safe_truncate(symTarget, maxSymLen - 4);
             symDisplay = " 󰌹 " + symTarget;
           } else {
             symDisplay = "";
@@ -2961,53 +3108,73 @@ public:
       }
 
       if (isSelected) {
-        wattron(winCurrent, COLOR_PAIR(6) | A_BOLD);
-        waddstr(winCurrent, "┃");
-        wattroff(winCurrent, COLOR_PAIR(6) | A_BOLD);
+        wattron(win, COLOR_PAIR(6) | A_BOLD);
+        waddstr(win, "┃");
+        wattroff(win, COLOR_PAIR(6) | A_BOLD);
 
-        wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
-        wprintw(winCurrent, " %s %s ", marker.c_str(), style.icon);
+        wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+        wprintw(win, " %s %s ", marker.c_str(), style.icon);
       } else {
-        wprintw(winCurrent, "  %s %s ", marker.c_str(), style.icon);
+        wprintw(win, "  %s %s ", marker.c_str(), style.icon);
       }
 
-      if (isSearching && !dirPart.empty()) {
+      if (paneIsSearching && !dirPart.empty()) {
         if (isSelected) {
-          wprintw(winCurrent, "%s%s", dirPart.c_str(), filePart.c_str());
+          wprintw(win, "%s%s", dirPart.c_str(), filePart.c_str());
         } else {
-          wattron(winCurrent, A_DIM);
-          wprintw(winCurrent, "%s", dirPart.c_str());
-          wattroff(winCurrent, A_DIM);
-          wprintw(winCurrent, "%s", filePart.c_str());
+          wattron(win, A_DIM);
+          wprintw(win, "%s", dirPart.c_str());
+          wattroff(win, A_DIM);
+          wprintw(win, "%s", filePart.c_str());
         }
       } else {
-        wprintw(winCurrent, "%s", filePart.c_str());
+        wprintw(win, "%s", filePart.c_str());
       }
 
       if (!symDisplay.empty()) {
         bool targetDimmed = !isSelected;
         if (targetDimmed) {
-          wattron(winCurrent, A_DIM);
+          wattron(win, A_DIM);
         }
-        wprintw(winCurrent, "%s", symDisplay.c_str());
+        wprintw(win, "%s", symDisplay.c_str());
         if (targetDimmed) {
-          wattroff(winCurrent, A_DIM);
+          wattroff(win, A_DIM);
         }
       }
 
-      mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
+      mvwprintw(win, i + 1, getmaxx(win) - sz.length() - 2, "%s", sz.c_str());
 
       if (isDimmed) {
-        wattroff(winCurrent, A_DIM);
+        wattron(win, A_DIM);
       }
       if (isSelected) {
-        wattroff(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
+        wattroff(win, COLOR_PAIR(finalPair) | A_BOLD);
       } else if (isMultiSelected)
-        wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD);
+        wattroff(win, COLOR_PAIR(9) | A_BOLD);
       else
-        wattroff(winCurrent, COLOR_PAIR(finalPair));
+        wattroff(win, COLOR_PAIR(finalPair));
+      if (isDimmed) {
+        wattroff(win, A_DIM);
+      }
     }
-    wnoutrefresh(winCurrent);
+    wnoutrefresh(win);
+  }
+
+  void drawCurrent() {
+    if (isDualPaneMode) {
+      size_t leftIdx = leftTabIndex;
+      if (activeTabIndex == leftIdx) {
+        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, true);
+      } else {
+        loadInactiveTabDirectoryIfNeeded(leftIdx);
+        drawPane(winCurrent, tabs[leftIdx].currentPath, tabs[leftIdx].currentFiles,
+                 tabs[leftIdx].selectedIndex, tabs[leftIdx].scrollOffset,
+                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, false);
+      }
+      return;
+    }
+
+    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, !focusPinned);
   }
 
   struct FileDetails {
@@ -3349,7 +3516,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 32;
+    int h = 34;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -3391,7 +3558,9 @@ public:
     mvwprintw(helpWin, 26, 2, "[ / ]        → Prev / Next Tab");
     mvwprintw(helpWin, 27, 2, "1 - 9        → Switch to Tab 1-9");
     mvwprintw(helpWin, 28, 2, ":            → Execute Shell Command");
-    mvwprintw(helpWin, 29, 2, "?            → Show Help");
+    mvwprintw(helpWin, 29, 2, "F2           → Toggle Dual-Pane Mode");
+    mvwprintw(helpWin, 30, 2, "Tab          → Toggle Pinned / Switch Pane");
+    mvwprintw(helpWin, 31, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -3556,6 +3725,19 @@ public:
   }
 
   void drawPreview() {
+    if (isDualPaneMode) {
+      size_t rightIdx = rightTabIndex;
+      if (activeTabIndex == rightIdx) {
+        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, true);
+      } else {
+        loadInactiveTabDirectoryIfNeeded(rightIdx);
+        drawPane(winPreview, tabs[rightIdx].currentPath, tabs[rightIdx].currentFiles,
+                 tabs[rightIdx].selectedIndex, tabs[rightIdx].scrollOffset,
+                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, false);
+      }
+      return;
+    }
+
     pendingDirectRenderType = PreviewType::NONE;
     if (lastWasDirectRender)
       clearDirectRender();
@@ -4109,8 +4291,18 @@ public:
         handleRefresh();
         continue;
       }
+      if (ch == KEY_F(2)) {
+        toggleDualPaneMode();
+        continue;
+      }
       if (ch == '\t') {
-        focusPinned = !focusPinned;
+        if (isDualPaneMode) {
+          size_t nextTab = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
+          switchTab(nextTab);
+          focusLeftPane = (activeTabIndex == leftTabIndex);
+        } else {
+          focusPinned = !focusPinned;
+        }
         continue;
       }
 

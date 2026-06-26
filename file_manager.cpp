@@ -3297,8 +3297,29 @@ public:
         }
 
         attron(A_DIM);
-        printw(" %s", currentPath.string().c_str());
+        std::string pathStr = currentPath.string();
+        int maxPathW = width - 25;
+        if (maxPathW < 10) maxPathW = 10;
+        if ((int)pathStr.length() > maxPathW) {
+          pathStr = "..." + pathStr.substr(pathStr.length() - maxPathW + 3);
+        }
+        printw(" %s", pathStr.c_str());
         attroff(A_DIM);
+
+        int runningCount = 0;
+        {
+          std::lock_guard<std::mutex> lock(taskMutex);
+          for (const auto& t : activeTasks) {
+            if (!t->isFinished) {
+              runningCount++;
+            }
+          }
+        }
+        if (runningCount > 0) {
+          attron(COLOR_PAIR(4) | A_BOLD);
+          mvprintw(height - 1, width - 10, "󰙵  [%d]", runningCount);
+          attroff(COLOR_PAIR(4) | A_BOLD);
+        }
 
         drawStatusToast();
 

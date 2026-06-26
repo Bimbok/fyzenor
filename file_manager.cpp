@@ -308,6 +308,7 @@ struct AsyncTask {
   bool notified = false;
   std::string statusMessage = "Running";
   fs::path destPath;
+  std::thread workerThread;
 };
 
 class FileManager {
@@ -456,7 +457,11 @@ private:
     std::string typeStr = isCut ? "Moving" : "Copying";
     setStatus(typeStr + " task started in background");
 
-    std::thread([this, task, jobs, isCut]() {
+    std::weak_ptr<AsyncTask> weakTask = task;
+    task->workerThread = std::thread([this, weakTask, jobs, isCut]() {
+      auto task = weakTask.lock();
+      if (!task) return;
+
       uint64_t totalBytes = 0;
       for (const auto& job : jobs) {
         try {
@@ -552,7 +557,7 @@ private:
         task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
       }
       task->isFinished = true;
-    }).detach();
+    });
   }
 
   void startDeleteTask(const std::vector<fs::path>& targets) {
@@ -569,7 +574,11 @@ private:
 
     setStatus("Deletion task started in background");
 
-    std::thread([this, task, targets]() {
+    std::weak_ptr<AsyncTask> weakTask = task;
+    task->workerThread = std::thread([this, weakTask, targets]() {
+      auto task = weakTask.lock();
+      if (!task) return;
+
       int totalItems = targets.size();
       int processed = 0;
 
@@ -589,7 +598,7 @@ private:
         task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
       }
       task->isFinished = true;
-    }).detach();
+    });
   }
 
   void startZipTask(const std::string& zipCmd, const std::string& zipName, const fs::path& zipDir) {
@@ -606,9 +615,13 @@ private:
     setStatus("Zip task started in background");
 
     std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
-    std::string wrappedCmd = "cd \"" + zipDir.string() + "\" && (" + zipCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
+    std::string wrappedCmd = "cd " + escapeShellArg(zipDir.string()) + " && (" + zipCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
 
-    std::thread([this, task, wrappedCmd]() {
+    std::weak_ptr<AsyncTask> weakTask = task;
+    task->workerThread = std::thread([this, weakTask, wrappedCmd]() {
+      auto task = weakTask.lock();
+      if (!task) return;
+
       int res = system(wrappedCmd.c_str());
       (void)res;
 
@@ -622,7 +635,7 @@ private:
         task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
       }
       task->isFinished = true;
-    }).detach();
+    });
   }
 
   void cancelTask(std::shared_ptr<AsyncTask> task) {
@@ -1070,6 +1083,26 @@ public:
   }
 
   ~FileManager() {
+    // 1. Signal cancellation to all active background tasks
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      for (auto& task : activeTasks) {
+        cancelTask(task);
+      }
+    }
+
+    // 2. Join task worker threads
+    std::vector<std::shared_ptr<AsyncTask>> tasksToJoin;
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      tasksToJoin = activeTasks;
+    }
+    for (auto& task : tasksToJoin) {
+      if (task->workerThread.joinable()) {
+        task->workerThread.join();
+      }
+    }
+
     stopWorker = true;
     queueCv.notify_all();
     previewCv.notify_all();
@@ -1827,14 +1860,16 @@ public:
     setStatus(sortBySize ? "Sorted by Size (Desc)" : "Sorted by Name");
   }
 
-  std::string escapeDoubleQuotes(const std::string& str) {
-    std::string result;
+  std::string escapeShellArg(const std::string& str) {
+    std::string result = "'";
     for (char c : str) {
-      if (c == '"' || c == '\\' || c == '$' || c == '`') {
-        result += '\\';
+      if (c == '\'') {
+        result += "'\\''";
+      } else {
+        result += c;
       }
-      result += c;
     }
+    result += "'";
     return result;
   }
 
@@ -1874,9 +1909,9 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId]() {
-      std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" \"" +
-                        escapeDoubleQuotes(query) + "\" \"" +
-                        escapeDoubleQuotes(currentPath.string()) + "\" 2>/dev/null";
+      std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" " +
+                        escapeShellArg(query) + " " +
+                        escapeShellArg(currentPath.string()) + " 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
@@ -2121,9 +2156,9 @@ public:
       setStatus("Error: Zip file already exists!");
       return;
     }
-    std::string cmd = "zip -r -q \"" + name + ".zip\"";
+    std::string cmd = "zip -r -q " + escapeShellArg(name + ".zip");
     for (const auto& p : targets)
-      cmd += " \"" + p.filename().string() + "\"";
+      cmd += " " + escapeShellArg(p.filename().string());
 
     startZipTask(cmd, name + ".zip", currentPath);
     multiSelection.clear();
@@ -2132,15 +2167,8 @@ public:
     if (currentFiles.empty())
       return;
     std::string path = fs::absolute(currentFiles[selectedIndex].path).string();
-    std::string escaped;
-    for (char c : path) {
-      if (c == '"')
-        escaped += "\\\"";
-      else
-        escaped += c;
-    }
-    std::string cmd = "echo -n \"" + escaped +
-                      "\" | (wl-copy 2>/dev/null || xclip -selection clipboard "
+    std::string cmd = "echo -n " + escapeShellArg(path) +
+                      " | (wl-copy 2>/dev/null || xclip -selection clipboard "
                       "2>/dev/null || pbcopy 2>/dev/null)";
     int res = system(cmd.c_str());
     (void)res;
@@ -2707,7 +2735,7 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId]() {
-      std::string cmd = "find \"" + escapeDoubleQuotes(currentPath.string()) + "\" -name .git -prune -o -print 2>/dev/null";
+      std::string cmd = "find " + escapeShellArg(currentPath.string()) + " -name .git -prune -o -print 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
@@ -2952,6 +2980,11 @@ public:
       if (ch != ERR) {
         if (ch == 'c' || ch == 'C') {
           std::lock_guard<std::mutex> lock(taskMutex);
+          for (auto& t : activeTasks) {
+            if (t->isFinished.load() && t->workerThread.joinable()) {
+              t->workerThread.join();
+            }
+          }
           activeTasks.erase(
             std::remove_if(activeTasks.begin(), activeTasks.end(), 
                            [](const std::shared_ptr<AsyncTask>& t) { return t->isFinished.load(); }),
@@ -3137,7 +3170,7 @@ public:
       endwin();
       std::string cmd;
       if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
-        cmd = "mpv \"" + file.path.string() + "\" 2> /dev/null";
+        cmd = "mpv " + escapeShellArg(file.path.string()) + " 2> /dev/null";
       } else if (isCodeFile(file.extension)) {
         const char* editor = getenv("EDITOR");
         if (!editor)
@@ -3150,12 +3183,12 @@ public:
           else
             editor = "vi";
         }
-        cmd = std::string(editor) + " \"" + file.path.string() + "\"";
+        cmd = std::string(editor) + " " + escapeShellArg(file.path.string());
       } else {
 #ifdef __APPLE__
-        cmd = "open \"" + file.path.string() + "\"";
+        cmd = "open " + escapeShellArg(file.path.string());
 #else
-        cmd = "xdg-open \"" + file.path.string() + "\"";
+        cmd = "xdg-open " + escapeShellArg(file.path.string());
 #endif
         cmd += " > /dev/null 2>&1";
       }

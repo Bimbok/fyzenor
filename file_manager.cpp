@@ -207,6 +207,42 @@ struct FileEntry {
     }
   }
 };
+size_t utf8_length(const std::string& str) {
+  size_t len = 0;
+  size_t i = 0;
+  while (i < str.length()) {
+    unsigned char c = str[i];
+    size_t char_len = 1;
+    if (c >= 0xf0) char_len = 4;
+    else if (c >= 0xe0) char_len = 3;
+    else if (c >= 0xc0) char_len = 2;
+    i += char_len;
+    len++;
+  }
+  return len;
+}
+
+std::string utf8_safe_truncate(const std::string& str, size_t max_cols) {
+  size_t cols = 0;
+  size_t bytes = 0;
+  while (bytes < str.length() && cols < max_cols) {
+    unsigned char c = str[bytes];
+    size_t char_len = 1;
+    if (c >= 0xf0) char_len = 4;
+    else if (c >= 0xe0) char_len = 3;
+    else if (c >= 0xc0) char_len = 2;
+    if (bytes + char_len > str.length()) {
+      break;
+    }
+    cols++;
+    bytes += char_len;
+  }
+  if (bytes < str.length()) {
+    return str.substr(0, bytes) + "...";
+  }
+  return str;
+}
+
 struct FileStyle {
   int pair;
   const char* icon;
@@ -2776,7 +2812,11 @@ public:
           filePart = file.name;
         }
       }
-      int availWidth = getmaxx(winCurrent) - 16;
+
+      std::string sz = formatSize(file.size);
+      int availWidth = getmaxx(winCurrent) - sz.length() - 11;
+      if (availWidth < 10) availWidth = 10;
+
       std::string fullDisplay = dirPart + filePart;
       std::string symDisplay = "";
       if (file.is_symlink) {
@@ -2784,9 +2824,11 @@ public:
       }
 
       std::string totalDisplay = fullDisplay + symDisplay;
-      if (totalDisplay.length() > (size_t)availWidth) {
-        if (fullDisplay.length() >= (size_t)availWidth) {
-          fullDisplay = fullDisplay.substr(0, availWidth - 3) + "...";
+      size_t totalLen = utf8_length(totalDisplay);
+      if (totalLen > (size_t)availWidth) {
+        size_t fullLen = utf8_length(fullDisplay);
+        if (fullLen >= (size_t)availWidth) {
+          fullDisplay = utf8_safe_truncate(fullDisplay, availWidth);
           size_t lastSlash = fullDisplay.find_last_of("/\\");
           if (lastSlash != std::string::npos) {
             dirPart = fullDisplay.substr(0, lastSlash + 1);
@@ -2797,18 +2839,22 @@ public:
           }
           symDisplay = "";
         } else {
-          size_t maxSymLen = availWidth - fullDisplay.length();
+          size_t maxSymLen = availWidth - fullLen;
           if (maxSymLen >= 7) {
             std::string symTarget = file.symlink_target;
-            size_t maxTargetLen = maxSymLen - 4; // " 󰌹 " is 4 columns
-            if (symTarget.length() > maxTargetLen) {
-              symTarget = symTarget.substr(0, maxTargetLen - 3) + "...";
-            }
+            symTarget = utf8_safe_truncate(symTarget, maxSymLen - 4); // 4 columns for " 󰌹 "
             symDisplay = " 󰌹 " + symTarget;
           } else {
             symDisplay = "";
           }
         }
+      }
+
+      std::string marker = " ";
+      if (isMultiSelected) {
+        marker = "*";
+      } else if (inClipboard) {
+        marker = clipboard.isCut ? "󰆐" : "󰆏";
       }
 
       if (isSelected) {
@@ -2817,14 +2863,8 @@ public:
         wattroff(winCurrent, COLOR_PAIR(6) | A_BOLD);
 
         wattron(winCurrent, COLOR_PAIR(finalPair) | A_BOLD);
-        wprintw(winCurrent, " ❯ %s ", style.icon);
+        wprintw(winCurrent, " %s %s ", marker.c_str(), style.icon);
       } else {
-        std::string marker = " ";
-        if (isMultiSelected) {
-          marker = "*";
-        } else if (inClipboard) {
-          marker = clipboard.isCut ? "󰆐" : "󰆏";
-        }
         wprintw(winCurrent, "  %s %s ", marker.c_str(), style.icon);
       }
 
@@ -2852,7 +2892,6 @@ public:
         }
       }
 
-      std::string sz = formatSize(file.size);
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());
 
       if (isDimmed) {

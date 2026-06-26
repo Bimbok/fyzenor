@@ -298,6 +298,16 @@ struct SizeResult {
   int viewId;
 };
 
+struct AsyncTask {
+  int id;
+  std::string type; // "Copy", "Move", "Delete", "Zip"
+  std::string description;
+  std::atomic<int> progress{0}; // 0 to 100
+  std::atomic<bool> isFinished{false};
+  bool notified = false;
+  std::string statusMessage = "Running";
+};
+
 class FileManager {
 private:
   fs::path currentPath;
@@ -370,6 +380,174 @@ private:
   std::mutex queueMutex;
   std::condition_variable queueCv;
   std::mutex resultMutex;
+
+  // Async Background Tasks State
+  std::vector<std::shared_ptr<AsyncTask>> activeTasks;
+  std::mutex taskMutex;
+  int nextTaskId = 1;
+
+  uint64_t getDirectorySize(const fs::path& dir) {
+    uint64_t size = 0;
+    try {
+      for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+        if (fs::is_regular_file(entry.status())) {
+          size += fs::file_size(entry);
+        }
+      }
+    } catch (...) {}
+    return size;
+  }
+
+  bool copyFileWithProgress(const fs::path& src, const fs::path& dest, std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied, uint64_t totalBytes) {
+    std::ifstream in(src, std::ios::binary);
+    if (!in) return false;
+    std::ofstream out(dest, std::ios::binary);
+    if (!out) return false;
+
+    char buffer[65536];
+    while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
+      out.write(buffer, in.gcount());
+      bytesCopied += in.gcount();
+      if (totalBytes > 0) {
+        task->progress = (int)((bytesCopied * 100) / totalBytes);
+      } else {
+        task->progress = 100;
+      }
+    }
+    return true;
+  }
+
+  void startPasteTask(const std::vector<std::pair<fs::path, fs::path>>& jobs, bool isCut) {
+    auto task = std::make_shared<AsyncTask>();
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      task->id = nextTaskId++;
+      task->type = isCut ? "Move" : "Copy";
+      task->description = (jobs.size() > 1)
+          ? "Copying " + std::to_string(jobs.size()) + " items to " + currentPath.filename().string()
+          : "Copying " + jobs[0].first.filename().string() + " to " + currentPath.filename().string();
+      activeTasks.push_back(task);
+    }
+
+    std::string typeStr = isCut ? "Moving" : "Copying";
+    setStatus(typeStr + " task started in background");
+
+    std::thread([this, task, jobs, isCut]() {
+      uint64_t totalBytes = 0;
+      for (const auto& job : jobs) {
+        try {
+          if (fs::is_directory(job.first)) {
+            totalBytes += getDirectorySize(job.first);
+          } else if (fs::is_regular_file(job.first)) {
+            totalBytes += fs::file_size(job.first);
+          }
+        } catch (...) {}
+      }
+
+      uint64_t bytesCopied = 0;
+      int successCount = 0;
+
+      for (const auto& job : jobs) {
+        fs::path src = job.first;
+        fs::path dest = job.second;
+        try {
+          if (fs::is_directory(src)) {
+            fs::create_directories(dest);
+            for (const auto& entry : fs::recursive_directory_iterator(src)) {
+              fs::path rel = fs::relative(entry.path(), src);
+              fs::path d = dest / rel;
+              if (fs::is_directory(entry.status())) {
+                fs::create_directories(d);
+              } else if (fs::is_regular_file(entry.status())) {
+                copyFileWithProgress(entry.path(), d, task, bytesCopied, totalBytes);
+              }
+            }
+            if (isCut) {
+              fs::remove_all(src);
+            }
+          } else {
+            copyFileWithProgress(src, dest, task, bytesCopied, totalBytes);
+            if (isCut) {
+              fs::remove_all(src);
+            }
+          }
+          successCount++;
+        } catch (...) {}
+      }
+
+      task->progress = 100;
+      task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
+      task->isFinished = true;
+    }).detach();
+  }
+
+  void startDeleteTask(const std::vector<fs::path>& targets) {
+    auto task = std::make_shared<AsyncTask>();
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      task->id = nextTaskId++;
+      task->type = "Delete";
+      task->description = (targets.size() > 1)
+          ? "Deleting " + std::to_string(targets.size()) + " items"
+          : "Deleting " + targets[0].filename().string();
+      activeTasks.push_back(task);
+    }
+
+    setStatus("Deletion task started in background");
+
+    std::thread([this, task, targets]() {
+      int totalItems = targets.size();
+      int processed = 0;
+
+      for (const auto& p : targets) {
+        try {
+          fs::remove_all(p);
+        } catch (...) {}
+        processed++;
+        task->progress = (processed * 100) / totalItems;
+      }
+
+      task->progress = 100;
+      task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
+      task->isFinished = true;
+    }).detach();
+  }
+
+  void startZipTask(const std::string& cmd, const std::string& zipName, fs::path zipDir) {
+    auto task = std::make_shared<AsyncTask>();
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      task->id = nextTaskId++;
+      task->type = "Zip";
+      task->description = "Creating " + zipName;
+      activeTasks.push_back(task);
+    }
+
+    setStatus("Zip task started in background");
+
+    std::thread([this, task, cmd, zipDir]() {
+      fs::path old;
+      bool pathSaved = false;
+      try {
+        old = fs::current_path();
+        fs::current_path(zipDir);
+        pathSaved = true;
+      } catch (...) {}
+
+      int res = system(cmd.c_str());
+      (void)res;
+
+      if (pathSaved) {
+        try {
+          fs::current_path(old);
+        } catch (...) {}
+      }
+
+      task->progress = 100;
+      task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+      task->isFinished = true;
+    }).detach();
+  }
 
   void initColors() {
     start_color();
@@ -1713,7 +1891,9 @@ public:
       setStatus("Clipboard empty");
       return;
     }
-    int successCount = 0;
+
+    std::vector<std::pair<fs::path, fs::path>> jobs;
+
     for (const auto& src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
       if (fs::exists(dest)) {
@@ -1733,7 +1913,7 @@ public:
         
         if (choice == 'r') {
           if (src == dest) {
-            successCount++;
+            jobs.push_back({src, dest});
             continue;
           }
           try {
@@ -1742,37 +1922,24 @@ public:
             setStatus("Error: Failed to replace " + dest.filename().string());
             continue;
           }
+          jobs.push_back({src, dest});
         } else if (choice == 'k') {
-          dest = getNonConflictingPath(dest);
+          jobs.push_back({src, getNonConflictingPath(dest)});
         } else {
           continue;
         }
-      }
-      try {
-        if (clipboard.isCut) {
-          try {
-            fs::rename(src, dest);
-          } catch (const fs::filesystem_error& e) {
-            if (fs::is_directory(src))
-              fs::copy(src, dest, fs::copy_options::recursive);
-            else
-              fs::copy(src, dest);
-            fs::remove_all(src);
-          }
-        } else {
-          if (fs::is_directory(src))
-            fs::copy(src, dest, fs::copy_options::recursive);
-          else
-            fs::copy(src, dest);
-        }
-        successCount++;
-      } catch (...) {
+      } else {
+        jobs.push_back({src, dest});
       }
     }
-    if (clipboard.isCut && successCount > 0)
+
+    if (jobs.empty()) return;
+
+    startPasteTask(jobs, clipboard.isCut);
+
+    if (clipboard.isCut) {
       clipboard.paths.clear();
-    setStatus(clipboard.isCut ? "Moved items" : "Pasted items");
-    reloadAll();
+    }
   }
 
   void handleRename() {
@@ -1848,22 +2015,9 @@ public:
     for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";
     cmd += " > /dev/null 2>&1";
-    fs::path old;
-    bool pathSaved = false;
-    try {
-      old = fs::current_path();
-      fs::current_path(currentPath);
-      pathSaved = true;
-    } catch (...) {}
-    int res = system(cmd.c_str());
-    (void)res;
-    if (pathSaved) {
-      try {
-        fs::current_path(old);
-      } catch (...) {}
-    }
-    setStatus("Zipped");
-    reloadAll();
+
+    startZipTask(cmd, name + ".zip", currentPath);
+    multiSelection.clear();
   }
   void handleCopyPath() {
     if (currentFiles.empty())
@@ -1898,15 +2052,9 @@ public:
     std::string confirm = promptInput("Delete " + countStr + "? (y/n)");
     if (confirm != "y" && confirm != "Y")
       return;
-    for (const auto& p : targets) {
-      try {
-        fs::remove_all(p);
-      } catch (...) {
-      }
-    }
+
+    startDeleteTask(targets);
     multiSelection.clear();
-    setStatus("Deleted items");
-    reloadAll();
   }
 
   void reloadAll() {
@@ -2509,7 +2657,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 25;
+    int h = 26;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -2543,8 +2691,9 @@ public:
     mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
     mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
     mvwprintw(helpWin, 20, 2, "f            → Fuzzy Find");
-    mvwprintw(helpWin, 21, 2, "i            → Show File Details");
-    mvwprintw(helpWin, 22, 2, "?            → Show Help");
+    mvwprintw(helpWin, 21, 2, "w            → Show Active Tasks");
+    mvwprintw(helpWin, 22, 2, "i            → Show File Details");
+    mvwprintw(helpWin, 23, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -2557,6 +2706,107 @@ public:
     timeout(50);
 
     delwin(helpWin);
+  }
+
+  void drawTasksOverlay() {
+    int h = 15;
+    int w = 70;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* taskWin = newwin(h, w, startY, startX);
+    if (!taskWin) return;
+
+    keypad(taskWin, TRUE);
+
+    timeout(200);
+
+    while (true) {
+      werase(taskWin);
+      wattron(taskWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(taskWin);
+      wattroff(taskWin, COLOR_PAIR(6) | A_BOLD);
+
+      wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
+      mvwprintw(taskWin, 1, 2, "󰙵 Active Tasks & Workers");
+      wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+
+      wattron(taskWin, COLOR_PAIR(6) | A_DIM);
+      std::string separator = "";
+      for (int k = 0; k < w - 2; ++k) {
+        separator += "─";
+      }
+      mvwprintw(taskWin, 2, 1, "%s", separator.c_str());
+      wattroff(taskWin, COLOR_PAIR(6) | A_DIM);
+
+      std::vector<std::shared_ptr<AsyncTask>> tasksCopy;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        tasksCopy = activeTasks;
+      }
+
+      int maxDisplay = h - 5;
+      if (tasksCopy.empty()) {
+        wattron(taskWin, A_DIM);
+        mvwprintw(taskWin, h / 2, (w - 20) / 2, "No background tasks");
+        wattroff(taskWin, A_DIM);
+      } else {
+        for (size_t i = 0; i < tasksCopy.size() && i < (size_t)maxDisplay; ++i) {
+          const auto& task = tasksCopy[i];
+          int y = 3 + i;
+          
+          wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
+          mvwprintw(taskWin, y, 2, "[%d] %s", task->id, task->type.c_str());
+          wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+
+          int barW = 20;
+          int prog = task->progress;
+          std::string bar = "[";
+          int filled = (prog >= 0) ? (prog * (barW - 2)) / 100 : 0;
+          for (int b = 0; b < barW - 2; ++b) {
+            if (b < filled) bar += "■";
+            else bar += " ";
+          }
+          bar += "]";
+
+          wattron(taskWin, COLOR_PAIR(7));
+          mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
+          wattroff(taskWin, COLOR_PAIR(7));
+
+          std::string desc = task->description;
+          int maxDescW = w - 42;
+          if (desc.length() > (size_t)maxDescW) {
+            desc = desc.substr(0, maxDescW - 3) + "...";
+          }
+          mvwprintw(taskWin, y, 40, "%s", desc.c_str());
+        }
+      }
+
+      wattron(taskWin, A_DIM);
+      mvwprintw(taskWin, h - 2, 2, "Press 'c' to clear finished tasks | Press any other key to close...");
+      wattroff(taskWin, A_DIM);
+
+      wrefresh(taskWin);
+
+      int ch = wgetch(taskWin);
+      if (ch != ERR) {
+        if (ch == 'c' || ch == 'C') {
+          std::lock_guard<std::mutex> lock(taskMutex);
+          activeTasks.erase(
+            std::remove_if(activeTasks.begin(), activeTasks.end(), 
+                           [](const std::shared_ptr<AsyncTask>& t) { return t->isFinished.load(); }),
+            activeTasks.end()
+          );
+        } else {
+          break;
+        }
+      }
+    }
+
+    timeout(50);
+    delwin(taskWin);
+    updateLayout();
   }
 
   void drawPreview() {
@@ -2859,6 +3109,22 @@ public:
           needsRedraw = true;
         }
       }
+      // Check for completed async tasks
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        bool shouldReload = false;
+        for (auto& task : activeTasks) {
+          if (task->isFinished && !task->notified) {
+            task->notified = true;
+            setStatus(task->type + " task completed: " + task->statusMessage);
+            shouldReload = true;
+            needsRedraw = true;
+          }
+        }
+        if (shouldReload) {
+          reloadAll();
+        }
+      }
 
       if (needsRedraw) {
         if (!currentFiles.empty()) {
@@ -3042,6 +3308,9 @@ public:
           break;
         case 'f':
           handleFuzzyFind();
+          break;
+        case 'w':
+          drawTasksOverlay();
           break;
         case '?':
           drawHelpOverlay();

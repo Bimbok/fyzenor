@@ -345,6 +345,7 @@ flowchart TD
 | `G`                   | Go to bottom of list            |
 | `/`                   | **Search** content (ripgrep)    |
 | `f`                   | **Fuzzy Find** files (internal) |
+| `w`                   | **Active Tasks** manager overlay |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 

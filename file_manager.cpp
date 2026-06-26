@@ -352,6 +352,16 @@ struct AsyncTask {
 
 class FileManager {
 private:
+  struct Tab {
+    fs::path currentPath;
+    size_t selectedIndex = 0;
+    size_t scrollOffset = 0;
+    bool isSearching = false;
+    std::set<fs::path> multiSelection;
+  };
+  std::vector<Tab> tabs;
+  size_t activeTabIndex = 0;
+
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
@@ -1083,6 +1093,15 @@ public:
         currentPath = fs::path("/");
       }
     }
+    Tab defTab;
+    defTab.currentPath = currentPath;
+    defTab.selectedIndex = 0;
+    defTab.scrollOffset = 0;
+    defTab.isSearching = false;
+    defTab.multiSelection = {};
+    tabs.push_back(defTab);
+    activeTabIndex = 0;
+
     loadDirectory(currentPath, currentFiles);
     loadParent();
 
@@ -1422,13 +1441,13 @@ public:
     if (winPreview)
       delwin(winPreview);
 
-    int hPinned = height / 3;
-    int hParent = (height - 1) - hPinned;
+    int hPinned = (height - 2) / 3;
+    int hParent = (height - 2) - hPinned;
 
-    winPinned = newwin(hPinned, w1, 0, 0);
-    winParent = newwin(hParent, w1, hPinned, 0);
-    winCurrent = newwin(height - 1, w2, 0, w1);
-    winPreview = newwin(height - 1, w3, 0, w1 + w2);
+    winPinned = newwin(hPinned, w1, 1, 0);
+    winParent = newwin(hParent, w1, 1 + hPinned, 0);
+    winCurrent = newwin(height - 2, w2, 1, w1);
+    winPreview = newwin(height - 2, w3, 1, w1 + w2);
 
     refresh();
   }
@@ -2439,6 +2458,107 @@ public:
     wnoutrefresh(winParent);
   }
 
+  void drawTabs() {
+    move(0, 0);
+    clrtoeol();
+
+    int x = 2;
+    for (size_t i = 0; i < tabs.size(); ++i) {
+      bool isActive = (i == activeTabIndex);
+      std::string tabName = tabs[i].currentPath.filename().string();
+      if (tabName.empty()) {
+        tabName = "/";
+      }
+      
+      std::string disp = " " + std::to_string(i + 1) + " " + tabName + " ";
+      if (x + (int)disp.length() + 2 >= width) {
+        break;
+      }
+
+      if (isActive) {
+        attron(COLOR_PAIR(6) | A_BOLD);
+        mvprintw(0, x, "");
+        attroff(COLOR_PAIR(6) | A_BOLD);
+
+        attron(COLOR_PAIR(6) | A_BOLD | A_REVERSE);
+        printw("%s", disp.c_str());
+        attroff(COLOR_PAIR(6) | A_BOLD | A_REVERSE);
+
+        attron(COLOR_PAIR(6) | A_BOLD);
+        printw("");
+        attroff(COLOR_PAIR(6) | A_BOLD);
+      } else {
+        attron(COLOR_PAIR(6) | A_DIM);
+        mvprintw(0, x, "  %s  ", disp.c_str());
+        attroff(COLOR_PAIR(6) | A_DIM);
+      }
+      x += disp.length() + 4;
+    }
+  }
+
+  void createTab() {
+    tabs[activeTabIndex].currentPath = currentPath;
+    tabs[activeTabIndex].selectedIndex = selectedIndex;
+    tabs[activeTabIndex].scrollOffset = scrollOffset;
+    tabs[activeTabIndex].isSearching = isSearching;
+    tabs[activeTabIndex].multiSelection = multiSelection;
+
+    Tab newTab;
+    newTab.currentPath = currentPath;
+    newTab.selectedIndex = selectedIndex;
+    newTab.scrollOffset = scrollOffset;
+    newTab.isSearching = false;
+    newTab.multiSelection = {};
+
+    tabs.push_back(newTab);
+    activeTabIndex = tabs.size() - 1;
+
+    reloadAll();
+    setStatus("Tab created");
+  }
+
+  void closeTab() {
+    if (tabs.size() <= 1) {
+      setStatus("Cannot close the last tab");
+      return;
+    }
+
+    tabs.erase(tabs.begin() + activeTabIndex);
+    if (activeTabIndex >= tabs.size()) {
+      activeTabIndex = tabs.size() - 1;
+    }
+
+    currentPath = tabs[activeTabIndex].currentPath;
+    selectedIndex = tabs[activeTabIndex].selectedIndex;
+    scrollOffset = tabs[activeTabIndex].scrollOffset;
+    isSearching = tabs[activeTabIndex].isSearching;
+    
+    auto savedSelection = tabs[activeTabIndex].multiSelection;
+    reloadAll();
+    multiSelection = savedSelection;
+    setStatus("Tab closed");
+  }
+
+  void switchTab(size_t index) {
+    if (index >= tabs.size()) return;
+    
+    tabs[activeTabIndex].currentPath = currentPath;
+    tabs[activeTabIndex].selectedIndex = selectedIndex;
+    tabs[activeTabIndex].scrollOffset = scrollOffset;
+    tabs[activeTabIndex].isSearching = isSearching;
+    tabs[activeTabIndex].multiSelection = multiSelection;
+
+    activeTabIndex = index;
+    currentPath = tabs[activeTabIndex].currentPath;
+    selectedIndex = tabs[activeTabIndex].selectedIndex;
+    scrollOffset = tabs[activeTabIndex].scrollOffset;
+    isSearching = tabs[activeTabIndex].isSearching;
+
+    auto savedSelection = tabs[activeTabIndex].multiSelection;
+    reloadAll();
+    multiSelection = savedSelection;
+  }
+
   void drawCurrent() {
     werase(winCurrent);
     if (!focusPinned)
@@ -2478,7 +2598,7 @@ public:
       wattroff(winCurrent, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
     }
 
-    int maxLines = height - 3;
+    int maxLines = getmaxy(winCurrent) - 2;
     if (selectedIndex < scrollOffset)
       scrollOffset = selectedIndex;
     if (selectedIndex >= scrollOffset + (size_t)maxLines)
@@ -2968,7 +3088,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 27;
+    int h = 31;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -3005,7 +3125,11 @@ public:
     mvwprintw(helpWin, 21, 2, "f            → Fuzzy Find");
     mvwprintw(helpWin, 22, 2, "w            → Show Active Tasks");
     mvwprintw(helpWin, 23, 2, "i            → Show File Details");
-    mvwprintw(helpWin, 24, 2, "?            → Show Help");
+    mvwprintw(helpWin, 24, 2, "t            → Create New Tab");
+    mvwprintw(helpWin, 25, 2, "W / Ctrl+W   → Close Current Tab");
+    mvwprintw(helpWin, 26, 2, "[ / ]        → Prev / Next Tab");
+    mvwprintw(helpWin, 27, 2, "1 - 9        → Switch to Tab 1-9");
+    mvwprintw(helpWin, 28, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -3538,6 +3662,7 @@ public:
         } else
           selectedIndex = 0;
 
+        drawTabs();
         drawPinned();
         drawParent();
         drawCurrent();
@@ -3661,6 +3786,38 @@ public:
       }
       if (ch == '\t') {
         focusPinned = !focusPinned;
+        continue;
+      }
+
+      if (ch == 't') {
+        createTab();
+        continue;
+      }
+      if (ch == 'W' || ch == 23) {
+        closeTab();
+        continue;
+      }
+      if (ch == '[') {
+        if (activeTabIndex > 0) {
+          switchTab(activeTabIndex - 1);
+        } else {
+          switchTab(tabs.size() - 1);
+        }
+        continue;
+      }
+      if (ch == ']') {
+        if (activeTabIndex < tabs.size() - 1) {
+          switchTab(activeTabIndex + 1);
+        } else {
+          switchTab(0);
+        }
+        continue;
+      }
+      if (ch >= '1' && ch <= '9') {
+        size_t targetIdx = ch - '1';
+        if (targetIdx < tabs.size()) {
+          switchTab(targetIdx);
+        }
         continue;
       }
 

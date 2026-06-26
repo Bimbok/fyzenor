@@ -2380,6 +2380,109 @@ public:
   void handleRename() {
     if (currentFiles.empty())
       return;
+
+    if (!multiSelection.empty()) {
+      // Perform bulk rename!
+      std::vector<fs::path> selectedPaths;
+      for (const auto& p : multiSelection) {
+        selectedPaths.push_back(p);
+      }
+      
+      std::sort(selectedPaths.begin(), selectedPaths.end(), [](const fs::path& a, const fs::path& b) {
+        return a.filename().string() < b.filename().string();
+      });
+
+      fs::path tempFile = "/tmp/fyzenor_bulk_rename.txt";
+      std::ofstream out(tempFile);
+      if (!out.is_open()) {
+        setStatus("Error: Failed to create temp file for rename");
+        return;
+      }
+      for (const auto& p : selectedPaths) {
+        out << p.filename().string() << "\n";
+      }
+      out.close();
+
+      clearDirectRender();
+      def_prog_mode();
+      endwin();
+
+      const char* editor = getenv("EDITOR");
+      if (!editor)
+        editor = getenv("VISUAL");
+      if (!editor) {
+        if (system("which nvim > /dev/null 2>&1") == 0)
+          editor = "nvim";
+        else if (system("which nano > /dev/null 2>&1") == 0)
+          editor = "nano";
+        else
+          editor = "vi";
+      }
+
+      std::string cmd = std::string(editor) + " " + escapeShellArg(tempFile.string());
+      int res = system(cmd.c_str());
+      (void)res;
+
+      reset_prog_mode();
+      refresh();
+      timeout(50);
+
+      std::ifstream in(tempFile);
+      if (!in.is_open()) {
+        setStatus("Error: Failed to read temp file after editing");
+        return;
+      }
+
+      std::vector<std::string> newNames;
+      std::string line;
+      while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || std::isspace(line.back()))) {
+          line.pop_back();
+        }
+        if (!line.empty()) {
+          newNames.push_back(line);
+        }
+      }
+      in.close();
+      try { fs::remove(tempFile); } catch(...) {}
+
+      if (newNames.size() != selectedPaths.size()) {
+        setStatus("Bulk rename aborted: Line count mismatch (" + std::to_string(newNames.size()) + " vs " + std::to_string(selectedPaths.size()) + ")");
+        return;
+      }
+
+      int successCount = 0;
+      int failCount = 0;
+      for (size_t idx = 0; idx < selectedPaths.size(); ++idx) {
+        fs::path src = selectedPaths[idx];
+        std::string newName = newNames[idx];
+        if (newName.empty() || newName == src.filename().string()) {
+          continue;
+        }
+        fs::path dest = src.parent_path() / newName;
+        if (fs::exists(dest)) {
+          failCount++;
+          continue;
+        }
+        try {
+          fs::rename(src, dest);
+          successCount++;
+        } catch (...) {
+          failCount++;
+        }
+      }
+
+      multiSelection.clear();
+      reloadAll();
+
+      if (failCount > 0) {
+        setStatus("Renamed " + std::to_string(successCount) + " files (" + std::to_string(failCount) + " failed)");
+      } else {
+        setStatus("Bulk renamed " + std::to_string(successCount) + " files");
+      }
+      return;
+    }
+
     const auto& file = currentFiles[selectedIndex];
     std::string newName = promptInput("Rename " + file.name + " to", file.name);
     if (newName.empty())
@@ -3639,48 +3742,111 @@ public:
   void openFile() {
     if (currentFiles.empty())
       return;
-    const auto& file = currentFiles[selectedIndex];
-    if (file.is_directory) {
+
+    std::vector<fs::path> pathsToOpen;
+    if (!multiSelection.empty()) {
+      for (const auto& p : multiSelection) {
+        pathsToOpen.push_back(p);
+      }
+    } else {
+      pathsToOpen.push_back(currentFiles[selectedIndex].path);
+    }
+
+    if (pathsToOpen.empty())
+      return;
+
+    if (pathsToOpen.size() == 1 && fs::is_directory(pathsToOpen[0])) {
       clearDirectRender();
-      currentPath = file.path;
+      currentPath = pathsToOpen[0];
       selectedIndex = 0;
       scrollOffset = 0;
       isSearching = false;
       reloadAll();
-    } else {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
-      std::string cmd;
-      if (VIDEO_EXTS.count(file.extension) || AUDIO_EXTS.count(file.extension)) {
-        cmd = "mpv " + escapeShellArg(file.path.string()) + " 2> /dev/null";
-      } else if (isCodeFile(file.extension)) {
-        const char* editor = getenv("EDITOR");
-        if (!editor)
-          editor = getenv("VISUAL");
-        if (!editor) {
-          if (system("which nvim > /dev/null 2>&1") == 0)
-            editor = "nvim";
-          else if (system("which nano > /dev/null 2>&1") == 0)
-            editor = "nano";
-          else
-            editor = "vi";
-        }
-        cmd = std::string(editor) + " " + escapeShellArg(file.path.string());
+      return;
+    }
+
+    std::vector<fs::path> mediaFiles;
+    std::vector<fs::path> codeFiles;
+    std::vector<fs::path> otherFiles;
+
+    for (const auto& p : pathsToOpen) {
+      if (fs::is_directory(p)) continue;
+      std::string ext = p.extension().string();
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+      if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
+        mediaFiles.push_back(p);
+      } else if (isCodeFile(ext)) {
+        codeFiles.push_back(p);
       } else {
-#ifdef __APPLE__
-        cmd = "open " + escapeShellArg(file.path.string());
-#else
-        cmd = "xdg-open " + escapeShellArg(file.path.string());
-#endif
-        cmd += " > /dev/null 2>&1";
+        otherFiles.push_back(p);
+      }
+    }
+
+    if (mediaFiles.empty() && codeFiles.empty() && otherFiles.empty()) {
+      const auto& file = currentFiles[selectedIndex];
+      if (file.is_directory) {
+        clearDirectRender();
+        currentPath = file.path;
+        selectedIndex = 0;
+        scrollOffset = 0;
+        isSearching = false;
+        reloadAll();
+      }
+      return;
+    }
+
+    clearDirectRender();
+    def_prog_mode();
+    endwin();
+
+    if (!codeFiles.empty()) {
+      const char* editor = getenv("EDITOR");
+      if (!editor)
+        editor = getenv("VISUAL");
+      if (!editor) {
+        if (system("which nvim > /dev/null 2>&1") == 0)
+          editor = "nvim";
+        else if (system("which nano > /dev/null 2>&1") == 0)
+          editor = "nano";
+        else
+          editor = "vi";
+      }
+      std::string cmd = std::string(editor);
+      for (const auto& f : codeFiles) {
+        cmd += " " + escapeShellArg(f.string());
       }
       int res = system(cmd.c_str());
       (void)res;
-      reset_prog_mode();
-      refresh();
-      timeout(50);
     }
+
+    if (!mediaFiles.empty()) {
+      std::string cmd = "mpv";
+      for (const auto& f : mediaFiles) {
+        cmd += " " + escapeShellArg(f.string());
+      }
+      cmd += " 2> /dev/null";
+      int res = system(cmd.c_str());
+      (void)res;
+    }
+
+    if (!otherFiles.empty()) {
+      for (const auto& f : otherFiles) {
+        std::string cmd;
+#ifdef __APPLE__
+        cmd = "open " + escapeShellArg(f.string());
+#else
+        cmd = "xdg-open " + escapeShellArg(f.string());
+#endif
+        cmd += " > /dev/null 2>&1 &";
+        int res = system(cmd.c_str());
+        (void)res;
+      }
+    }
+
+    reset_prog_mode();
+    refresh();
+    timeout(50);
   }
 
   void goUp() {

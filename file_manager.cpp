@@ -1401,11 +1401,24 @@ public:
     mvwprintw(win, 1, 2, "%s", prompt.c_str());
     wattroff(win, COLOR_PAIR(1) | A_BOLD);
 
+    // Draw divider line and prompt indicator to make input field look premium
+    wattron(win, COLOR_PAIR(6) | A_DIM);
+    std::string separator = "";
+    for (int i = 0; i < w - 2; ++i) {
+      separator += "─";
+    }
+    mvwprintw(win, 2, 1, "%s", separator.c_str());
+    wattroff(win, COLOR_PAIR(6) | A_DIM);
+
+    wattron(win, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(win, 3, 2, " ❯ ");
+    wattroff(win, COLOR_PAIR(1) | A_BOLD);
+
     std::string input = defaultVal;
     int cursorIdx = defaultVal.length();
-    int inputFieldX = 2;
+    int inputFieldX = 5;
     int inputFieldY = 3;
-    int maxInputW = w - 4;
+    int maxInputW = w - 7;
 
     timeout(-1);
     noecho();
@@ -1996,7 +2009,7 @@ public:
 
     wattron(winCurrent, A_BOLD | COLOR_PAIR(1));
     if (isSearching) {
-      mvwprintw(winCurrent, 0, 2, " 󰉖 Search Results ");
+      mvwprintw(winCurrent, 0, 2, "  Search Results ");
     } else {
       mvwprintw(winCurrent, 0, 2, " 󰉖 %s ", currentPath.filename().string().c_str());
     }
@@ -2006,7 +2019,7 @@ public:
       int my = getmaxy(winCurrent);
       int mx = getmaxx(winCurrent);
       wattron(winCurrent, COLOR_PAIR(7) | A_BOLD);
-      mvwprintw(winCurrent, my / 2, (mx - 12) / 2, "Searching...");
+      mvwprintw(winCurrent, my / 2, (mx - 15) / 2, "  Searching... ");
       wattroff(winCurrent, COLOR_PAIR(7) | A_BOLD);
       wnoutrefresh(winCurrent);
       return;
@@ -2051,20 +2064,51 @@ public:
         wattron(winCurrent, COLOR_PAIR(finalPair));
       }
 
-      std::string display = file.name;
+      std::string dirPart = "";
+      std::string filePart = file.name;
       if (isSearching) {
         try {
-          display = fs::relative(file.path, currentPath).string();
+          std::string relPath = fs::relative(file.path, currentPath).string();
+          size_t lastSlash = relPath.find_last_of("/\\");
+          if (lastSlash != std::string::npos) {
+            dirPart = relPath.substr(0, lastSlash + 1);
+            filePart = relPath.substr(lastSlash + 1);
+          } else {
+            filePart = relPath;
+          }
         } catch (...) {
-          display = file.name;
+          filePart = file.name;
         }
       }
       int availWidth = getmaxx(winCurrent) - 16;
-      if (display.length() > (size_t)availWidth)
-        display = display.substr(0, availWidth - 3) + "...";
+      std::string fullDisplay = dirPart + filePart;
+      if (fullDisplay.length() > (size_t)availWidth) {
+        fullDisplay = fullDisplay.substr(0, availWidth - 3) + "...";
+        size_t lastSlash = fullDisplay.find_last_of("/\\");
+        if (lastSlash != std::string::npos) {
+          dirPart = fullDisplay.substr(0, lastSlash + 1);
+          filePart = fullDisplay.substr(lastSlash + 1);
+        } else {
+          dirPart = "";
+          filePart = fullDisplay;
+        }
+      }
 
       char marker = isMultiSelected ? '*' : ' ';
-      wprintw(winCurrent, " %c %s %-s", marker, style.icon, display.c_str());
+      wprintw(winCurrent, " %c %s ", marker, style.icon);
+
+      if (isSearching && !dirPart.empty()) {
+        if (isSelected) {
+          wprintw(winCurrent, "%s%s", dirPart.c_str(), filePart.c_str());
+        } else {
+          wattron(winCurrent, A_DIM);
+          wprintw(winCurrent, "%s", dirPart.c_str());
+          wattroff(winCurrent, A_DIM);
+          wprintw(winCurrent, "%s", filePart.c_str());
+        }
+      } else {
+        wprintw(winCurrent, "%s", filePart.c_str());
+      }
 
       std::string sz = formatSize(file.size);
       mvwprintw(winCurrent, i + 1, getmaxx(winCurrent) - sz.length() - 2, "%s", sz.c_str());

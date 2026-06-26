@@ -127,6 +127,12 @@ std::string getCachePath(const fs::path& p, int w, int h) {
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX; // Sentinel value for "..."
 
+enum class SortMode {
+  NAME,
+  SIZE,
+  DATE
+};
+
 struct Clipboard {
   std::vector<fs::path> paths;
   bool isCut = false;
@@ -142,6 +148,7 @@ struct FileEntry {
   std::string symlink_target;
   bool symlink_target_exists;
   bool is_symlink_directory;
+  fs::file_time_type modified_time;
 
   FileEntry(const fs::path& p) : path(p) {
     name = p.filename().string();
@@ -152,6 +159,12 @@ struct FileEntry {
     is_symlink_directory = false;
     extension = p.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    try {
+      modified_time = fs::last_write_time(p);
+    } catch (...) {
+      modified_time = fs::file_time_type::min();
+    }
 
     try {
       is_symlink = fs::is_symlink(fs::symlink_status(p));
@@ -379,7 +392,7 @@ private:
   std::string statusMessage;
   std::chrono::steady_clock::time_point statusTime;
   bool showHidden = false;
-  bool sortBySize = false;
+  SortMode sortMode = SortMode::NAME;
   bool isSearching = false;
 
   // Async Preview State
@@ -1338,7 +1351,7 @@ public:
     return ICON_FILE;
   }
 
-  // Unified Sorting Logic: Folders Top -> Size/Name
+  // Unified Sorting Logic: Folders Top -> Size/Date/Name
   void sortList(std::vector<FileEntry>& list) {
     std::sort(list.begin(), list.end(), [this](const FileEntry& a, const FileEntry& b) {
       // 1. Always keep directories on top
@@ -1346,11 +1359,13 @@ public:
         return a.is_directory > b.is_directory;
       }
 
-      // 2. Sort by Size (if enabled)
-      if (sortBySize) {
+      // 2. Sort by Mode
+      if (sortMode == SortMode::SIZE) {
         if (a.size != b.size)
           return a.size > b.size; // Descending
-        return a.name < b.name;
+      } else if (sortMode == SortMode::DATE) {
+        if (a.modified_time != b.modified_time)
+          return a.modified_time > b.modified_time; // Descending (newest first)
       }
 
       // 3. Default: Sort by Name (Ascending)
@@ -1921,9 +1936,17 @@ public:
   }
 
   void toggleSort() {
-    sortBySize = !sortBySize;
+    if (sortMode == SortMode::NAME) {
+      sortMode = SortMode::SIZE;
+      setStatus("Sorted by Size (Desc)");
+    } else if (sortMode == SortMode::SIZE) {
+      sortMode = SortMode::DATE;
+      setStatus("Sorted by Date (Desc)");
+    } else {
+      sortMode = SortMode::NAME;
+      setStatus("Sorted by Name");
+    }
     sortList(currentFiles); // Immediate sort
-    setStatus(sortBySize ? "Sorted by Size (Desc)" : "Sorted by Name");
   }
 
   std::string escapeShellArg(const std::string& str) {
@@ -2220,6 +2243,102 @@ public:
     }
 
     reloadAll();
+  }
+
+  void handleShellCommand() {
+    std::string cmd = promptInput("Shell");
+    if (cmd.empty())
+      return;
+
+    bool runInBackground = false;
+    std::string trimmed = cmd;
+    while (!trimmed.empty() && std::isspace(trimmed.back())) {
+      trimmed.pop_back();
+    }
+    if (!trimmed.empty() && trimmed.back() == '&') {
+      trimmed.pop_back();
+      while (!trimmed.empty() && std::isspace(trimmed.back())) {
+        trimmed.pop_back();
+      }
+      runInBackground = true;
+    }
+
+    std::string currentFileEscaped = "";
+    if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+      currentFileEscaped = escapeShellArg(currentFiles[selectedIndex].path.string());
+    }
+
+    std::string allSelectedEscaped = "";
+    if (!multiSelection.empty()) {
+      for (const auto& p : multiSelection) {
+        if (!allSelectedEscaped.empty()) {
+          allSelectedEscaped += " ";
+        }
+        allSelectedEscaped += escapeShellArg(p.string());
+      }
+    } else {
+      allSelectedEscaped = currentFileEscaped;
+    }
+
+    std::string finalCmd = "";
+    for (size_t i = 0; i < trimmed.length(); ++i) {
+      if (i + 1 < trimmed.length() && trimmed[i] == '$' && trimmed[i + 1] == 'f') {
+        finalCmd += currentFileEscaped;
+        i++;
+      } else if (i + 1 < trimmed.length() && trimmed[i] == '$' && trimmed[i + 1] == 's') {
+        finalCmd += allSelectedEscaped;
+        i++;
+      } else {
+        finalCmd += trimmed[i];
+      }
+    }
+
+    if (runInBackground) {
+      auto task = std::make_shared<AsyncTask>();
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        task->id = nextTaskId++;
+        task->type = "Shell";
+        task->description = "cmd: " + trimmed;
+        activeTasks.push_back(task);
+      }
+
+      setStatus("Shell task started in background");
+      std::weak_ptr<AsyncTask> weakTask = task;
+      task->workerThread = std::thread([this, weakTask, finalCmd]() {
+        auto task = weakTask.lock();
+        if (!task) return;
+
+        std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && (" + finalCmd + ") > /dev/null 2>&1";
+        int res = system(runCmd.c_str());
+        
+        task->isFinished = true;
+        if (res == 0) {
+          task->statusMessage = "Success";
+        } else {
+          task->statusMessage = "Failed (exit code " + std::to_string(res) + ")";
+        }
+      });
+    } else {
+      clearDirectRender();
+      def_prog_mode();
+      endwin();
+      
+      std::cout << "\033[H\033[J";
+      std::cout << "Executing: " << finalCmd << "\n\n";
+      
+      std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && " + finalCmd;
+      int res = system(runCmd.c_str());
+      
+      std::cout << "\nCommand exited with code: " << res << "\n";
+      std::cout << "Press Enter to return to Fyzenor...";
+      std::string dummy;
+      std::getline(std::cin, dummy);
+      
+      reset_prog_mode();
+      refresh();
+      reloadAll();
+    }
   }
 
   void handleRename() {
@@ -3088,7 +3207,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 31;
+    int h = 32;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -3129,7 +3248,8 @@ public:
     mvwprintw(helpWin, 25, 2, "W / Ctrl+W   → Close Current Tab");
     mvwprintw(helpWin, 26, 2, "[ / ]        → Prev / Next Tab");
     mvwprintw(helpWin, 27, 2, "1 - 9        → Switch to Tab 1-9");
-    mvwprintw(helpWin, 28, 2, "?            → Show Help");
+    mvwprintw(helpWin, 28, 2, ":            → Execute Shell Command");
+    mvwprintw(helpWin, 29, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -3592,7 +3712,7 @@ public:
             }
           }
           if (updated) {
-            if (sortBySize)
+            if (sortMode == SortMode::SIZE)
               sortList(currentFiles); // Re-sort if sorting by size
             needsRedraw = true;
           }
@@ -3923,6 +4043,9 @@ public:
           break;
         case 's':
           toggleSort();
+          break;
+        case ':':
+          handleShellCommand();
           break;
         case '/':
           handleSearch();

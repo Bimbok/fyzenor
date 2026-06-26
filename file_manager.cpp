@@ -86,6 +86,7 @@ const char* ICON_FILE = " ";
 const char* ICON_MUSIC = " ";
 const char* ICON_PIN = " ";
 const char* ICON_ZIP = "󰿺 ";
+const char* ICON_LINK = "󰌹 ";
 
 std::string getCacheDir() {
   const char* home = getenv("HOME");
@@ -137,12 +138,50 @@ struct FileEntry {
   bool is_directory;
   uintmax_t size;
   std::string extension;
+  bool is_symlink;
+  std::string symlink_target;
+  bool symlink_target_exists;
+  bool is_symlink_directory;
 
   FileEntry(const fs::path& p) : path(p) {
     name = p.filename().string();
-    is_directory = fs::is_directory(p);
+    is_directory = false;
+    is_symlink = false;
+    symlink_target = "";
+    symlink_target_exists = false;
+    is_symlink_directory = false;
     extension = p.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    try {
+      is_symlink = fs::is_symlink(fs::symlink_status(p));
+      if (is_symlink) {
+        try {
+          fs::path target_path = fs::read_symlink(p);
+          symlink_target = target_path.string();
+          fs::path resolved = target_path;
+          if (target_path.is_relative()) {
+            resolved = p.parent_path() / target_path;
+          }
+          if (fs::exists(resolved)) {
+            symlink_target_exists = true;
+            if (fs::is_directory(resolved)) {
+              is_symlink_directory = true;
+            }
+          }
+        } catch (...) {}
+      }
+    } catch (...) {}
+
+    try {
+      if (is_symlink) {
+        is_directory = is_symlink_directory;
+      } else {
+        is_directory = fs::is_directory(p);
+      }
+    } catch (...) {
+      is_directory = false;
+    }
 
     try {
       if (is_directory) {
@@ -1602,12 +1641,19 @@ public:
     }
   }
 
+  int getPreviewContentStartLine() {
+    if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
+      return 7;
+    }
+    return currentFiles[selectedIndex].is_symlink ? 8 : 7;
+  }
+
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
-                         int offX = 0, int offY = 0) {
+                         int offX = 0, int offY = 0, int startRow = 8) {
     // Move cursor to start of preview area (1-indexed for terminal)
-    // pY+1 is the start of the window, we have 8 lines of header/padding +
+    // pY+1 is the start of the window, we have startRow lines of header/padding +
     // offY.
-    std::cout << "\033[" << (pY + 8 + offY) << ";" << (pX + 3 + offX) << "H";
+    std::cout << "\033[" << (pY + startRow + offY) << ";" << (pX + 3 + offX) << "H";
     const size_t chunk_size = 4096;
     size_t total = b64Data.length();
     size_t offset = 0;
@@ -1638,10 +1684,9 @@ public:
       int cols = (cachedImgW + 9) / 10;
       int rows = (cachedImgH + 19) / 20;
 
-      // Box starts at line 8, ends at pH-2. Total height = pH - 9.
-      // Width starts at pX+3, ends at pX+pW-2. Total width = pW - 4.
+      int imgStartRow = getPreviewContentStartLine() + 1;
       int boxW = pW - 4;
-      int boxH = pH - 9;
+      int boxH = pH - (imgStartRow + 1);
 
       int offX = (boxW - cols) / 2;
       int offY = (boxH - rows) / 2;
@@ -1650,7 +1695,7 @@ public:
       if (offY < 0)
         offY = 0;
 
-      sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY);
+      sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY, imgStartRow);
       lastWasDirectRender = true;
     }
   }
@@ -1661,10 +1706,12 @@ public:
       return;
 
     int maxW = getmaxx(winPreview) - 4;
-    int lineLimit = std::min((int)cachedTextLines.size(), getmaxy(winPreview) - 9);
+    int startLine = getPreviewContentStartLine();
+    int limit = getmaxy(winPreview) - startLine - 2;
+    int lineLimit = std::min((int)cachedTextLines.size(), limit);
 
     for (int i = 0; i < lineLimit; ++i) {
-      wprintw_ansi(winPreview, 7 + i, 2, cachedTextLines[i], maxW);
+      wprintw_ansi(winPreview, startLine + i, 2, cachedTextLines[i], maxW);
     }
   }
   // ----------------------------
@@ -2087,6 +2134,75 @@ public:
     }
   }
 
+  void handlePasteSymlink() {
+    if (clipboard.paths.empty()) {
+      setStatus("Clipboard empty");
+      return;
+    }
+
+    std::vector<std::pair<fs::path, fs::path>> jobs;
+
+    for (const auto& src : clipboard.paths) {
+      fs::path dest = currentPath / src.filename();
+      if (fs::exists(dest)) {
+        std::string filename = src.filename().string();
+        if (filename.length() > 30) {
+          filename = filename.substr(0, 27) + "...";
+        }
+        std::string promptStr = "'" + filename + "' exists. [r]eplace, [k]eep both, [c]ancel";
+        std::string ans = promptInput(promptStr);
+        char choice = 'c';
+        if (!ans.empty()) {
+          choice = std::tolower(ans[0]);
+        }
+        
+        if (choice == 'r') {
+          try {
+            fs::remove_all(dest);
+          } catch (...) {
+            setStatus("Error: Failed to replace " + dest.filename().string());
+            continue;
+          }
+          jobs.push_back({src, dest});
+        } else if (choice == 'k') {
+          jobs.push_back({src, getNonConflictingPath(dest)});
+        } else {
+          continue;
+        }
+      } else {
+        jobs.push_back({src, dest});
+      }
+    }
+
+    if (jobs.empty()) return;
+
+    int successCount = 0;
+    int failCount = 0;
+    for (const auto& job : jobs) {
+      fs::path src = job.first;
+      fs::path dest = job.second;
+      try {
+        fs::path src_abs = fs::absolute(src);
+        if (fs::is_directory(src_abs)) {
+          fs::create_directory_symlink(src_abs, dest);
+        } else {
+          fs::create_symlink(src_abs, dest);
+        }
+        successCount++;
+      } catch (...) {
+        failCount++;
+      }
+    }
+
+    if (failCount > 0) {
+      setStatus("Symlinked " + std::to_string(successCount) + " items (" + std::to_string(failCount) + " failed)");
+    } else {
+      setStatus("Created " + std::to_string(successCount) + " symlinks");
+    }
+
+    reloadAll();
+  }
+
   void handleRename() {
     if (currentFiles.empty())
       return;
@@ -2292,6 +2408,9 @@ public:
       wmove(winParent, i + 1, 1);
 
       FileStyle style = getFileStyle(file.extension, file.is_directory);
+      if (file.is_symlink) {
+        style.icon = ICON_LINK;
+      }
       int finalPair = getFinalPair(style.pair, false, isCurrent);
 
       std::string display = file.name;
@@ -2383,6 +2502,9 @@ public:
       bool isDimmed = inClipboard && clipboard.isCut && !isSelected;
 
       FileStyle style = getFileStyle(file.extension, file.is_directory);
+      if (file.is_symlink) {
+        style.icon = ICON_LINK;
+      }
       int finalPair = getFinalPair(style.pair, isSelected, false);
 
       if (isSelected) {
@@ -2417,15 +2539,36 @@ public:
       }
       int availWidth = getmaxx(winCurrent) - 16;
       std::string fullDisplay = dirPart + filePart;
-      if (fullDisplay.length() > (size_t)availWidth) {
-        fullDisplay = fullDisplay.substr(0, availWidth - 3) + "...";
-        size_t lastSlash = fullDisplay.find_last_of("/\\");
-        if (lastSlash != std::string::npos) {
-          dirPart = fullDisplay.substr(0, lastSlash + 1);
-          filePart = fullDisplay.substr(lastSlash + 1);
+      std::string symDisplay = "";
+      if (file.is_symlink) {
+        symDisplay = " 󰌹 " + file.symlink_target;
+      }
+
+      std::string totalDisplay = fullDisplay + symDisplay;
+      if (totalDisplay.length() > (size_t)availWidth) {
+        if (fullDisplay.length() >= (size_t)availWidth) {
+          fullDisplay = fullDisplay.substr(0, availWidth - 3) + "...";
+          size_t lastSlash = fullDisplay.find_last_of("/\\");
+          if (lastSlash != std::string::npos) {
+            dirPart = fullDisplay.substr(0, lastSlash + 1);
+            filePart = fullDisplay.substr(lastSlash + 1);
+          } else {
+            dirPart = "";
+            filePart = fullDisplay;
+          }
+          symDisplay = "";
         } else {
-          dirPart = "";
-          filePart = fullDisplay;
+          size_t maxSymLen = availWidth - fullDisplay.length();
+          if (maxSymLen >= 7) {
+            std::string symTarget = file.symlink_target;
+            size_t maxTargetLen = maxSymLen - 4; // " 󰌹 " is 4 columns
+            if (symTarget.length() > maxTargetLen) {
+              symTarget = symTarget.substr(0, maxTargetLen - 3) + "...";
+            }
+            symDisplay = " 󰌹 " + symTarget;
+          } else {
+            symDisplay = "";
+          }
         }
       }
 
@@ -2457,6 +2600,17 @@ public:
         }
       } else {
         wprintw(winCurrent, "%s", filePart.c_str());
+      }
+
+      if (!symDisplay.empty()) {
+        bool targetDimmed = !isSelected;
+        if (targetDimmed) {
+          wattron(winCurrent, A_DIM);
+        }
+        wprintw(winCurrent, "%s", symDisplay.c_str());
+        if (targetDimmed) {
+          wattroff(winCurrent, A_DIM);
+        }
       }
 
       std::string sz = formatSize(file.size);
@@ -2814,7 +2968,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 26;
+    int h = 27;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -2838,19 +2992,20 @@ public:
     mvwprintw(helpWin, 8, 2, "y            → Copy");
     mvwprintw(helpWin, 9, 2, "x            → Cut");
     mvwprintw(helpWin, 10, 2, "p            → Paste");
-    mvwprintw(helpWin, 11, 2, "d            → Delete");
-    mvwprintw(helpWin, 12, 2, "r            → Rename");
-    mvwprintw(helpWin, 13, 2, "n / N        → New File / Folder");
-    mvwprintw(helpWin, 14, 2, "z            → Zip");
-    mvwprintw(helpWin, 15, 2, ".            → Toggle Hidden");
-    mvwprintw(helpWin, 16, 2, "s            → Toggle Sorting");
-    mvwprintw(helpWin, 17, 2, "P            → Pin Directory");
-    mvwprintw(helpWin, 18, 2, "F5 / Ctrl+R  → Refresh Directory");
-    mvwprintw(helpWin, 19, 2, "/            → Search (ripgrep)");
-    mvwprintw(helpWin, 20, 2, "f            → Fuzzy Find");
-    mvwprintw(helpWin, 21, 2, "w            → Show Active Tasks");
-    mvwprintw(helpWin, 22, 2, "i            → Show File Details");
-    mvwprintw(helpWin, 23, 2, "?            → Show Help");
+    mvwprintw(helpWin, 11, 2, "Y            → Paste as Symlink");
+    mvwprintw(helpWin, 12, 2, "d            → Delete");
+    mvwprintw(helpWin, 13, 2, "r            → Rename");
+    mvwprintw(helpWin, 14, 2, "n / N        → New File / Folder");
+    mvwprintw(helpWin, 15, 2, "z            → Zip");
+    mvwprintw(helpWin, 16, 2, ".            → Toggle Hidden");
+    mvwprintw(helpWin, 17, 2, "s            → Toggle Sorting");
+    mvwprintw(helpWin, 18, 2, "P            → Pin Directory");
+    mvwprintw(helpWin, 19, 2, "F5 / Ctrl+R  → Refresh Directory");
+    mvwprintw(helpWin, 20, 2, "/            → Search (ripgrep)");
+    mvwprintw(helpWin, 21, 2, "f            → Fuzzy Find");
+    mvwprintw(helpWin, 22, 2, "w            → Show Active Tasks");
+    mvwprintw(helpWin, 23, 2, "i            → Show File Details");
+    mvwprintw(helpWin, 24, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -3046,15 +3201,36 @@ public:
 
     wattron(winPreview, A_DIM);
     mvwprintw(winPreview, 2, 2, " Size: %s", formatSize(file.size).c_str());
-    mvwprintw(winPreview, 3, 2, " Type: %s",
-              file.is_directory ? "Directory"
-                                : (file.extension.empty() ? "File" : file.extension.c_str()));
+
+    std::string typeStr;
+    if (file.is_symlink) {
+      typeStr = "Symlink -> ";
+      if (!file.symlink_target_exists) {
+        typeStr += "[Broken]";
+      } else if (file.is_symlink_directory) {
+        typeStr += "Directory";
+      } else {
+        typeStr += (file.extension.empty() ? "File" : file.extension.c_str());
+      }
+    } else {
+      typeStr = file.is_directory ? "Directory"
+                                  : (file.extension.empty() ? "File" : file.extension.c_str());
+    }
+    mvwprintw(winPreview, 3, 2, " Type: %s", typeStr.c_str());
     mvwprintw(winPreview, 4, 2, " Modified: %s", getFileModifiedTime(file.path).c_str());
     wattroff(winPreview, A_DIM);
 
+    int dividerLine = 5;
+    if (file.is_symlink) {
+      wattron(winPreview, A_DIM);
+      mvwprintw(winPreview, 5, 2, " Target: %s", file.symlink_target.c_str());
+      wattroff(winPreview, A_DIM);
+      dividerLine = 6;
+    }
+
     wattron(winPreview, COLOR_PAIR(6));
     for (int i = 1; i < getmaxx(winPreview) - 1; ++i)
-      mvwaddstr(winPreview, 5, i, "─");
+      mvwaddstr(winPreview, dividerLine, i, "─");
     wattroff(winPreview, COLOR_PAIR(6));
 
     bool isVid = VIDEO_EXTS.count(file.extension);
@@ -3066,12 +3242,14 @@ public:
     bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
     bool isPpt = (file.extension == ".ppt" || file.extension == ".pptx");
 
+    int contentStart = getPreviewContentStartLine();
+
     if (file.is_directory) {
       wattron(winPreview, COLOR_PAIR(1) | A_BOLD);
-      mvwprintw(winPreview, 7, 2, "󰉖 Content:");
+      mvwprintw(winPreview, contentStart, 2, "󰉖 Content:");
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
-        int line = 8;
+        int line = contentStart + 1;
         for (const auto& entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
@@ -3083,7 +3261,25 @@ public:
 
           std::string ext = entry.path().extension().string();
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-          FileStyle s = getFileStyle(ext, fs::is_directory(entry));
+          
+          bool isSubSym = fs::is_symlink(fs::symlink_status(entry.path()));
+          bool isSubDir = false;
+          if (isSubSym) {
+            try {
+              fs::path resSub = fs::read_symlink(entry.path());
+              if (resSub.is_relative()) {
+                resSub = entry.path().parent_path() / resSub;
+              }
+              isSubDir = fs::is_directory(resSub);
+            } catch (...) {}
+          } else {
+            isSubDir = fs::is_directory(entry);
+          }
+
+          FileStyle s = getFileStyle(ext, isSubDir);
+          if (isSubSym) {
+            s.icon = ICON_LINK;
+          }
 
           wattron(winPreview, COLOR_PAIR(s.pair));
           mvwprintw(winPreview, line++, 4, "%s %s", s.icon, subName.c_str());
@@ -3095,13 +3291,13 @@ public:
     } else if (isPdf || isDoc || isXls || isPpt) {
       wattron(winPreview, COLOR_PAIR(8));
       if (isPdf)
-        mvwprintw(winPreview, 7, 2, " [PDF File - No Preview] ");
+        mvwprintw(winPreview, contentStart, 2, " [PDF File - No Preview] ");
       else if (isDoc)
-        mvwprintw(winPreview, 7, 2, " [Word Document - No Preview] ");
+        mvwprintw(winPreview, contentStart, 2, " [Word Document - No Preview] ");
       else if (isXls)
-        mvwprintw(winPreview, 7, 2, " [Excel Spreadsheet - No Preview] ");
+        mvwprintw(winPreview, contentStart, 2, " [Excel Spreadsheet - No Preview] ");
       else if (isPpt)
-        mvwprintw(winPreview, 7, 2, " [PowerPoint Presentation - No Preview] ");
+        mvwprintw(winPreview, contentStart, 2, " [PowerPoint Presentation - No Preview] ");
       wattroff(winPreview, COLOR_PAIR(8));
       wnoutrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
@@ -3118,21 +3314,21 @@ public:
           pendingDirectRenderType = PreviewType::IMAGE;
       } else if (requestedPath != file.path.string()) {
         wattron(winPreview, A_ITALIC | A_DIM);
-        mvwprintw(winPreview, 7, 4, "Generating preview...");
+        mvwprintw(winPreview, contentStart, 4, "Generating preview...");
         wattroff(winPreview, A_ITALIC | A_DIM);
         PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
-        startAsyncPreview(file.path.string(), type, maxH - 9, maxW);
+        startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
       }
     } else {
       if (is_binary_file(file.path.string())) {
         wattron(winPreview, COLOR_PAIR(8));
-        mvwprintw(winPreview, 7, 2, " [Binary File - No Preview] ");
+        mvwprintw(winPreview, contentStart, 2, " [Binary File - No Preview] ");
         wattroff(winPreview, COLOR_PAIR(8));
       } else {
         std::ifstream f(file.path);
         if (f.is_open()) {
           std::string lineStr;
-          int line = 7;
+          int line = contentStart;
           while (std::getline(f, lineStr) && line < height - 3) {
             std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
             for (size_t i = 0; i < lineStr.length(); i += maxW) {
@@ -3536,6 +3732,9 @@ public:
           break;
         case 'y':
           handleCopy();
+          break;
+        case 'Y':
+          handlePasteSymlink();
           break;
         case 'x':
           handleCut();

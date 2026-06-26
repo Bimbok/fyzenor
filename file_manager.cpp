@@ -389,13 +389,25 @@ private:
   uint64_t getDirectorySize(const fs::path& dir) {
     uint64_t size = 0;
     try {
-      for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+      for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
         if (fs::is_regular_file(entry.status())) {
           size += fs::file_size(entry);
         }
       }
     } catch (...) {}
     return size;
+  }
+
+  bool isDescendant(const fs::path& child, const fs::path& parent) {
+    try {
+      fs::path absParent = fs::absolute(parent).lexically_normal();
+      fs::path absChild = fs::absolute(child).lexically_normal();
+      auto rel = absChild.lexically_relative(absParent);
+      if (!rel.empty() && rel.string() != "." && rel.string().substr(0, 2) != "..") {
+        return true;
+      }
+    } catch (...) {}
+    return false;
   }
 
   bool copyFileWithProgress(const fs::path& src, const fs::path& dest, std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied, uint64_t totalBytes) {
@@ -407,12 +419,19 @@ private:
     char buffer[65536];
     while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
       out.write(buffer, in.gcount());
+      if (out.fail()) {
+        return false;
+      }
       bytesCopied += in.gcount();
       if (totalBytes > 0) {
-        task->progress = (int)((bytesCopied * 100) / totalBytes);
+        int prog = (int)((bytesCopied * 100) / totalBytes);
+        task->progress = prog > 100 ? 100 : prog;
       } else {
         task->progress = 100;
       }
+    }
+    if (in.bad() || (in.fail() && !in.eof())) {
+      return false;
     }
     return true;
   }
@@ -446,37 +465,77 @@ private:
 
       uint64_t bytesCopied = 0;
       int successCount = 0;
+      int failCount = 0;
 
       for (const auto& job : jobs) {
         fs::path src = job.first;
         fs::path dest = job.second;
+        bool jobOk = false;
         try {
           if (fs::is_directory(src)) {
             fs::create_directories(dest);
-            for (const auto& entry : fs::recursive_directory_iterator(src)) {
-              fs::path rel = fs::relative(entry.path(), src);
-              fs::path d = dest / rel;
-              if (fs::is_directory(entry.status())) {
-                fs::create_directories(d);
-              } else if (fs::is_regular_file(entry.status())) {
-                copyFileWithProgress(entry.path(), d, task, bytesCopied, totalBytes);
+            bool dirCopiedFully = true;
+            std::vector<fs::path> filesToKeep;
+            try {
+              for (const auto& entry : fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied)) {
+                fs::path rel = fs::relative(entry.path(), src);
+                fs::path d = dest / rel;
+                if (fs::is_directory(entry.status())) {
+                  fs::create_directories(d);
+                } else if (fs::is_regular_file(entry.status())) {
+                  bool ok = copyFileWithProgress(entry.path(), d, task, bytesCopied, totalBytes);
+                  if (ok) {
+                    if (isCut) filesToKeep.push_back(entry.path());
+                  } else {
+                    dirCopiedFully = false;
+                    try { fs::remove(d); } catch(...) {}
+                  }
+                }
+              }
+            } catch (...) {
+              dirCopiedFully = false;
+            }
+            if (isCut) {
+              if (dirCopiedFully) {
+                fs::remove_all(src);
+                jobOk = true;
+              } else {
+                for (const auto& p : filesToKeep) {
+                  try { fs::remove(p); } catch(...) {}
+                }
+              }
+            } else {
+              if (dirCopiedFully) {
+                jobOk = true;
               }
             }
-            if (isCut) {
-              fs::remove_all(src);
-            }
           } else {
-            copyFileWithProgress(src, dest, task, bytesCopied, totalBytes);
-            if (isCut) {
-              fs::remove_all(src);
+            bool ok = copyFileWithProgress(src, dest, task, bytesCopied, totalBytes);
+            if (ok) {
+              if (isCut) {
+                try { fs::remove(src); } catch(...) {}
+              }
+              jobOk = true;
+            } else {
+              try { fs::remove(dest); } catch(...) {}
             }
           }
-          successCount++;
-        } catch (...) {}
+          if (jobOk) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (...) {
+          failCount++;
+        }
       }
 
       task->progress = 100;
-      task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
+      if (failCount > 0) {
+        task->statusMessage = "Finished with errors (pasted " + std::to_string(successCount) + " items, " + std::to_string(failCount) + " failed)";
+      } else {
+        task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
+      }
       task->isFinished = true;
     }).detach();
   }
@@ -513,7 +572,7 @@ private:
     }).detach();
   }
 
-  void startZipTask(const std::string& cmd, const std::string& zipName, fs::path zipDir) {
+  void startZipTask(const std::string& cmd, const std::string& zipName) {
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
@@ -525,23 +584,9 @@ private:
 
     setStatus("Zip task started in background");
 
-    std::thread([this, task, cmd, zipDir]() {
-      fs::path old;
-      bool pathSaved = false;
-      try {
-        old = fs::current_path();
-        fs::current_path(zipDir);
-        pathSaved = true;
-      } catch (...) {}
-
+    std::thread([this, task, cmd]() {
       int res = system(cmd.c_str());
       (void)res;
-
-      if (pathSaved) {
-        try {
-          fs::current_path(old);
-        } catch (...) {}
-      }
 
       task->progress = 100;
       task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
@@ -1896,6 +1941,10 @@ public:
 
     for (const auto& src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
+      if (fs::is_directory(src) && isDescendant(dest, src)) {
+        setStatus("Error: Cannot copy directory into itself");
+        continue;
+      }
       if (fs::exists(dest)) {
         if (clipboard.isCut && src == dest) {
           continue;
@@ -2011,12 +2060,12 @@ public:
       setStatus("Error: Zip file already exists!");
       return;
     }
-    std::string cmd = "zip -r -q \"" + name + ".zip\"";
+    std::string cmd = "cd \"" + currentPath.string() + "\" && zip -r -q \"" + name + ".zip\"";
     for (const auto& p : targets)
       cmd += " \"" + p.filename().string() + "\"";
     cmd += " > /dev/null 2>&1";
 
-    startZipTask(cmd, name + ".zip", currentPath);
+    startZipTask(cmd, name + ".zip");
     multiSelection.clear();
   }
   void handleCopyPath() {
@@ -2719,8 +2768,7 @@ public:
     if (!taskWin) return;
 
     keypad(taskWin, TRUE);
-
-    timeout(200);
+    wtimeout(taskWin, 200);
 
     while (true) {
       werase(taskWin);
@@ -2762,8 +2810,10 @@ public:
 
           int barW = 20;
           int prog = task->progress;
+          if (prog < 0) prog = 0;
+          if (prog > 100) prog = 100;
           std::string bar = "[";
-          int filled = (prog >= 0) ? (prog * (barW - 2)) / 100 : 0;
+          int filled = (prog * (barW - 2)) / 100;
           for (int b = 0; b < barW - 2; ++b) {
             if (b < filled) bar += "■";
             else bar += " ";
@@ -3184,6 +3234,23 @@ public:
       }
 
       if (ch == 'q') {
+        bool active = false;
+        {
+          std::lock_guard<std::mutex> lock(taskMutex);
+          for (const auto& t : activeTasks) {
+            if (!t->isFinished) {
+              active = true;
+              break;
+            }
+          }
+        }
+        if (active) {
+          std::string confirm = promptInput("Quit with active tasks in progress? (y/n)");
+          if (confirm != "y" && confirm != "Y") {
+            needsRedraw = true;
+            continue;
+          }
+        }
         return;
       }
       if (ch == KEY_RESIZE) {

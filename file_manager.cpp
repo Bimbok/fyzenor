@@ -2592,6 +2592,7 @@ public:
       std::getline(std::cin, dummy);
       
       reset_prog_mode();
+      updateLayout();
       refresh();
       reloadAll();
     }
@@ -4663,6 +4664,7 @@ public:
     }
 
     reset_prog_mode();
+    updateLayout();
     refresh();
     timeout(50);
   }
@@ -4926,6 +4928,7 @@ public:
       if (ch == KEY_RESIZE) {
         clearDirectRender();
         updateLayout();
+        needsRedraw = true;
         continue;
       }
       if (ch == 18 || ch == KEY_F(5)) { // Ctrl+R or F5

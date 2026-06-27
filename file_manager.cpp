@@ -47,6 +47,9 @@
 #include <sys/stat.h>
 #include <pwd.h>
 #include <grp.h>
+#include <sys/inotify.h>
+#include <poll.h>
+#include <cerrno>
 
 namespace fs = std::filesystem;
 
@@ -559,6 +562,14 @@ private:
   std::mutex queueMutex;
   std::condition_variable queueCv;
   std::mutex resultMutex;
+
+  // Auto-Update (Inotify) State
+  int inotifyFd = -1;
+  std::map<int, fs::path> watchDescriptors;
+  std::mutex inotifyMutex;
+  std::thread inotifyThread;
+  std::atomic<bool> stopInotify{false};
+  std::atomic<bool> inotifyTriggered{false};
 
   // Async Background Tasks State
   std::vector<std::shared_ptr<AsyncTask>> activeTasks;
@@ -1209,6 +1220,7 @@ public:
 
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
     previewWorker = std::thread(&FileManager::processPreviewWorker, this);
+    initInotify();
 
     try {
       currentPath = fs::current_path();
@@ -1300,6 +1312,13 @@ public:
     if (previewWorker.joinable())
       previewWorker.join();
 
+    stopInotify = true;
+    if (inotifyFd >= 0) {
+      close(inotifyFd);
+    }
+    if (inotifyThread.joinable())
+      inotifyThread.join();
+
     if (winPinned)
       delwin(winPinned);
     if (winParent)
@@ -1310,6 +1329,96 @@ public:
       delwin(winPreview);
     clearDirectRender();
     endwin();
+  }
+
+  // --- Auto-Update (Inotify) Functions ---
+  void initInotify() {
+    inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (inotifyFd < 0) {
+      inotifyFd = inotify_init();
+    }
+    if (inotifyFd >= 0) {
+      stopInotify = false;
+      inotifyThread = std::thread(&FileManager::inotifyWorker, this);
+    }
+  }
+
+  void inotifyWorker() {
+    struct pollfd pfd;
+    pfd.fd = inotifyFd;
+    pfd.events = POLLIN;
+
+    char buffer[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
+
+    while (!stopInotify) {
+      int numEvents = poll(&pfd, 1, 200);
+      if (numEvents < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (numEvents == 0) continue;
+
+      if (pfd.revents & POLLIN) {
+        ssize_t len = read(inotifyFd, buffer, sizeof(buffer));
+        if (len < 0 && errno != EAGAIN) {
+          break;
+        }
+
+        bool gotFsChange = false;
+        const struct inotify_event* event;
+        for (char* ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len) {
+          event = reinterpret_cast<const struct inotify_event*>(ptr);
+          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB)) {
+            gotFsChange = true;
+          }
+        }
+
+        if (gotFsChange) {
+          inotifyTriggered = true;
+        }
+      }
+    }
+  }
+
+  void updateInotifyWatches() {
+    if (inotifyFd < 0) return;
+
+    std::lock_guard<std::mutex> lock(inotifyMutex);
+
+    std::vector<fs::path> pathsToWatch;
+    if (isDualPaneMode) {
+      if (leftTabIndex < tabs.size()) {
+        pathsToWatch.push_back(tabs[leftTabIndex].currentPath);
+      }
+      if (rightTabIndex < tabs.size()) {
+        pathsToWatch.push_back(tabs[rightTabIndex].currentPath);
+      }
+    } else {
+      pathsToWatch.push_back(currentPath);
+      if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
+        pathsToWatch.push_back(currentPath.parent_path());
+      }
+    }
+
+    std::sort(pathsToWatch.begin(), pathsToWatch.end());
+    pathsToWatch.erase(std::unique(pathsToWatch.begin(), pathsToWatch.end()), pathsToWatch.end());
+
+    for (auto const& [wd, path] : watchDescriptors) {
+      inotify_rm_watch(inotifyFd, wd);
+    }
+    watchDescriptors.clear();
+
+    for (const auto& path : pathsToWatch) {
+      try {
+        if (fs::exists(path) && fs::is_directory(path)) {
+          int wd = inotify_add_watch(inotifyFd, path.string().c_str(),
+                                     IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB);
+          if (wd >= 0) {
+            watchDescriptors[wd] = path;
+          }
+        }
+      } catch (...) {}
+    }
   }
 
   // --- Async Size Worker Function ---
@@ -2708,6 +2817,7 @@ public:
         tabs[inactiveIdx].currentFiles.clear();
       }
     }
+    updateInotifyWatches();
   }
   void toggleHidden() {
     showHidden = !showHidden;
@@ -4606,6 +4716,11 @@ public:
     bool needsRedraw = true;
 
     while (true) {
+      if (inotifyTriggered) {
+        inotifyTriggered = false;
+        reloadAll();
+        needsRedraw = true;
+      }
       // Check for async size updates
       {
         std::lock_guard<std::mutex> lock(resultMutex);

@@ -87,6 +87,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
 | **Dual-Pane Mode**                 | Toggle (`F2`) side-by-side active file listings for drag-free copying, with easy tab focus switching (`Tab`).                                         |
+| **Device Detection & Mounts**      | Detect, mount, unmount, and navigate connected USB block drives and mobile phones (Android MTP) natively without needing Nautilus.                     |
 
 ---
 
@@ -385,6 +386,7 @@ flowchart TD
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `i`            | Show **File Details** (permissions, owner, size, times) |
+| `m`            | Show **Devices & Mounts** overlay (detect, mount, unmount USB drives & Android phones) |
 | `:`            | **Execute Shell Command** (suspend TUI / background `&`) |
 | `q`            | Quit Fyzenor                                |
 

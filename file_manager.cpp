@@ -3177,6 +3177,349 @@ public:
     drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, !focusPinned);
   }
 
+  struct DeviceInfo {
+    std::string name;
+    std::string unixDevice;      // e.g. /dev/nvme0n1p3 or /dev/bus/usb/003/009
+    std::string activationRoot;   // e.g. mtp://SAMSUNG_SAMSUNG_Android_RZCW91FV5WA/
+    std::string type;            // "MTP" or "Block"
+    bool isMounted = false;
+    std::string mountPath;       // e.g. /run/user/1000/gvfs/mtp:host=... or /media/...
+    bool canMount = false;
+    bool canUnmount = false;
+  };
+
+  std::string resolveMtpPath(uid_t uid, const std::string& host) {
+    std::string path = "/run/user/" + std::to_string(uid) + "/gvfs/mtp:host=" + host;
+    if (fs::exists(path)) return path;
+
+    std::string gvfsBase = "/run/user/" + std::to_string(uid) + "/gvfs";
+    try {
+      if (fs::exists(gvfsBase)) {
+        for (const auto& entry : fs::directory_iterator(gvfsBase)) {
+          std::string name = entry.path().filename().string();
+          if (name.rfind("mtp:host=", 0) == 0) {
+            if (name.find(host) != std::string::npos) {
+              return entry.path().string();
+            }
+            return entry.path().string();
+          }
+        }
+      }
+    } catch (...) {}
+
+    return path;
+  }
+
+  std::vector<DeviceInfo> detectDevices() {
+    std::vector<DeviceInfo> devices;
+    FILE* pipe = popen("gio mount -li 2>/dev/null", "r");
+    if (!pipe) return devices;
+
+    char buffer[512];
+    DeviceInfo curDev;
+    bool inVolume = false;
+    uid_t uid = geteuid();
+
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+      std::string line(buffer);
+      while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
+        line.pop_back();
+      }
+
+      if (line.rfind("Volume(", 0) == 0) {
+        if (inVolume) {
+          devices.push_back(curDev);
+        }
+        inVolume = true;
+        curDev = DeviceInfo();
+        size_t colon = line.find("): ");
+        if (colon != std::string::npos) {
+          curDev.name = line.substr(colon + 3);
+        } else {
+          curDev.name = "Unknown Volume";
+        }
+        continue;
+      }
+
+      if (!inVolume) continue;
+
+      if (!line.empty() && !isspace(line[0]) && line.rfind("Volume(", 0) != 0) {
+        devices.push_back(curDev);
+        inVolume = false;
+        continue;
+      }
+
+      size_t firstNonSpace = line.find_first_not_of(" \t");
+      if (firstNonSpace == std::string::npos) continue;
+      std::string propLine = line.substr(firstNonSpace);
+
+      if (propLine.rfind("Type: GProxyVolume (GProxyVolumeMonitorMTP)", 0) == 0) {
+        curDev.type = "MTP";
+      } else if (propLine.rfind("Type: GProxyVolume (GProxyVolumeMonitorUDisks2)", 0) == 0) {
+        curDev.type = "Block";
+      } else if (propLine.rfind("unix-device:", 0) == 0) {
+        size_t quoteStart = propLine.find('\'');
+        size_t quoteEnd = propLine.find('\'', quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos) {
+          curDev.unixDevice = propLine.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+        }
+      } else if (propLine.rfind("activation_root=", 0) == 0) {
+        curDev.activationRoot = propLine.substr(16);
+      } else if (propLine.rfind("can_mount=", 0) == 0) {
+        curDev.canMount = (propLine.substr(10) == "1");
+      } else if (propLine.rfind("Mount(", 0) == 0) {
+        curDev.isMounted = true;
+        size_t arrow = propLine.find(" -> ");
+        if (arrow != std::string::npos) {
+          std::string uri = propLine.substr(arrow + 4);
+          if (uri.rfind("file://", 0) == 0) {
+            curDev.mountPath = uri.substr(7);
+            if (!curDev.mountPath.empty() && curDev.mountPath.back() == '/') {
+              curDev.mountPath.pop_back();
+            }
+          } else if (uri.rfind("mtp://", 0) == 0) {
+            std::string host = uri.substr(6);
+            if (!host.empty() && host.back() == '/') {
+              host.pop_back();
+            }
+            curDev.mountPath = resolveMtpPath(uid, host);
+          } else if (uri.rfind("gphoto2://", 0) == 0) {
+            std::string host = uri.substr(10);
+            if (!host.empty() && host.back() == '/') {
+              host.pop_back();
+            }
+            curDev.mountPath = "/run/user/" + std::to_string(uid) + "/gvfs/gphoto2:host=" + host;
+          }
+        }
+      } else if (propLine.rfind("can_unmount=", 0) == 0) {
+        curDev.canUnmount = (propLine.substr(12) == "1");
+      }
+    }
+
+    if (inVolume) {
+      devices.push_back(curDev);
+    }
+
+    pclose(pipe);
+    return devices;
+  }
+
+  void mountDevice(const DeviceInfo& dev) {
+    std::string cmd;
+    if (!dev.unixDevice.empty()) {
+      cmd = "gio mount -d " + dev.unixDevice + " 2>&1";
+    } else if (!dev.activationRoot.empty()) {
+      cmd = "gio mount " + dev.activationRoot + " 2>&1";
+    } else {
+      return;
+    }
+    setStatus("Mounting " + dev.name + "...");
+    FILE* p = popen(cmd.c_str(), "r");
+    if (p) {
+      char buf[256];
+      std::string err;
+      while (fgets(buf, sizeof(buf), p)) {
+        err += buf;
+      }
+      int status = pclose(p);
+      if (status == 0) {
+        setStatus("Mounted " + dev.name);
+      } else {
+        while (!err.empty() && (err.back() == '\n' || err.back() == '\r')) err.pop_back();
+        if (err.empty()) err = "Process exited with code " + std::to_string(status);
+        setStatus("Mount failed: " + err);
+      }
+    }
+  }
+
+  void unmountDevice(const DeviceInfo& dev) {
+    std::string target;
+    if (!dev.activationRoot.empty()) {
+      target = dev.activationRoot;
+    } else if (!dev.mountPath.empty()) {
+      target = "file://" + dev.mountPath;
+    } else {
+      return;
+    }
+    std::string cmd = "gio mount -u \"" + target + "\" 2>&1";
+    setStatus("Unmounting " + dev.name + "...");
+    FILE* p = popen(cmd.c_str(), "r");
+    if (p) {
+      char buf[256];
+      std::string err;
+      while (fgets(buf, sizeof(buf), p)) {
+        err += buf;
+      }
+      int status = pclose(p);
+      if (status == 0) {
+        setStatus("Unmounted " + dev.name);
+      } else {
+        while (!err.empty() && (err.back() == '\n' || err.back() == '\r')) err.pop_back();
+        if (err.empty()) err = "Process exited with code " + std::to_string(status);
+        setStatus("Unmount failed: " + err);
+      }
+    }
+  }
+
+  void drawDevicesOverlay() {
+    std::vector<DeviceInfo> devices = detectDevices();
+
+    int h = 18;
+    int w = 66;
+    if (h > height - 4) h = height - 4;
+    if (w > width - 4) w = width - 4;
+    if (h < 6) h = 6;
+    if (w < 20) w = 20;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* devWin = newwin(h, w, startY, startX);
+    keypad(devWin, TRUE);
+
+    size_t selectedDeviceIndex = 0;
+
+    while (true) {
+      werase(devWin);
+      wattron(devWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(devWin);
+      wattroff(devWin, COLOR_PAIR(6) | A_BOLD);
+
+      wattron(devWin, COLOR_PAIR(1) | A_BOLD);
+      mvwprintw(devWin, 1, 2, "󰋊 Devices & External Storage");
+      wattroff(devWin, COLOR_PAIR(1) | A_BOLD);
+
+      if (devices.empty()) {
+        wattron(devWin, A_ITALIC | COLOR_PAIR(27));
+        mvwprintw(devWin, h / 2, (w - 20) / 2, "No devices detected");
+        wattroff(devWin, A_ITALIC | COLOR_PAIR(27));
+      } else {
+        int maxLines = h - 5;
+        for (int i = 0; i < maxLines && i < (int)devices.size(); ++i) {
+          const auto& dev = devices[i];
+          bool isSel = (i == (int)selectedDeviceIndex);
+          int lineY = 3 + i;
+
+          if (isSel) {
+            wattron(devWin, COLOR_PAIR(6) | A_BOLD);
+            for (int j = 1; j < w - 1; ++j) {
+              mvwaddch(devWin, lineY, j, ' ');
+            }
+            wmove(devWin, lineY, 1);
+            waddstr(devWin, "┃");
+          } else {
+            wmove(devWin, lineY, 2);
+          }
+
+          std::string icon = "󰋊";
+          if (dev.type == "MTP") {
+            icon = "";
+          } else if (dev.unixDevice.rfind("/dev/sd", 0) == 0 || dev.unixDevice.rfind("/dev/mmcblk", 0) == 0) {
+            icon = "󰕓";
+          }
+
+          std::string status = dev.isMounted ? "Mounted" : "Unmounted";
+          if (isSel) {
+            wattron(devWin, COLOR_PAIR(6) | A_BOLD);
+            wprintw(devWin, " %s  %-20s  [%s]", icon.c_str(), dev.name.c_str(), status.c_str());
+            wattroff(devWin, COLOR_PAIR(6) | A_BOLD);
+          } else {
+            int color = dev.isMounted ? 7 : 2;
+            wattron(devWin, COLOR_PAIR(color));
+            wprintw(devWin, " %s  %-20s", icon.c_str(), dev.name.c_str());
+            wattroff(devWin, COLOR_PAIR(color));
+
+            wattron(devWin, A_DIM);
+            wprintw(devWin, "  [%s]", status.c_str());
+            wattroff(devWin, A_DIM);
+          }
+
+          if (dev.isMounted && !dev.mountPath.empty()) {
+            std::string pathStr = dev.mountPath;
+            int availSpace = w - 40;
+            if (availSpace > 5) {
+              if ((int)pathStr.length() > availSpace) {
+                pathStr = "..." + pathStr.substr(pathStr.length() - availSpace + 3);
+              }
+              wattron(devWin, A_DIM);
+              mvwprintw(devWin, lineY, w - pathStr.length() - 2, "%s", pathStr.c_str());
+              wattroff(devWin, A_DIM);
+            }
+          }
+        }
+      }
+
+      wattron(devWin, A_DIM);
+      mvwprintw(devWin, h - 2, 2, "[Enter] Open/Mount  [m] Mount  [u] Unmount  [Esc/q] Close");
+      wattroff(devWin, A_DIM);
+
+      wrefresh(devWin);
+
+      int ch = wgetch(devWin);
+      if (ch == 'q' || ch == 27) {
+        break;
+      }
+      if (ch == 'j' || ch == KEY_DOWN) {
+        if (!devices.empty() && selectedDeviceIndex < devices.size() - 1) {
+          selectedDeviceIndex++;
+        }
+      }
+      if (ch == 'k' || ch == KEY_UP) {
+        if (selectedDeviceIndex > 0) {
+          selectedDeviceIndex--;
+        }
+      }
+      if (ch == 'm') {
+        if (!devices.empty() && selectedDeviceIndex < devices.size()) {
+          const auto& dev = devices[selectedDeviceIndex];
+          if (!dev.isMounted) {
+            mountDevice(dev);
+            devices = detectDevices();
+          } else {
+            setStatus(dev.name + " is already mounted");
+          }
+        }
+      }
+      if (ch == 'u') {
+        if (!devices.empty() && selectedDeviceIndex < devices.size()) {
+          const auto& dev = devices[selectedDeviceIndex];
+          if (dev.isMounted) {
+            unmountDevice(dev);
+            if (!dev.mountPath.empty() && (currentPath == dev.mountPath || isDescendant(currentPath, dev.mountPath))) {
+              const char* home = getenv("HOME");
+              currentPath = home ? fs::path(home) : fs::path("/");
+              reloadAll();
+            }
+            devices = detectDevices();
+          } else {
+            setStatus(dev.name + " is not mounted");
+          }
+        }
+      }
+      if (ch == 10) {
+        if (!devices.empty() && selectedDeviceIndex < devices.size()) {
+          auto dev = devices[selectedDeviceIndex];
+          if (!dev.isMounted) {
+            mountDevice(dev);
+            devices = detectDevices();
+            if (selectedDeviceIndex < devices.size()) {
+              dev = devices[selectedDeviceIndex];
+            }
+          }
+          if (dev.isMounted && !dev.mountPath.empty()) {
+            clearDirectRender();
+            currentPath = dev.mountPath;
+            reloadAll();
+            break;
+          }
+        }
+      }
+    }
+
+    delwin(devWin);
+    updateLayout();
+  }
+
   struct FileDetails {
     std::string name;
     std::string absolutePath;
@@ -3516,7 +3859,7 @@ public:
   }
 
   void drawHelpOverlay() {
-    int h = 34;
+    int h = 35;
     int w = 60;
 
     int startY = (height - h) / 2;
@@ -3560,7 +3903,8 @@ public:
     mvwprintw(helpWin, 28, 2, ":            → Execute Shell Command");
     mvwprintw(helpWin, 29, 2, "F2           → Toggle Dual-Pane Mode");
     mvwprintw(helpWin, 30, 2, "Tab          → Toggle Pinned / Switch Pane");
-    mvwprintw(helpWin, 31, 2, "?            → Show Help");
+    mvwprintw(helpWin, 31, 2, "m            → Mounts & External Devices");
+    mvwprintw(helpWin, 32, 2, "?            → Show Help");
 
     wattron(helpWin, A_DIM);
     mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
@@ -4422,6 +4766,9 @@ public:
           break;
         case 'r':
           handleRename();
+          break;
+        case 'm':
+          drawDevicesOverlay();
           break;
         case 'n':
           handleNewFile();

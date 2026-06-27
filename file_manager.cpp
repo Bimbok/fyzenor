@@ -4603,8 +4603,10 @@ public:
           if (line >= height - 3)
             break;
           std::string subName = entry.path().filename().string();
-          if (subName.length() > (size_t)maxW) {
-            int limit = maxW - 3;
+          int maxSubW = getmaxx(winPreview) - 8;
+          if (maxSubW < 5) maxSubW = 5;
+          if ((int)subName.length() > maxSubW) {
+            int limit = maxSubW - 3;
             if (limit < 1) limit = 1;
             subName = utf8_safe_truncate(subName, limit);
           }

@@ -1808,10 +1808,14 @@ public:
         if (job->reqId != requestID)
           continue;
 
+        if (!fs::exists(cachePath)) {
+          continue;
+        }
+
         int finalW = 0, finalH = 0;
         std::string probeCmd = "ffprobe -v error -select_streams v:0 -show_entries "
                                "stream=width,height -of csv=s=x:p=0 \"" +
-                               cachePath + "\"";
+                               cachePath + "\" 2>/dev/null";
         FILE* p = popen(probeCmd.c_str(), "r");
         if (p) {
           char buf[64];

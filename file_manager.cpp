@@ -315,6 +315,28 @@ std::string utf8_safe_truncate(const std::string& str, size_t max_cols) {
   return str;
 }
 
+std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
+  size_t total_cols = utf8_length(str);
+  if (total_cols <= max_cols) {
+    return str;
+  }
+  size_t cols = 0;
+  size_t bytes = str.length();
+  while (bytes > 0 && cols < max_cols) {
+    size_t char_len = 1;
+    while (bytes - char_len > 0) {
+      unsigned char c = str[bytes - char_len];
+      if ((c & 0xC0) != 0x80) {
+        break;
+      }
+      char_len++;
+    }
+    bytes -= char_len;
+    cols++;
+  }
+  return "..." + str.substr(bytes);
+}
+
 struct FileStyle {
   int pair;
   const char* icon;
@@ -2902,8 +2924,11 @@ public:
       std::string name = pinnedPaths[i].filename().string();
       if (name.empty())
         name = pinnedPaths[i].string();
-      if (name.length() > (size_t)getmaxx(winPinned) - 6)
-        name = name.substr(0, getmaxx(winPinned) - 6);
+      int limit = getmaxx(winPinned) - 8;
+      if (limit < 1) limit = 1;
+      if (name.length() > (size_t)limit) {
+        name = utf8_safe_truncate(name, limit);
+      }
 
       if (focusPinned && i == pinnedIndex) {
         wattron(winPinned, COLOR_PAIR(10) | A_BOLD);
@@ -3676,7 +3701,11 @@ public:
       wattroff(devWin, COLOR_PAIR(6) | A_BOLD);
 
       wattron(devWin, COLOR_PAIR(1) | A_BOLD);
-      mvwprintw(devWin, 1, 2, "󰋊 Devices & External Storage");
+      std::string title = "󰋊 Devices & External Storage";
+      if ((int)title.length() > w - 4) {
+        title = utf8_safe_truncate(title, w - 4);
+      }
+      mvwprintw(devWin, 1, 2, "%s", title.c_str());
       wattroff(devWin, COLOR_PAIR(1) | A_BOLD);
 
       if (devices.empty()) {
@@ -3709,14 +3738,21 @@ public:
           }
 
           std::string status = dev.isMounted ? "Mounted" : "Unmounted";
+          std::string devName = dev.name;
+          int maxNameW = w - 24;
+          if (maxNameW < 10) maxNameW = 10;
+          if ((int)devName.length() > maxNameW) {
+            devName = utf8_safe_truncate(devName, maxNameW - 3);
+          }
+
           if (isSel) {
             wattron(devWin, COLOR_PAIR(6) | A_BOLD);
-            wprintw(devWin, " %s  %-20s  [%s]", icon.c_str(), dev.name.c_str(), status.c_str());
+            wprintw(devWin, " %s  %-20s  [%s]", icon.c_str(), devName.c_str(), status.c_str());
             wattroff(devWin, COLOR_PAIR(6) | A_BOLD);
           } else {
             int color = dev.isMounted ? 7 : 2;
             wattron(devWin, COLOR_PAIR(color));
-            wprintw(devWin, " %s  %-20s", icon.c_str(), dev.name.c_str());
+            wprintw(devWin, " %s  %-20s", icon.c_str(), devName.c_str());
             wattroff(devWin, COLOR_PAIR(color));
 
             wattron(devWin, A_DIM);
@@ -3729,7 +3765,7 @@ public:
             int availSpace = w - 40;
             if (availSpace > 5) {
               if ((int)pathStr.length() > availSpace) {
-                pathStr = "..." + pathStr.substr(pathStr.length() - availSpace + 3);
+                pathStr = utf8_safe_truncate_left(pathStr, availSpace - 3);
               }
               wattron(devWin, A_DIM);
               mvwprintw(devWin, lineY, w - pathStr.length() - 2, "%s", pathStr.c_str());
@@ -3739,8 +3775,18 @@ public:
         }
       }
 
+      std::string instr = "[Enter] Open/Mount  [m] Mount  [u] Unmount  [Esc/q] Close";
+      if ((int)instr.length() > w - 4) {
+        instr = "[Enter] Open  [m] Mount  [u] Unmount  [Esc] Close";
+        if ((int)instr.length() > w - 4) {
+          instr = "[Ent]Open [m]Mnt [u]Unmnt [Esc]Cls";
+          if ((int)instr.length() > w - 4) {
+            instr = "Ent:Open m:Mnt u:Unmnt";
+          }
+        }
+      }
       wattron(devWin, A_DIM);
-      mvwprintw(devWin, h - 2, 2, "[Enter] Open/Mount  [m] Mount  [u] Unmount  [Esc/q] Close");
+      mvwprintw(devWin, h - 2, 2, "%s", instr.c_str());
       wattroff(devWin, A_DIM);
 
       wrefresh(devWin);
@@ -4153,53 +4199,77 @@ public:
   void drawHelpOverlay() {
     int h = 35;
     int w = 60;
+    if (h > height - 4) h = height - 4;
+    if (w > width - 4) w = width - 4;
+    if (h < 6) h = 6;
+    if (w < 20) w = 20;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
 
     WINDOW* helpWin = newwin(h, w, startY, startX);
+    if (!helpWin) return;
 
     wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
     drawRoundedBox(helpWin);
     wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
 
     wattron(helpWin, COLOR_PAIR(1) | A_BOLD);
-    mvwprintw(helpWin, 1, 2, "󰘳 Fyzenor Keybindings");
+    std::string title = "󰘳 Fyzenor Keybindings";
+    if ((int)title.length() > w - 4) {
+      title = utf8_safe_truncate(title, w - 4);
+    }
+    mvwprintw(helpWin, 1, 2, "%s", title.c_str());
     wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
 
-    mvwprintw(helpWin, 3, 2, "j / k        → Navigate");
-    mvwprintw(helpWin, 4, 2, "h / l        → Back / Open");
-    mvwprintw(helpWin, 5, 2, "Space / v    → Select");
-    mvwprintw(helpWin, 6, 2, "a            → Select All");
-    mvwprintw(helpWin, 7, 2, "Esc          → Clear Selection");
-    mvwprintw(helpWin, 8, 2, "y            → Copy");
-    mvwprintw(helpWin, 9, 2, "x            → Cut");
-    mvwprintw(helpWin, 10, 2, "p            → Paste");
-    mvwprintw(helpWin, 11, 2, "Y            → Paste as Symlink");
-    mvwprintw(helpWin, 12, 2, "d            → Delete");
-    mvwprintw(helpWin, 13, 2, "r            → Rename");
-    mvwprintw(helpWin, 14, 2, "n / N        → New File / Folder");
-    mvwprintw(helpWin, 15, 2, "z            → Zip");
-    mvwprintw(helpWin, 16, 2, ".            → Toggle Hidden");
-    mvwprintw(helpWin, 17, 2, "s            → Toggle Sorting");
-    mvwprintw(helpWin, 18, 2, "P            → Pin Directory");
-    mvwprintw(helpWin, 19, 2, "F5 / Ctrl+R  → Refresh Directory");
-    mvwprintw(helpWin, 20, 2, "/            → Search (ripgrep)");
-    mvwprintw(helpWin, 21, 2, "f            → Fuzzy Find");
-    mvwprintw(helpWin, 22, 2, "w            → Show Active Tasks");
-    mvwprintw(helpWin, 23, 2, "i            → Show File Details");
-    mvwprintw(helpWin, 24, 2, "t            → Create New Tab");
-    mvwprintw(helpWin, 25, 2, "W / Ctrl+W   → Close Current Tab");
-    mvwprintw(helpWin, 26, 2, "[ / ]        → Prev / Next Tab");
-    mvwprintw(helpWin, 27, 2, "1 - 9, 0     → Switch to Tab 1-10");
-    mvwprintw(helpWin, 28, 2, ":            → Execute Shell Command");
-    mvwprintw(helpWin, 29, 2, "F2           → Toggle Dual-Pane Mode");
-    mvwprintw(helpWin, 30, 2, "Tab          → Toggle Pinned / Switch Pane");
-    mvwprintw(helpWin, 31, 2, "m            → Mounts & External Devices");
-    mvwprintw(helpWin, 32, 2, "?            → Show Help");
+    auto printHelpLine = [&](int row, const std::string& key, const std::string& desc) {
+      if (row >= h - 2) return;
+      std::string lineStr = key;
+      while (lineStr.length() < 13) lineStr += " ";
+      lineStr += " → " + desc;
+      if ((int)lineStr.length() > w - 4) {
+        lineStr = utf8_safe_truncate(lineStr, w - 4);
+      }
+      mvwprintw(helpWin, row, 2, "%s", lineStr.c_str());
+    };
 
+    printHelpLine(3, "j / k", "Navigate");
+    printHelpLine(4, "h / l", "Back / Open");
+    printHelpLine(5, "Space / v", "Select");
+    printHelpLine(6, "a", "Select All");
+    printHelpLine(7, "Esc", "Clear Selection");
+    printHelpLine(8, "y", "Copy");
+    printHelpLine(9, "x", "Cut");
+    printHelpLine(10, "p", "Paste");
+    printHelpLine(11, "Y", "Paste as Symlink");
+    printHelpLine(12, "d", "Delete");
+    printHelpLine(13, "r", "Rename");
+    printHelpLine(14, "n / N", "New File / Folder");
+    printHelpLine(15, "z", "Zip");
+    printHelpLine(16, ".", "Toggle Hidden");
+    printHelpLine(17, "s", "Toggle Sorting");
+    printHelpLine(18, "P", "Pin Directory");
+    printHelpLine(19, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(20, "/", "Search (ripgrep)");
+    printHelpLine(21, "f", "Fuzzy Find");
+    printHelpLine(22, "w", "Show Active Tasks");
+    printHelpLine(23, "i", "Show File Details");
+    printHelpLine(24, "t", "Create New Tab");
+    printHelpLine(25, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(26, "[ / ]", "Prev / Next Tab");
+    printHelpLine(27, "1 - 9, 0", "Switch to Tab 1-10");
+    printHelpLine(28, ":", "Execute Shell Command");
+    printHelpLine(29, "F2", "Toggle Dual-Pane Mode");
+    printHelpLine(30, "Tab", "Toggle Pinned / Switch Pane");
+    printHelpLine(31, "m", "Mounts & External Devices");
+    printHelpLine(32, "?", "Show Help");
+
+    std::string closeMsg = "Press any key to close...";
+    if ((int)closeMsg.length() > w - 4) {
+      closeMsg = "Press key to close";
+    }
     wattron(helpWin, A_DIM);
-    mvwprintw(helpWin, h - 2, 2, "Press any key to close...");
+    mvwprintw(helpWin, h - 2, 2, "%s", closeMsg.c_str());
     wattroff(helpWin, A_DIM);
 
     wrefresh(helpWin);
@@ -4214,6 +4284,10 @@ public:
   void drawTasksOverlay() {
     int h = 15;
     int w = 70;
+    if (h > height - 4) h = height - 4;
+    if (w > width - 4) w = width - 4;
+    if (h < 6) h = 6;
+    if (w < 20) w = 20;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
@@ -4233,7 +4307,11 @@ public:
       wattroff(taskWin, COLOR_PAIR(6) | A_BOLD);
 
       wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
-      mvwprintw(taskWin, 1, 2, "󰙵 Active Tasks & Workers");
+      std::string title = "󰙵 Active Tasks & Workers";
+      if ((int)title.length() > w - 4) {
+        title = utf8_safe_truncate(title, w - 4);
+      }
+      mvwprintw(taskWin, 1, 2, "%s", title.c_str());
       wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
 
       wattron(taskWin, COLOR_PAIR(6) | A_DIM);
@@ -4318,8 +4396,15 @@ public:
         }
       }
 
+      std::string instr = "j/k: Navigate | c: Clear Finished | x/d: Kill Task | Esc: Close";
+      if ((int)instr.length() > w - 4) {
+        instr = "j/k: Nav | c: Clear | x/d: Kill | Esc: Close";
+        if ((int)instr.length() > w - 4) {
+          instr = "j/k: Nav | c: Clr | x: Kill";
+        }
+      }
       wattron(taskWin, A_DIM);
-      mvwprintw(taskWin, h - 2, 2, "j/k: Navigate | c: Clear Finished | x/d: Kill Task | Esc: Close");
+      mvwprintw(taskWin, h - 2, 2, "%s", instr.c_str());
       wattroff(taskWin, A_DIM);
 
       wrefresh(taskWin);
@@ -4858,7 +4943,7 @@ public:
         int maxPathW = width - 35;
         if (maxPathW < 10) maxPathW = 10;
         if ((int)pathStr.length() > maxPathW) {
-          pathStr = "..." + pathStr.substr(pathStr.length() - maxPathW + 3);
+          pathStr = utf8_safe_truncate_left(pathStr, maxPathW - 3);
         }
         printw(" %s", pathStr.c_str());
         attroff(A_DIM);

@@ -397,7 +397,7 @@ flowchart TD
 | `t`             | **Create New Tab**                          |
 | `W` or `Ctrl+W` | **Close Current Tab**                       |
 | `[` or `]`      | Switch to **Previous / Next Tab**           |
-| `1` - `9`       | Switch directly to **Tab 1 - 9**            |
+| `1` - `9`, `0`  | Switch directly to **Tab 1 - 10** (`0` maps to tab 10) |
 
 ### Pin Mode Controls
 

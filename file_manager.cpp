@@ -1567,6 +1567,9 @@ public:
   }
 
   void updateLayout() {
+    endwin();
+    refresh();
+    clear();
     getmaxyx(stdscr, height, width);
 
     if (isDualPaneMode) {
@@ -2867,22 +2870,59 @@ public:
     move(0, 0);
     clrtoeol();
 
-    int x = 2;
-    for (size_t i = 0; i < tabs.size(); ++i) {
-      bool isActive = (i == activeTabIndex);
-      bool isLeft = isDualPaneMode && (i == leftTabIndex);
-      bool isRight = isDualPaneMode && (i == rightTabIndex);
-      bool isPaneTab = isLeft || isRight;
+    if (tabs.empty()) return;
 
+    // Prepare tab displays and widths
+    std::vector<std::string> tabDisplays;
+    std::vector<int> tabWidths;
+    for (size_t i = 0; i < tabs.size(); ++i) {
+      std::string tabNumStr = (i == 9) ? "0" : std::to_string(i + 1);
       std::string tabName = tabs[i].currentPath.filename().string();
       if (tabName.empty()) {
         tabName = "/";
       }
-      
-      std::string disp = " " + std::to_string(i + 1) + " " + tabName + " ";
-      if (x + (int)disp.length() + 2 >= width) {
+      std::string disp = " " + tabNumStr + " " + tabName + " ";
+      tabDisplays.push_back(disp);
+      tabWidths.push_back(disp.length() + 4);
+    }
+
+    // Determine visible range [startTab, endTab] around activeTabIndex
+    size_t startTab = 0;
+    size_t endTab = tabs.size() - 1;
+
+    while (true) {
+      int totalWidth = 2;
+      if (startTab > 0) totalWidth += 4;
+      for (size_t i = startTab; i <= endTab; ++i) {
+        totalWidth += tabWidths[i];
+      }
+      if (endTab < tabs.size() - 1) totalWidth += 4;
+
+      if (totalWidth <= width || startTab == endTab) {
         break;
       }
+
+      if (activeTabIndex - startTab > endTab - activeTabIndex) {
+        startTab++;
+      } else {
+        endTab--;
+      }
+    }
+
+    int x = 2;
+    if (startTab > 0) {
+      attron(COLOR_PAIR(6) | A_BOLD);
+      mvprintw(0, x, "«");
+      attroff(COLOR_PAIR(6) | A_BOLD);
+      x += 3;
+    }
+
+    for (size_t i = startTab; i <= endTab && i < tabs.size(); ++i) {
+      bool isActive = (i == activeTabIndex);
+      bool isLeft = isDualPaneMode && (i == leftTabIndex);
+      bool isRight = isDualPaneMode && (i == rightTabIndex);
+      bool isPaneTab = isLeft || isRight;
+      const std::string& disp = tabDisplays[i];
 
       if (isActive) {
         attron(COLOR_PAIR(6) | A_BOLD);
@@ -2913,11 +2953,21 @@ public:
         mvprintw(0, x, "  %s  ", disp.c_str());
         attroff(COLOR_PAIR(6) | A_DIM);
       }
-      x += disp.length() + 4;
+      x += tabWidths[i];
+    }
+
+    if (endTab < tabs.size() - 1) {
+      attron(COLOR_PAIR(6) | A_BOLD);
+      mvprintw(0, x, "»");
+      attroff(COLOR_PAIR(6) | A_BOLD);
     }
   }
 
   void createTab() {
+    if (tabs.size() >= 10) {
+      setStatus("Maximum 10 tabs allowed");
+      return;
+    }
     tabs[activeTabIndex].currentPath = currentPath;
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
@@ -4017,7 +4067,7 @@ public:
     mvwprintw(helpWin, 24, 2, "t            → Create New Tab");
     mvwprintw(helpWin, 25, 2, "W / Ctrl+W   → Close Current Tab");
     mvwprintw(helpWin, 26, 2, "[ / ]        → Prev / Next Tab");
-    mvwprintw(helpWin, 27, 2, "1 - 9        → Switch to Tab 1-9");
+    mvwprintw(helpWin, 27, 2, "1 - 9, 0     → Switch to Tab 1-10");
     mvwprintw(helpWin, 28, 2, ":            → Execute Shell Command");
     mvwprintw(helpWin, 29, 2, "F2           → Toggle Dual-Pane Mode");
     mvwprintw(helpWin, 30, 2, "Tab          → Toggle Pinned / Switch Pane");
@@ -4806,8 +4856,8 @@ public:
         }
         continue;
       }
-      if (ch >= '1' && ch <= '9') {
-        size_t targetIdx = ch - '1';
+      if (ch >= '0' && ch <= '9') {
+        size_t targetIdx = (ch == '0') ? 9 : (ch - '1');
         if (targetIdx < tabs.size()) {
           switchTab(targetIdx);
         }

@@ -3147,7 +3147,12 @@ public:
         }
       }
 
-      std::string sz = formatSize(file.size);
+      std::string sz;
+      if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
+        sz = "DIR";
+      } else {
+        sz = formatSize(file.size);
+      }
       int availWidth = getmaxx(win) - sz.length() - 11;
       if (availWidth < 10) availWidth = 10;
 
@@ -3841,7 +3846,9 @@ public:
     printField(row++, "Type:", details.type, 2);
 
     std::string sizeStr;
-    if (details.size == SIZE_CALCULATING) {
+    if (details.isDir && details.absolutePath.find("/gvfs/") != std::string::npos) {
+      sizeStr = "DIR (size calculation skipped for MTP)";
+    } else if (details.size == SIZE_CALCULATING) {
       sizeStr = "Calculating...";
     } else {
       sizeStr = formatSize(details.size) + " (" + std::to_string(details.size) + " bytes)";
@@ -4223,7 +4230,13 @@ public:
     wattroff(winPreview, A_BOLD | COLOR_PAIR(1));
 
     wattron(winPreview, A_DIM);
-    mvwprintw(winPreview, 2, 2, " Size: %s", formatSize(file.size).c_str());
+    std::string previewSizeStr;
+    if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
+      previewSizeStr = "DIR";
+    } else {
+      previewSizeStr = formatSize(file.size);
+    }
+    mvwprintw(winPreview, 2, 2, " Size: %s", previewSizeStr.c_str());
 
     std::string typeStr;
     if (file.is_symlink) {

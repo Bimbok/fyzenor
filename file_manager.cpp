@@ -2055,7 +2055,9 @@ public:
 
     std::string dispMsg = statusMessage;
     if ((int)dispMsg.length() > w - 4) {
-      dispMsg = dispMsg.substr(0, w - 7) + "...";
+      int limit = w - 7;
+      if (limit < 1) limit = 1;
+      dispMsg = utf8_safe_truncate(dispMsg, limit);
     }
 
     mvwprintw(toastWin, 1, 2, "%s", dispMsg.c_str());
@@ -2396,7 +2398,7 @@ public:
         }
         std::string filename = src.filename().string();
         if (filename.length() > 30) {
-          filename = filename.substr(0, 27) + "...";
+          filename = utf8_safe_truncate(filename, 27);
         }
         std::string promptStr = "'" + filename + "' exists. [r]eplace, [k]eep both, [c]ancel";
         std::string ans = promptInput(promptStr);
@@ -2449,7 +2451,7 @@ public:
       if (fs::exists(dest)) {
         std::string filename = src.filename().string();
         if (filename.length() > 30) {
-          filename = filename.substr(0, 27) + "...";
+          filename = utf8_safe_truncate(filename, 27);
         }
         std::string promptStr = "'" + filename + "' exists. [r]eplace, [k]eep both, [c]ancel";
         std::string ans = promptInput(promptStr);
@@ -2956,8 +2958,11 @@ public:
       int finalPair = getFinalPair(style.pair, false, isCurrent);
 
       std::string display = file.name;
-      if (display.length() > (size_t)getmaxx(winParent) - 8)
-        display = display.substr(0, getmaxx(winParent) - 11) + "...";
+      if (display.length() > (size_t)getmaxx(winParent) - 8) {
+        int limit = getmaxx(winParent) - 11;
+        if (limit < 1) limit = 1;
+        display = utf8_safe_truncate(display, limit);
+      }
 
       if (isCurrent) {
         wattron(winParent, COLOR_PAIR(finalPair) | A_BOLD);
@@ -3332,7 +3337,9 @@ public:
       if (totalLen > (size_t)availWidth) {
         size_t fullLen = utf8_length(fullDisplay);
         if (fullLen >= (size_t)availWidth) {
-          fullDisplay = utf8_safe_truncate(fullDisplay, availWidth);
+          int limit = (int)availWidth - 3;
+          if (limit < 1) limit = 1;
+          fullDisplay = utf8_safe_truncate(fullDisplay, limit);
           size_t lastSlash = fullDisplay.find_last_of("/\\");
           if (lastSlash != std::string::npos) {
             dirPart = fullDisplay.substr(0, lastSlash + 1);
@@ -3346,7 +3353,9 @@ public:
           size_t maxSymLen = availWidth - fullLen;
           if (maxSymLen >= 7) {
             std::string symTarget = file.symlink_target;
-            symTarget = utf8_safe_truncate(symTarget, maxSymLen - 4);
+            int limit = (int)maxSymLen - 3;
+            if (limit < 1) limit = 1;
+            symTarget = utf8_safe_truncate(symTarget, limit);
             symDisplay = " 󰌹 " + symTarget;
           } else {
             symDisplay = "";
@@ -3993,7 +4002,7 @@ public:
       if ((int)showVal.length() > maxValW) {
         int subLen = maxValW - 3;
         if (subLen < 1) subLen = 1;
-        showVal = showVal.substr(0, subLen) + "...";
+        showVal = utf8_safe_truncate(showVal, subLen);
       }
       wattron(detWin, COLOR_PAIR(valColorPair));
       mvwprintw(detWin, row, 18, "%s", showVal.c_str());
@@ -4297,7 +4306,9 @@ public:
           std::string desc = task->description;
           int maxDescW = w - 42;
           if (desc.length() > (size_t)maxDescW) {
-            desc = desc.substr(0, maxDescW - 3) + "...";
+            int limit = maxDescW - 3;
+            if (limit < 1) limit = 1;
+            desc = utf8_safe_truncate(desc, limit);
           }
           mvwprintw(taskWin, y, 40, "%s", desc.c_str());
 
@@ -4389,7 +4400,9 @@ public:
     wattron(winPreview, A_BOLD | COLOR_PAIR(1));
     std::string dispName = file.name;
     if ((int)dispName.length() > maxW) {
-      dispName = dispName.substr(0, maxW - 3) + "...";
+      int limit = maxW - 3;
+      if (limit < 1) limit = 1;
+      dispName = utf8_safe_truncate(dispName, limit);
     }
     mvwprintw(winPreview, 1, 2, " %s ", dispName.c_str());
     wattroff(winPreview, A_BOLD | COLOR_PAIR(1));
@@ -4457,8 +4470,11 @@ public:
           if (line >= height - 3)
             break;
           std::string subName = entry.path().filename().string();
-          if (subName.length() > (size_t)maxW)
-            subName = subName.substr(0, maxW - 3) + "...";
+          if (subName.length() > (size_t)maxW) {
+            int limit = maxW - 3;
+            if (limit < 1) limit = 1;
+            subName = utf8_safe_truncate(subName, limit);
+          }
 
           std::string ext = entry.path().extension().string();
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);

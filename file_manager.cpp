@@ -160,8 +160,14 @@ struct FileEntry {
     extension = p.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
 
+    bool isGvfs = (p.string().find("/gvfs/") != std::string::npos);
+
     try {
-      modified_time = fs::last_write_time(p);
+      if (isGvfs) {
+        modified_time = fs::file_time_type::min();
+      } else {
+        modified_time = fs::last_write_time(p);
+      }
     } catch (...) {
       modified_time = fs::file_time_type::min();
     }
@@ -198,9 +204,72 @@ struct FileEntry {
 
     try {
       if (is_directory) {
-        size = SIZE_CALCULATING; // Mark as pending calculation
+        size = isGvfs ? 0 : SIZE_CALCULATING;
       } else {
         size = fs::file_size(p);
+      }
+    } catch (...) {
+      size = 0;
+    }
+  }
+
+  FileEntry(const fs::directory_entry& entry) : path(entry.path()) {
+    name = path.filename().string();
+    is_directory = false;
+    is_symlink = false;
+    symlink_target = "";
+    symlink_target_exists = false;
+    is_symlink_directory = false;
+    extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    bool isGvfs = (path.string().find("/gvfs/") != std::string::npos);
+
+    try {
+      is_symlink = entry.is_symlink();
+      if (is_symlink) {
+        try {
+          fs::path target_path = fs::read_symlink(path);
+          symlink_target = target_path.string();
+          fs::path resolved = target_path;
+          if (target_path.is_relative()) {
+            resolved = path.parent_path() / target_path;
+          }
+          if (fs::exists(resolved)) {
+            symlink_target_exists = true;
+            if (fs::is_directory(resolved)) {
+              is_symlink_directory = true;
+            }
+          }
+        } catch (...) {}
+      }
+    } catch (...) {}
+
+    try {
+      if (is_symlink) {
+        is_directory = is_symlink_directory;
+      } else {
+        is_directory = entry.is_directory();
+      }
+    } catch (...) {
+      is_directory = false;
+    }
+
+    try {
+      if (isGvfs) {
+        modified_time = fs::file_time_type::min();
+      } else {
+        modified_time = entry.last_write_time();
+      }
+    } catch (...) {
+      modified_time = fs::file_time_type::min();
+    }
+
+    try {
+      if (is_directory) {
+        size = isGvfs ? 0 : SIZE_CALCULATING;
+      } else {
+        size = entry.file_size();
       }
     } catch (...) {
       size = 0;
@@ -338,6 +407,9 @@ std::string formatSize(uintmax_t size) {
 }
 
 std::string getFileModifiedTime(const fs::path& path) {
+  if (path.string().find("/gvfs/") != std::string::npos) {
+    return "Unknown";
+  }
   try {
     auto ftime = fs::last_write_time(path);
     auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
@@ -1256,6 +1328,14 @@ public:
       if (job.viewId != currentViewId)
         continue;
 
+      if (job.path.string().find("/gvfs/") != std::string::npos) {
+        {
+          std::lock_guard<std::mutex> lock(cacheMutex);
+          dirSizeCache[job.path.string()] = 0;
+        }
+        continue;
+      }
+
       uintmax_t size = 0;
       try {
         if (fs::exists(job.path) && fs::is_directory(job.path)) {
@@ -1446,6 +1526,10 @@ public:
       std::lock_guard<std::mutex> cLock(cacheMutex);
       for (auto& entry : target) {
         if (entry.is_directory) {
+          if (entry.path.string().find("/gvfs/") != std::string::npos) {
+            entry.size = 0;
+            continue;
+          }
           auto it = dirSizeCache.find(entry.path.string());
           if (it != dirSizeCache.end()) {
             entry.size = it->second;
@@ -3210,6 +3294,26 @@ public:
     return path;
   }
 
+  std::string urlDecode(const std::string& str) {
+    std::string decoded = "";
+    for (size_t i = 0; i < str.length(); ++i) {
+      if (str[i] == '%' && i + 2 < str.length()) {
+        int hexVal;
+        if (sscanf(str.substr(i + 1, 2).c_str(), "%x", &hexVal) == 1) {
+          decoded += static_cast<char>(hexVal);
+          i += 2;
+        } else {
+          decoded += str[i];
+        }
+      } else if (str[i] == '+') {
+        decoded += ' ';
+      } else {
+        decoded += str[i];
+      }
+    }
+    return decoded;
+  }
+
   std::vector<DeviceInfo> detectDevices() {
     std::vector<DeviceInfo> devices;
     FILE* pipe = popen("gio mount -li 2>/dev/null", "r");
@@ -3226,15 +3330,23 @@ public:
         line.pop_back();
       }
 
-      if (line.rfind("Volume(", 0) == 0) {
+      std::string trimmed = line;
+      size_t firstNonSpace = trimmed.find_first_not_of(" \t");
+      if (firstNonSpace != std::string::npos) {
+        trimmed = trimmed.substr(firstNonSpace);
+      } else {
+        trimmed = "";
+      }
+
+      if (trimmed.rfind("Volume(", 0) == 0) {
         if (inVolume) {
           devices.push_back(curDev);
         }
         inVolume = true;
         curDev = DeviceInfo();
-        size_t colon = line.find("): ");
+        size_t colon = trimmed.find("): ");
         if (colon != std::string::npos) {
-          curDev.name = line.substr(colon + 3);
+          curDev.name = trimmed.substr(colon + 3);
         } else {
           curDev.name = "Unknown Volume";
         }
@@ -3243,15 +3355,14 @@ public:
 
       if (!inVolume) continue;
 
-      if (!line.empty() && !isspace(line[0]) && line.rfind("Volume(", 0) != 0) {
+      if (!line.empty() && !isspace(line[0]) && trimmed.rfind("Volume(", 0) != 0) {
         devices.push_back(curDev);
         inVolume = false;
         continue;
       }
 
-      size_t firstNonSpace = line.find_first_not_of(" \t");
-      if (firstNonSpace == std::string::npos) continue;
-      std::string propLine = line.substr(firstNonSpace);
+      if (trimmed.empty()) continue;
+      std::string propLine = trimmed;
 
       if (propLine.rfind("Type: GProxyVolume (GProxyVolumeMonitorMTP)", 0) == 0) {
         curDev.type = "MTP";
@@ -3273,7 +3384,7 @@ public:
         if (arrow != std::string::npos) {
           std::string uri = propLine.substr(arrow + 4);
           if (uri.rfind("file://", 0) == 0) {
-            curDev.mountPath = uri.substr(7);
+            curDev.mountPath = urlDecode(uri.substr(7));
             if (!curDev.mountPath.empty() && curDev.mountPath.back() == '/') {
               curDev.mountPath.pop_back();
             }
@@ -4213,23 +4324,31 @@ public:
       wattroff(winPreview, COLOR_PAIR(8));
       wnoutrefresh(winPreview);
     } else if (isVid || isImg || isCode) {
-      bool match = false;
-      {
-        std::lock_guard<std::mutex> lock(previewMutex);
-        if (cachedPath == file.path.string())
-          match = true;
-      }
-      if (match) {
-        if (isCode)
-          drawCachedTextPreview();
-        else
-          pendingDirectRenderType = PreviewType::IMAGE;
-      } else if (requestedPath != file.path.string()) {
-        wattron(winPreview, A_ITALIC | A_DIM);
-        mvwprintw(winPreview, contentStart, 4, "Generating preview...");
-        wattroff(winPreview, A_ITALIC | A_DIM);
-        PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
-        startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
+      bool isGvfs = (file.path.string().find("/gvfs/") != std::string::npos);
+      if ((isVid || isImg) && isGvfs) {
+        wattron(winPreview, COLOR_PAIR(8));
+        mvwprintw(winPreview, contentStart, 2, " [Media File - No Preview on MTP] ");
+        wattroff(winPreview, COLOR_PAIR(8));
+        wnoutrefresh(winPreview);
+      } else {
+        bool match = false;
+        {
+          std::lock_guard<std::mutex> lock(previewMutex);
+          if (cachedPath == file.path.string())
+            match = true;
+        }
+        if (match) {
+          if (isCode)
+            drawCachedTextPreview();
+          else
+            pendingDirectRenderType = PreviewType::IMAGE;
+        } else if (requestedPath != file.path.string()) {
+          wattron(winPreview, A_ITALIC | A_DIM);
+          mvwprintw(winPreview, contentStart, 4, "Generating preview...");
+          wattroff(winPreview, A_ITALIC | A_DIM);
+          PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
+          startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
+        }
       }
     } else {
       if (is_binary_file(file.path.string())) {

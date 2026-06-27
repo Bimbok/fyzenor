@@ -592,6 +592,7 @@ private:
   std::thread inotifyThread;
   std::atomic<bool> stopInotify{false};
   std::atomic<bool> inotifyTriggered{false};
+  std::atomic<bool> devicesTriggered{false};
 
   // Async Background Tasks State
   std::vector<std::shared_ptr<AsyncTask>> activeTasks;
@@ -1387,16 +1388,35 @@ public:
         }
 
         bool gotFsChange = false;
+        bool gotDeviceChange = false;
         const struct inotify_event* event;
         for (char* ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len) {
           event = reinterpret_cast<const struct inotify_event*>(ptr);
           if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB)) {
-            gotFsChange = true;
+            bool isDevicePath = false;
+            {
+              std::lock_guard<std::mutex> lock(inotifyMutex);
+              auto it = watchDescriptors.find(event->wd);
+              if (it != watchDescriptors.end()) {
+                const std::string& pathStr = it->second.string();
+                if (pathStr.rfind("/media", 0) == 0 || pathStr.find("/gvfs") != std::string::npos) {
+                  isDevicePath = true;
+                }
+              }
+            }
+            if (isDevicePath) {
+              gotDeviceChange = true;
+            } else {
+              gotFsChange = true;
+            }
           }
         }
 
         if (gotFsChange) {
           inotifyTriggered = true;
+        }
+        if (gotDeviceChange) {
+          devicesTriggered = true;
         }
       }
     }
@@ -1419,6 +1439,24 @@ public:
       pathsToWatch.push_back(currentPath);
       if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
         pathsToWatch.push_back(currentPath.parent_path());
+      }
+    }
+
+    // Add device paths (media & gvfs) to monitor mounts live
+    uid_t uid = geteuid();
+    fs::path gvfsPath = "/run/user/" + std::to_string(uid) + "/gvfs";
+    if (fs::exists(gvfsPath)) {
+      pathsToWatch.push_back(gvfsPath);
+    }
+    fs::path mediaPath = "/media";
+    if (fs::exists(mediaPath)) {
+      pathsToWatch.push_back(mediaPath);
+      const char* user = getenv("USER");
+      if (user) {
+        fs::path userMediaPath = mediaPath / user;
+        if (fs::exists(userMediaPath)) {
+          pathsToWatch.push_back(userMediaPath);
+        }
       }
     }
 
@@ -3691,6 +3729,7 @@ public:
 
     WINDOW* devWin = newwin(h, w, startY, startX);
     keypad(devWin, TRUE);
+    wtimeout(devWin, 200);
 
     size_t selectedDeviceIndex = 0;
 
@@ -3792,6 +3831,13 @@ public:
       wrefresh(devWin);
 
       int ch = wgetch(devWin);
+      if (ch == ERR) {
+        if (devicesTriggered) {
+          devicesTriggered = false;
+          devices = detectDevices();
+        }
+        continue;
+      }
       if (ch == 'q' || ch == 27) {
         break;
       }
@@ -4827,6 +4873,11 @@ public:
     while (true) {
       if (inotifyTriggered) {
         inotifyTriggered = false;
+        reloadAll();
+        needsRedraw = true;
+      }
+      if (devicesTriggered) {
+        devicesTriggered = false;
         reloadAll();
         needsRedraw = true;
       }

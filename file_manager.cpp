@@ -4399,8 +4399,10 @@ public:
     // Header info with better colors
     wattron(winPreview, A_BOLD | COLOR_PAIR(1));
     std::string dispName = file.name;
-    if ((int)dispName.length() > maxW) {
-      int limit = maxW - 3;
+    int titleMaxW = getmaxx(winPreview) - 8;
+    if (titleMaxW < 5) titleMaxW = 5;
+    if ((int)dispName.length() > titleMaxW) {
+      int limit = titleMaxW - 3;
       if (limit < 1) limit = 1;
       dispName = utf8_safe_truncate(dispName, limit);
     }

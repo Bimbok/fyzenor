@@ -4043,25 +4043,38 @@ public:
 
     details.size = st.st_size;
     if (details.isDir) {
-      std::lock_guard<std::mutex> lock(cacheMutex);
-      auto it = dirSizeCache.find(details.absolutePath);
-      if (it != dirSizeCache.end()) {
-        details.size = it->second;
-      } else {
-        it = dirSizeCache.find(p.string());
+      bool cached = false;
+      {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = dirSizeCache.find(details.absolutePath);
         if (it != dirSizeCache.end()) {
           details.size = it->second;
+          cached = true;
         } else {
-          bool found = false;
-          for (const auto& f : currentFiles) {
-            if (f.path == p) {
-              details.size = f.size;
-              found = true;
+          it = dirSizeCache.find(p.string());
+          if (it != dirSizeCache.end()) {
+            details.size = it->second;
+            cached = true;
+          }
+        }
+      }
+
+      if (!cached) {
+        if (details.absolutePath.find("/gvfs/") != std::string::npos) {
+          details.size = 0;
+        } else {
+          details.size = SIZE_CALCULATING;
+          std::lock_guard<std::mutex> qLock(queueMutex);
+          bool alreadyQueued = false;
+          for (const auto& job : sizeQueue) {
+            if (job.path == p) {
+              alreadyQueued = true;
               break;
             }
           }
-          if (!found) {
-            details.size = SIZE_CALCULATING;
+          if (!alreadyQueued) {
+            sizeQueue.push_back({p, currentViewId.load()});
+            queueCv.notify_one();
           }
         }
       }
@@ -4125,11 +4138,6 @@ public:
     drawRoundedBox(detWin);
     wattroff(detWin, COLOR_PAIR(6) | A_BOLD);
 
-    // Title
-    wattron(detWin, COLOR_PAIR(1) | A_BOLD);
-    mvwprintw(detWin, 1, 2, "󰋽 File Information");
-    wattroff(detWin, COLOR_PAIR(1) | A_BOLD);
-
     auto printField = [&](int row, const std::string& label, const std::string& val, int valColorPair) {
       mvwprintw(detWin, row, 2, "%-15s", label.c_str());
       int maxValW = w - 20;
@@ -4145,48 +4153,71 @@ public:
       wattroff(detWin, COLOR_PAIR(valColorPair));
     };
 
-    int row = 3;
-    printField(row++, "Name:", details.name, details.isDir ? 1 : 2);
-    printField(row++, "Path:", details.absolutePath, 2);
+    keypad(detWin, TRUE);
+    wtimeout(detWin, 200);
 
-    if (details.isSymlink) {
-      printField(row++, "Target:", details.symlinkTarget, 4);
+    while (true) {
+      werase(detWin);
+      wattron(detWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(detWin);
+      wattroff(detWin, COLOR_PAIR(6) | A_BOLD);
+
+      wattron(detWin, COLOR_PAIR(1) | A_BOLD);
+      mvwprintw(detWin, 1, 2, "󰋽 File Information");
+      wattroff(detWin, COLOR_PAIR(1) | A_BOLD);
+
+      if (details.isDir && details.size == SIZE_CALCULATING) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = dirSizeCache.find(details.absolutePath);
+        if (it != dirSizeCache.end()) {
+          details.size = it->second;
+        }
+      }
+
+      int row = 3;
+      printField(row++, "Name:", details.name, details.isDir ? 1 : 2);
+      printField(row++, "Path:", details.absolutePath, 2);
+
+      if (details.isSymlink) {
+        printField(row++, "Target:", details.symlinkTarget, 4);
+      }
+
+      printField(row++, "Type:", details.type, 2);
+
+      std::string sizeStr;
+      if (details.isDir && details.absolutePath.find("/gvfs/") != std::string::npos) {
+        sizeStr = "DIR (size calculation skipped for MTP)";
+      } else if (details.size == SIZE_CALCULATING) {
+        sizeStr = "Calculating...";
+      } else {
+        sizeStr = formatSize(details.size) + " (" + std::to_string(details.size) + " bytes)";
+      }
+      printField(row++, "Size:", sizeStr, 2);
+
+      std::string permStr = details.permissionsSymbolic + " (" + details.permissionsOctal + ")";
+      printField(row++, "Permissions:", permStr, 5);
+
+      std::string ownerStr = details.ownerName + " (" + std::to_string(details.uid) + ")";
+      printField(row++, "Owner:", ownerStr, 2);
+
+      std::string groupStr = details.groupName + " (" + std::to_string(details.gid) + ")";
+      printField(row++, "Group:", groupStr, 2);
+
+      printField(row++, "Accessed:", details.accessTime, 2);
+      printField(row++, "Modified:", details.modifyTime, 2);
+      printField(row++, "Changed:", details.statusChangeTime, 2);
+
+      wattron(detWin, A_DIM);
+      mvwprintw(detWin, h - 2, 2, "Press any key to close...");
+      wattroff(detWin, A_DIM);
+
+      wrefresh(detWin);
+
+      int ch = wgetch(detWin);
+      if (ch != ERR) {
+        break;
+      }
     }
-
-    printField(row++, "Type:", details.type, 2);
-
-    std::string sizeStr;
-    if (details.isDir && details.absolutePath.find("/gvfs/") != std::string::npos) {
-      sizeStr = "DIR (size calculation skipped for MTP)";
-    } else if (details.size == SIZE_CALCULATING) {
-      sizeStr = "Calculating...";
-    } else {
-      sizeStr = formatSize(details.size) + " (" + std::to_string(details.size) + " bytes)";
-    }
-    printField(row++, "Size:", sizeStr, 2);
-
-    std::string permStr = details.permissionsSymbolic + " (" + details.permissionsOctal + ")";
-    printField(row++, "Permissions:", permStr, 5);
-
-    std::string ownerStr = details.ownerName + " (" + std::to_string(details.uid) + ")";
-    printField(row++, "Owner:", ownerStr, 2);
-
-    std::string groupStr = details.groupName + " (" + std::to_string(details.gid) + ")";
-    printField(row++, "Group:", groupStr, 2);
-
-    printField(row++, "Accessed:", details.accessTime, 2);
-    printField(row++, "Modified:", details.modifyTime, 2);
-    printField(row++, "Changed:", details.statusChangeTime, 2);
-
-    wattron(detWin, A_DIM);
-    mvwprintw(detWin, h - 2, 2, "Press any key to close...");
-    wattroff(detWin, A_DIM);
-
-    wrefresh(detWin);
-
-    timeout(-1);
-    getch();
-    timeout(50);
 
     delwin(detWin);
   }

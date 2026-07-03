@@ -152,6 +152,7 @@ struct FileEntry {
   bool symlink_target_exists;
   bool is_symlink_directory;
   fs::file_time_type modified_time;
+  std::string modified_time_str;
 
   FileEntry(const fs::path& p) : path(p) {
     name = p.filename().string();
@@ -213,6 +214,23 @@ struct FileEntry {
       }
     } catch (...) {
       size = 0;
+    }
+
+    // Pre-format the compact modified time
+    if (isGvfs || modified_time == fs::file_time_type::min()) {
+      modified_time_str = "Unknown";
+    } else {
+      try {
+        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            modified_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+        std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
+        std::tm* ltime = std::localtime(&ctime);
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", ltime);
+        modified_time_str = std::string(buf);
+      } catch (...) {
+        modified_time_str = "Unknown";
+      }
     }
   }
 
@@ -276,6 +294,23 @@ struct FileEntry {
       }
     } catch (...) {
       size = 0;
+    }
+
+    // Pre-format the compact modified time
+    if (isGvfs || modified_time == fs::file_time_type::min()) {
+      modified_time_str = "Unknown";
+    } else {
+      try {
+        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            modified_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+        std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
+        std::tm* ltime = std::localtime(&ctime);
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", ltime);
+        modified_time_str = std::string(buf);
+      } catch (...) {
+        modified_time_str = "Unknown";
+      }
     }
   }
 };
@@ -1703,7 +1738,10 @@ public:
           if (it != dirSizeCache.end()) {
             entry.size = it->second;
           } else {
-            sizeQueue.push_back({entry.path, currentViewId.load()});
+            entry.size = 0;
+            if (sortMode == SortMode::SIZE) {
+              sizeQueue.push_back({entry.path, currentViewId.load()});
+            }
           }
         }
       }
@@ -2261,14 +2299,16 @@ public:
     if (sortMode == SortMode::NAME) {
       sortMode = SortMode::SIZE;
       setStatus("Sorted by Size (Desc)");
+      reloadAll();
     } else if (sortMode == SortMode::SIZE) {
       sortMode = SortMode::DATE;
       setStatus("Sorted by Date (Desc)");
+      sortList(currentFiles);
     } else {
       sortMode = SortMode::NAME;
       setStatus("Sorted by Name");
+      sortList(currentFiles);
     }
-    sortList(currentFiles); // Immediate sort
   }
 
   std::string escapeShellArg(const std::string& str) {
@@ -3381,10 +3421,14 @@ public:
       }
 
       std::string sz;
-      if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
-        sz = "DIR";
+      if (sortMode == SortMode::SIZE) {
+        if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
+          sz = "DIR";
+        } else {
+          sz = formatSize(file.size);
+        }
       } else {
-        sz = formatSize(file.size);
+        sz = file.modified_time_str;
       }
       int availWidth = getmaxx(win) - sz.length() - 11;
       if (availWidth < 10) availWidth = 10;

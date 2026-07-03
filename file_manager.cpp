@@ -4750,7 +4750,7 @@ public:
 
       if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
         mediaFiles.push_back(p);
-      } else if (isCodeFile(ext)) {
+      } else if (isCodeFile(ext) || !is_binary_file(p.string())) {
         codeFiles.push_back(p);
       } else {
         otherFiles.push_back(p);
@@ -4770,9 +4770,12 @@ public:
       return;
     }
 
-    clearDirectRender();
-    def_prog_mode();
-    endwin();
+    bool needsSuspension = !codeFiles.empty() || !mediaFiles.empty();
+    if (needsSuspension) {
+      clearDirectRender();
+      def_prog_mode();
+      endwin();
+    }
 
     if (!codeFiles.empty()) {
       const char* editor = getenv("EDITOR");
@@ -4818,10 +4821,12 @@ public:
       }
     }
 
-    reset_prog_mode();
-    updateLayout();
-    refresh();
-    timeout(50);
+    if (needsSuspension) {
+      reset_prog_mode();
+      updateLayout();
+      refresh();
+      timeout(50);
+    }
   }
 
   void goUp() {

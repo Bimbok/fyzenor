@@ -4617,8 +4617,38 @@ public:
 
     wattron(winPreview, A_DIM);
     std::string previewSizeStr;
-    if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
-      previewSizeStr = "DIR";
+    if (file.is_directory) {
+      if (file.path.string().find("/gvfs/") != std::string::npos) {
+        previewSizeStr = "DIR";
+      } else {
+        uintmax_t sizeVal = 0;
+        bool cached = false;
+        {
+          std::lock_guard<std::mutex> lock(cacheMutex);
+          auto it = dirSizeCache.find(file.path.string());
+          if (it != dirSizeCache.end()) {
+            sizeVal = it->second;
+            cached = true;
+          }
+        }
+        if (cached) {
+          previewSizeStr = formatSize(sizeVal);
+        } else {
+          previewSizeStr = "Calculating...";
+          std::lock_guard<std::mutex> qLock(queueMutex);
+          bool alreadyQueued = false;
+          for (const auto& job : sizeQueue) {
+            if (job.path == file.path) {
+              alreadyQueued = true;
+              break;
+            }
+          }
+          if (!alreadyQueued) {
+            sizeQueue.push_back({file.path, currentViewId.load()});
+            queueCv.notify_one();
+          }
+        }
+      }
     } else {
       previewSizeStr = formatSize(file.size);
     }

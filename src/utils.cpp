@@ -93,9 +93,12 @@ size_t utf8_length(const std::string& str) {
   while (i < str.length()) {
     unsigned char c = str[i];
     size_t char_len = 1;
-    if (c >= 0xf0) char_len = 4;
-    else if (c >= 0xe0) char_len = 3;
-    else if (c >= 0xc0) char_len = 2;
+    if (c >= 0xf0)
+      char_len = 4;
+    else if (c >= 0xe0)
+      char_len = 3;
+    else if (c >= 0xc0)
+      char_len = 2;
     i += char_len;
     len++;
   }
@@ -108,9 +111,12 @@ std::string utf8_safe_truncate(const std::string& str, size_t max_cols) {
   while (bytes < str.length() && cols < max_cols) {
     unsigned char c = str[bytes];
     size_t char_len = 1;
-    if (c >= 0xf0) char_len = 4;
-    else if (c >= 0xe0) char_len = 3;
-    else if (c >= 0xc0) char_len = 2;
+    if (c >= 0xf0)
+      char_len = 4;
+    else if (c >= 0xe0)
+      char_len = 3;
+    else if (c >= 0xc0)
+      char_len = 2;
     if (bytes + char_len > str.length()) {
       break;
     }
@@ -155,16 +161,18 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     if (lowerName == "node_modules")
       return {1, " "};
     if (lowerName == "src" || lowerName == "source" || lowerName == "sources")
-      return {1, "󰗀 "};
-    if (lowerName == "build" || lowerName == "bin" || lowerName == "target" || lowerName == "dist" || lowerName == "out")
-      return {1, " "};
+      return {1, "󱧼 "};
+    if (lowerName == "build" || lowerName == "bin" || lowerName == "target" ||
+        lowerName == "dist" || lowerName == "out")
+      return {1, "󱂀 "};
     if (lowerName == "include" || lowerName == "headers" || lowerName == "include_dir")
       return {1, "󰙶 "};
     if (lowerName == "test" || lowerName == "tests" || lowerName == "spec" || lowerName == "specs")
       return {1, "󰙨 "};
     if (lowerName == "doc" || lowerName == "docs" || lowerName == "documentation")
       return {1, "󰈙 "};
-    if (lowerName == "img" || lowerName == "images" || lowerName == "pictures" || lowerName == "assets")
+    if (lowerName == "img" || lowerName == "images" || lowerName == "pictures" ||
+        lowerName == "assets")
       return {1, "󰥶 "};
     if (lowerName == "music" || lowerName == "songs" || lowerName == "audio")
       return {1, "󰎆 "};
@@ -184,12 +192,14 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
 
   if (lowerName == "cmakelists.txt")
     return {16, " "};
-  if (lowerName == "makefile" || lowerName == "makefile.win" || lowerName == "makefile.am" || lowerName == "makefile.in")
-    return {16, "🛠️ "};
-  if (lowerName == "license" || lowerName == "license.txt" || lowerName == "copying" || lowerName == "license.md")
+  if (lowerName == "makefile" || lowerName == "makefile.win" || lowerName == "makefile.am" ||
+      lowerName == "makefile.in")
+    return {16, " "};
+  if (lowerName == "license" || lowerName == "license.txt" || lowerName == "copying" ||
+      lowerName == "license.md")
     return {26, "󰘥 "};
   if (lowerName == "readme" || lowerName == "readme.md" || lowerName == "readme.txt")
-    return {27, "📚 "};
+    return {27, "󰂺 "};
   if (lowerName == "package.json")
     return {24, " "};
   if (lowerName == "package-lock.json")
@@ -204,7 +214,8 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     return {25, "󰡨 "};
   if (lowerName == ".gitignore" || lowerName == ".gitattributes" || lowerName == ".gitmodules")
     return {25, " "};
-  if (lowerName == ".env" || lowerName == ".env.local" || lowerName == ".env.development" || lowerName == ".env.production")
+  if (lowerName == ".env" || lowerName == ".env.local" || lowerName == ".env.development" ||
+      lowerName == ".env.production")
     return {25, " "};
 
   if (ext == ".py" || ext == ".pyw" || ext == ".ipynb")
@@ -401,7 +412,8 @@ std::string escapeShellArg(const std::string& str) {
 }
 
 bool fuzzyMatch(const std::string& str, const std::string& query) {
-  if (query.empty()) return true;
+  if (query.empty())
+    return true;
   size_t queryIdx = 0;
   for (char c : str) {
     if (tolower(c) == tolower(query[queryIdx])) {
@@ -564,16 +576,26 @@ void initColors() {
     std::vector<int> bases = {1, 2, 4, 5, 16, 17, 24, 25, 26, 27, 28};
     for (int base : bases) {
       short fg = COLOR_WHITE;
-      if (base == 1) fg = COLOR_CYAN;
-      else if (base == 4) fg = COLOR_YELLOW;
-      else if (base == 5) fg = COLOR_MAGENTA;
-      else if (base == 16) fg = COLOR_GREEN;
-      else if (base == 17) fg = COLOR_RED;
-      else if (base == 24) fg = COLOR_YELLOW;
-      else if (base == 25) fg = COLOR_WHITE;
-      else if (base == 26) fg = COLOR_CYAN;
-      else if (base == 27) fg = COLOR_RED;
-      else if (base == 28) fg = COLOR_MAGENTA;
+      if (base == 1)
+        fg = COLOR_CYAN;
+      else if (base == 4)
+        fg = COLOR_YELLOW;
+      else if (base == 5)
+        fg = COLOR_MAGENTA;
+      else if (base == 16)
+        fg = COLOR_GREEN;
+      else if (base == 17)
+        fg = COLOR_RED;
+      else if (base == 24)
+        fg = COLOR_YELLOW;
+      else if (base == 25)
+        fg = COLOR_WHITE;
+      else if (base == 26)
+        fg = COLOR_CYAN;
+      else if (base == 27)
+        fg = COLOR_RED;
+      else if (base == 28)
+        fg = COLOR_MAGENTA;
 
       if (base + 40 < COLOR_PAIRS)
         init_pair(base + 40, fg, selBg);

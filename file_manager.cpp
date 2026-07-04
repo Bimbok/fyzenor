@@ -1360,6 +1360,9 @@ public:
     curs_set(0);
     timeout(50);
 
+    // Enable mouse tracking to prevent terminal text selection override and handle mouse scroll
+    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
+
     initColors();
 
     refresh();
@@ -5262,6 +5265,33 @@ public:
       }
 
       int ch = getch();
+      if (ch == KEY_MOUSE) {
+        MEVENT event;
+        if (getmouse(&event) == OK) {
+          #ifndef BUTTON4_PRESSED
+          #define BUTTON4_PRESSED 0x10000
+          #endif
+          #ifndef BUTTON5_PRESSED
+          #define BUTTON5_PRESSED 0x200000
+          #endif
+          if (event.bstate & BUTTON4_PRESSED) {
+            if (focusPinned) {
+              if (pinnedIndex > 0) pinnedIndex--;
+            } else {
+              if (selectedIndex > 0) selectedIndex--;
+            }
+            needsRedraw = true;
+          } else if (event.bstate & BUTTON5_PRESSED) {
+            if (focusPinned) {
+              if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
+            } else {
+              if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+            }
+            needsRedraw = true;
+          }
+        }
+        continue;
+      }
       if (ch == ERR) {
         bool statusTimedOut = false;
         if (!statusMessage.empty()) {

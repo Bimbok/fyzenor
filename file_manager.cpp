@@ -2214,6 +2214,7 @@ public:
   }
 
   std::string promptInput(const std::string& prompt, const std::string& defaultVal = "") {
+    clearDirectRender();
     int w = std::max((int)prompt.length() + 10, 50);
     if (w > width - 4)
       w = width - 4;
@@ -3859,6 +3860,7 @@ public:
   }
 
   void drawDevicesOverlay() {
+    clearDirectRender();
     std::vector<DeviceInfo> devices = detectDevices();
 
     int h = 18;
@@ -4212,6 +4214,7 @@ public:
   }
 
   void showFileDetails() {
+    clearDirectRender();
     if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
       setStatus("No file selected");
       return;
@@ -4418,6 +4421,7 @@ public:
   }
 
   void drawHelpOverlay() {
+    clearDirectRender();
     int h = 35;
     int w = 60;
     if (h > height - 4) h = height - 4;
@@ -4504,6 +4508,7 @@ public:
   }
 
   void drawTasksOverlay() {
+    clearDirectRender();
     int h = 15;
     int w = 70;
     if (h > height - 4) h = height - 4;

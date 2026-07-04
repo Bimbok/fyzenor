@@ -3434,7 +3434,19 @@ public:
     if (paneIsSearching) {
       mvwprintw(win, 0, 2, "  Search Results ");
     } else {
-      mvwprintw(win, 0, 2, " 󰉖 %s ", panePath.filename().string().c_str());
+      std::string title = " 󰉖 " + panePath.filename().string() + " ";
+      int maxTitleW = getmaxx(win) - 4;
+      if (maxTitleW < 5) maxTitleW = 5;
+      if ((int)title.length() > maxTitleW) {
+        std::string filename = panePath.filename().string();
+        int maxFilenameW = maxTitleW - 6; // Subtracting " 󰉖 " and " "
+        if (maxFilenameW < 3) maxFilenameW = 3;
+        if ((int)filename.length() > maxFilenameW) {
+          filename = utf8_safe_truncate(filename, maxFilenameW - 3) + "...";
+        }
+        title = " 󰉖 " + filename + " ";
+      }
+      mvwprintw(win, 0, 2, "%s", title.c_str());
     }
     wattroff(win, A_BOLD | COLOR_PAIR(1));
 

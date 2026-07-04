@@ -1,7 +1,7 @@
 #include "file_manager.h"
 #include <iostream>
 
-const std::string VERSION = "1.4.0";
+const std::string VERSION = "2.0.0";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

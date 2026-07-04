@@ -207,7 +207,9 @@ If you want to build and run Fyzenor manually instead of using the installer:
 ```bash
 git clone https://github.com/Bimbok/fyzenor.git
 cd fyzenor
-g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread
+mkdir -p build && cd build
+cmake ..
+make
 ./fyzenor
 ```
 

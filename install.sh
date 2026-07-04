@@ -29,7 +29,7 @@ check_dep() {
 }
 
 # 1. Handle "Run from anywhere" (curl | bash)
-if [ ! -f "file_manager.cpp" ]; then
+if [ ! -f "src/main.cpp" ]; then
     echo -e "${YELLOW}Source code not found in current directory.${NC}"
     echo -e "${BLUE}Cloning Fyzenor from GitHub...${NC}"
     
@@ -52,7 +52,7 @@ fi
 
 # 3. Dependencies Check
 echo -e "${BLUE}Checking dependencies...${NC}"
-DEPS=("g++" "ffmpeg" "zip" "rg")
+DEPS=("g++" "cmake" "ffmpeg" "zip" "rg")
 MISSING_DEPS=()
 
 for dep in "${DEPS[@]}"; do
@@ -77,10 +77,13 @@ fi
 
 # 4. Compilation
 echo -e "${BLUE}Compiling Fyzenor...${NC}"
-if g++ -std=c++17 -O3 file_manager.cpp -o fyzenor -lncursesw -lpthread; then
+mkdir -p build
+cd build || exit 1
+if cmake .. && make; then
     echo -e "${GREEN}Compilation successful!${NC}"
+    cd ..
 else
-    echo -e "${RED}Compilation failed. Please check if 'libncursesw-dev' and 'g++' are installed.${NC}"
+    echo -e "${RED}Compilation failed. Please check if 'libncursesw-dev', 'cmake', and 'g++' are installed.${NC}"
     exit 1
 fi
 
@@ -91,7 +94,7 @@ else
     echo -e "${BLUE}Installing Fyzenor...${NC}"
 fi
 
-if sudo mv fyzenor "$INSTALL_PATH"; then
+if sudo mv build/fyzenor "$INSTALL_PATH"; then
     echo -e "${GREEN}Fyzenor is now installed/updated at $INSTALL_PATH${NC}"
     # Create symlink 'fm'
     if sudo ln -sf "$INSTALL_PATH" "$(dirname "$INSTALL_PATH")/fm"; then

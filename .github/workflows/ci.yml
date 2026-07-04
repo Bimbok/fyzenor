@@ -79,7 +79,7 @@ jobs:
           - os: ubuntu-latest
             compiler: g++
             output: fyzenor
-            install_cmd: sudo apt-get update && sudo apt-get install -y g++ libncursesw5-dev
+            install_cmd: sudo apt-get update && sudo apt-get install -y g++ cmake libncursesw5-dev
             link_flags: -lncursesw -lpthread
             archive_cmd: tar -czf fyzenor-linux.tar.gz fyzenor LICENSE README.md
             artifact_name: fyzenor-linux
@@ -93,7 +93,12 @@ jobs:
         run: ${{ matrix.install_cmd }}
 
       - name: Build Fyzenor
-        run: ${{ matrix.compiler }} -std=c++17 -O3 file_manager.cpp -o ${{ matrix.output }} ${{ matrix.link_flags }}
+        run: |
+          mkdir build
+          cd build
+          cmake ..
+          make
+          cp fyzenor ../
 
       - name: Smoke test version output
         run: ./fyzenor --version

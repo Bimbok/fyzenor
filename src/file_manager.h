@@ -3171,6 +3171,16 @@ public:
         wattroff(win, A_DIM);
       }
     }
+
+    // Redraw the borders at the very end of rendering to ensure they are never broken by text drawing
+    if (hasFocus)
+      wattron(win, COLOR_PAIR(6) | A_BOLD);
+    else
+      wattron(win, COLOR_PAIR(6));
+    drawRoundedBox(win);
+    wattroff(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(6));
+
     wnoutrefresh(win);
   }
 

@@ -5406,13 +5406,21 @@ public:
         switch (ch) {
         case 'j':
         case KEY_DOWN:
-          if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1)
-            pinnedIndex++;
+          if (!pinnedPaths.empty()) {
+            if (pinnedIndex < pinnedPaths.size() - 1)
+              pinnedIndex++;
+            else
+              pinnedIndex = 0;
+          }
           break;
         case 'k':
         case KEY_UP:
-          if (pinnedIndex > 0)
-            pinnedIndex--;
+          if (!pinnedPaths.empty()) {
+            if (pinnedIndex > 0)
+              pinnedIndex--;
+            else
+              pinnedIndex = pinnedPaths.size() - 1;
+          }
           break;
         case 10:
           jumpToPin();
@@ -5425,13 +5433,21 @@ public:
         switch (ch) {
         case 'j':
         case KEY_DOWN:
-          if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
-            selectedIndex++;
+          if (!currentFiles.empty()) {
+            if (selectedIndex < currentFiles.size() - 1)
+              selectedIndex++;
+            else
+              selectedIndex = 0;
+          }
           break;
         case 'k':
         case KEY_UP:
-          if (selectedIndex > 0)
-            selectedIndex--;
+          if (!currentFiles.empty()) {
+            if (selectedIndex > 0)
+              selectedIndex--;
+            else
+              selectedIndex = currentFiles.size() - 1;
+          }
           break;
         case 'l':
         case KEY_RIGHT:

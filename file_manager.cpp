@@ -1808,6 +1808,8 @@ public:
       parentFiles.clear();
       try {
         for (const auto& entry : fs::directory_iterator(currentPath.parent_path())) {
+          if (!showHidden && entry.path().filename().string().front() == '.')
+            continue;
           parentFiles.emplace_back(entry);
         }
       } catch (...) {

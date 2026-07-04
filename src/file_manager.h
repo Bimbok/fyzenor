@@ -2679,7 +2679,7 @@ public:
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
       wmove(winParent, i + 1, 1);
 
-      FileStyle style = getFileStyle(file.extension, file.is_directory);
+      FileStyle style = getFileStyle(file.name, file.extension, file.is_directory);
       if (file.is_symlink) {
         style.icon = ICON_LINK;
       }
@@ -3020,7 +3020,7 @@ public:
       }
       bool isDimmed = inClipboard && clipboard.isCut && !isSelected;
 
-      FileStyle style = getFileStyle(file.extension, file.is_directory);
+      FileStyle style = getFileStyle(file.name, file.extension, file.is_directory);
       if (file.is_symlink) {
         style.icon = ICON_LINK;
       }
@@ -4375,7 +4375,7 @@ public:
             isSubDir = fs::is_directory(entry);
           }
 
-          FileStyle s = getFileStyle(ext, isSubDir);
+          FileStyle s = getFileStyle(entry.path().filename().string(), ext, isSubDir);
           if (isSubSym) {
             s.icon = ICON_LINK;
           }

@@ -145,9 +145,124 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   return "..." + str.substr(bytes);
 }
 
-FileStyle getFileStyle(const std::string& ext, bool isDir) {
-  if (isDir)
+FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir) {
+  std::string lowerName = name;
+  std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+
+  if (isDir) {
+    if (lowerName == ".git" || lowerName == ".github")
+      return {1, " "};
+    if (lowerName == "node_modules")
+      return {1, " "};
+    if (lowerName == "src" || lowerName == "source" || lowerName == "sources")
+      return {1, "󰗀 "};
+    if (lowerName == "build" || lowerName == "bin" || lowerName == "target" || lowerName == "dist" || lowerName == "out")
+      return {1, " "};
+    if (lowerName == "include" || lowerName == "headers" || lowerName == "include_dir")
+      return {1, "󰙶 "};
+    if (lowerName == "test" || lowerName == "tests" || lowerName == "spec" || lowerName == "specs")
+      return {1, "󰙨 "};
+    if (lowerName == "doc" || lowerName == "docs" || lowerName == "documentation")
+      return {1, "󰈙 "};
+    if (lowerName == "img" || lowerName == "images" || lowerName == "pictures" || lowerName == "assets")
+      return {1, "󰥶 "};
+    if (lowerName == "music" || lowerName == "songs" || lowerName == "audio")
+      return {1, "󰎆 "};
+    if (lowerName == "video" || lowerName == "videos" || lowerName == "movies")
+      return {1, "󰎁 "};
+    if (lowerName == "downloads" || lowerName == "download")
+      return {1, "󰇚 "};
+    if (lowerName == "desktop")
+      return {1, "󰪧 "};
+    if (lowerName == "documents" || lowerName == "document")
+      return {1, "󱧬 "};
+    if (lowerName == ".vscode" || lowerName == ".idea")
+      return {1, " "};
+
     return {1, ICON_DIR};
+  }
+
+  if (lowerName == "cmakelists.txt")
+    return {16, " "};
+  if (lowerName == "makefile" || lowerName == "makefile.win" || lowerName == "makefile.am" || lowerName == "makefile.in")
+    return {16, "🛠️ "};
+  if (lowerName == "license" || lowerName == "license.txt" || lowerName == "copying" || lowerName == "license.md")
+    return {26, "󰘥 "};
+  if (lowerName == "readme" || lowerName == "readme.md" || lowerName == "readme.txt")
+    return {27, "📚 "};
+  if (lowerName == "package.json")
+    return {24, " "};
+  if (lowerName == "package-lock.json")
+    return {25, " "};
+  if (lowerName == "cargo.toml")
+    return {16, " "};
+  if (lowerName == "cargo.lock")
+    return {25, " "};
+  if (lowerName == "dockerfile" || lowerName == ".dockerignore")
+    return {25, "󰡨 "};
+  if (lowerName == "docker-compose.yml" || lowerName == "docker-compose.yaml")
+    return {25, "󰡨 "};
+  if (lowerName == ".gitignore" || lowerName == ".gitattributes" || lowerName == ".gitmodules")
+    return {25, " "};
+  if (lowerName == ".env" || lowerName == ".env.local" || lowerName == ".env.development" || lowerName == ".env.production")
+    return {25, " "};
+
+  if (ext == ".py" || ext == ".pyw" || ext == ".ipynb")
+    return {16, " "};
+  if (ext == ".rs")
+    return {16, " "};
+  if (ext == ".go")
+    return {16, " "};
+  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx")
+    return {16, " "};
+  if (ext == ".c" || ext == ".h")
+    return {16, " "};
+  if (ext == ".java" || ext == ".class" || ext == ".jar")
+    return {16, " "};
+  if (ext == ".js" || ext == ".mjs" || ext == ".cjs")
+    return {24, " "};
+  if (ext == ".ts" || ext == ".mts")
+    return {24, " "};
+  if (ext == ".tsx")
+    return {24, " "};
+  if (ext == ".jsx")
+    return {24, " "};
+  if (ext == ".php")
+    return {16, " "};
+  if (ext == ".rb" || ext == ".ru")
+    return {16, " "};
+  if (ext == ".lua")
+    return {16, " "};
+  if (ext == ".sql" || ext == ".db" || ext == ".sqlite")
+    return {25, " "};
+  if (ext == ".html" || ext == ".htm")
+    return {24, " "};
+  if (ext == ".css")
+    return {24, " "};
+  if (ext == ".scss" || ext == ".sass")
+    return {24, " "};
+  if (ext == ".swift")
+    return {16, " "};
+  if (ext == ".kt" || ext == ".kts")
+    return {16, " "};
+  if (ext == ".cs")
+    return {16, " "};
+  if (ext == ".dart")
+    return {24, " "};
+  if (ext == ".sh" || ext == ".bash" || ext == ".zsh" || ext == ".fish")
+    return {26, " "};
+  if (ext == ".ps1" || ext == ".psm1" || ext == ".bat" || ext == ".cmd")
+    return {26, " "};
+  if (ext == ".json")
+    return {25, " "};
+  if (ext == ".yaml" || ext == ".yml")
+    return {25, " "};
+  if (ext == ".toml" || ext == ".ini" || ext == ".conf" || ext == ".cfg")
+    return {25, " "};
+  if (ext == ".md")
+    return {27, " "};
+  if (ext == ".pdf")
+    return {27, "󰈦 "};
 
   if (VIDEO_EXTS.count(ext))
     return {4, ICON_VIDEO};

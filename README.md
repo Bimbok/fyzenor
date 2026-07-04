@@ -51,11 +51,17 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 
 <div align="center">
 
-<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 1" src="Sample/2026-04-04-223753_hyprshot.png" />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 1" src="Sample/1.png" />
 <br /><br />
-<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 2" src="Sample/2026-04-04-223837_hyprshot.png" />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 2" src="Sample/2.png" />
 <br /><br />
-<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 3" src="Sample/2026-04-04-223913_hyprshot.png" />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 3" src="Sample/3.png" />
+<br /><br />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 4" src="Sample/4.png" />
+<br /><br />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 5" src="Sample/5.png" />
+<br /><br />
+<img width="100%" style="border-radius: 10px;" alt="Fyzenor Showcase 6" src="Sample/6.png" />
 
 </div>
 

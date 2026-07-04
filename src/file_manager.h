@@ -3149,7 +3149,14 @@ public:
         }
       }
 
-      mvwprintw(win, i + 1, getmaxx(win) - sz.length() - 2, "%s", sz.c_str());
+      // Explicitly clear the gap between filename/symlink and the date/size string
+      int dateStart = getmaxx(win) - sz.length() - 2;
+      int curY, curX;
+      getyx(win, curY, curX);
+      for (int k = curX; k < dateStart; ++k) {
+        waddch(win, ' ');
+      }
+      wprintw(win, "%s", sz.c_str());
 
       if (isDimmed) {
         wattron(win, A_DIM);

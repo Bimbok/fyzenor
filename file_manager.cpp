@@ -3601,9 +3601,9 @@ public:
         wattroff(win, COLOR_PAIR(6) | A_BOLD);
 
         wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-        wprintw(win, " %s %s ", marker.c_str(), style.icon);
+        wprintw(win, "%s%s ", marker.c_str(), style.icon);
       } else {
-        wprintw(win, "  %s %s ", marker.c_str(), style.icon);
+        wprintw(win, " %s%s ", marker.c_str(), style.icon);
       }
 
       if (paneIsSearching && !dirPart.empty()) {

@@ -883,6 +883,43 @@ private:
     });
   }
 
+  void startExtractTask(const std::string& extractCmd, const std::string& archiveName, const fs::path& destDir) {
+    auto task = std::make_shared<AsyncTask>();
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      task->id = nextTaskId++;
+      task->type = "Extract";
+      task->description = "Extracting " + archiveName;
+      task->destPath = destDir;
+      activeTasks.push_back(task);
+    }
+
+    setStatus("Extraction task started in background");
+
+    std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
+    std::string wrappedCmd = "cd " + escapeShellArg(destDir.string()) + " && (" + extractCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
+
+    std::weak_ptr<AsyncTask> weakTask = task;
+    task->workerThread = std::thread([this, weakTask, wrappedCmd]() {
+      auto task = weakTask.lock();
+      if (!task) return;
+
+      int res = system(wrappedCmd.c_str());
+      (void)res;
+
+      std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
+      try { fs::remove(pidFile); } catch(...) {}
+
+      task->progress = 100;
+      if (task->isCancelled.load()) {
+        task->statusMessage = "Cancelled";
+      } else {
+        task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+      }
+      task->isFinished = true;
+    });
+  }
+
   void cancelTask(std::shared_ptr<AsyncTask> task) {
     if (!task || task->isFinished) return;
     task->isCancelled = true;
@@ -903,6 +940,19 @@ private:
       if (!task->destPath.empty()) {
         try { fs::remove(task->destPath); } catch(...) {}
       }
+    } else if (task->type == "Extract") {
+      std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
+      std::ifstream f(pidFile);
+      if (f.is_open()) {
+        std::string pidStr;
+        if (std::getline(f, pidStr)) {
+          std::string killCmd = "kill -9 " + pidStr + " 2>/dev/null";
+          int res = system(killCmd.c_str());
+          (void)res;
+        }
+        f.close();
+      }
+      try { fs::remove(pidFile); } catch(...) {}
     }
   }
 
@@ -2883,6 +2933,56 @@ public:
     startZipTask(cmd, name + ".zip", currentPath);
     multiSelection.clear();
   }
+
+  void handleExtract() {
+    if (currentFiles.empty())
+      return;
+    const auto& file = currentFiles[selectedIndex];
+    if (file.is_directory) {
+      setStatus("Error: Cannot extract a directory!");
+      return;
+    }
+    
+    std::string extractCmd;
+    auto getExtractCommand = [this](const fs::path& archivePath, const fs::path& destDir, std::string& cmd) -> bool {
+      std::string ext = archivePath.extension().string();
+      std::string pathStr = archivePath.string();
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+      bool isTarGz = (pathStr.length() > 7 && pathStr.substr(pathStr.length() - 7) == ".tar.gz") ||
+                     (pathStr.length() > 4 && pathStr.substr(pathStr.length() - 4) == ".tgz");
+      bool isTarBz2 = (pathStr.length() > 8 && pathStr.substr(pathStr.length() - 8) == ".tar.bz2") ||
+                      (pathStr.length() > 5 && pathStr.substr(pathStr.length() - 5) == ".tbz2");
+      bool isTarXz = (pathStr.length() > 7 && pathStr.substr(pathStr.length() - 7) == ".tar.xz") ||
+                     (pathStr.length() > 4 && pathStr.substr(pathStr.length() - 4) == ".txz");
+
+      if (ext == ".zip") {
+        cmd = "unzip -q " + escapeShellArg(archivePath.string()) + " -d " + escapeShellArg(destDir.string());
+        return true;
+      } else if (ext == ".tar" || isTarGz || isTarBz2 || isTarXz) {
+        cmd = "tar -xf " + escapeShellArg(archivePath.string()) + " -C " + escapeShellArg(destDir.string());
+        return true;
+      } else if (ext == ".7z") {
+        cmd = "7z x -y " + escapeShellArg(archivePath.string()) + " -o" + escapeShellArg(destDir.string());
+        return true;
+      } else if (ext == ".rar") {
+        cmd = "unrar x -y " + escapeShellArg(archivePath.string()) + " " + escapeShellArg(destDir.string());
+        return true;
+      }
+      return false;
+    };
+
+    if (!getExtractCommand(file.path, currentPath, extractCmd)) {
+      setStatus("Error: Unsupported archive format!");
+      return;
+    }
+
+    std::string confirm = promptInput("Extract " + file.name + " here? (y/n)");
+    if (confirm == "y" || confirm == "Y") {
+      startExtractTask(extractCmd, file.name, currentPath);
+    }
+  }
+
   void handleCopyPath() {
     if (currentFiles.empty())
       return;
@@ -4367,23 +4467,24 @@ public:
     printHelpLine(13, "r", "Rename");
     printHelpLine(14, "n / N", "New File / Folder");
     printHelpLine(15, "z", "Zip");
-    printHelpLine(16, ".", "Toggle Hidden");
-    printHelpLine(17, "s", "Toggle Sorting");
-    printHelpLine(18, "P", "Pin Directory");
-    printHelpLine(19, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(20, "/", "Search (ripgrep)");
-    printHelpLine(21, "f", "Fuzzy Find");
-    printHelpLine(22, "w", "Show Active Tasks");
-    printHelpLine(23, "i", "Show File Details");
-    printHelpLine(24, "t", "Create New Tab");
-    printHelpLine(25, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(26, "[ / ]", "Prev / Next Tab");
-    printHelpLine(27, "1 - 9, 0", "Switch to Tab 1-10");
-    printHelpLine(28, ":", "Execute Shell Command");
-    printHelpLine(29, "F2", "Toggle Dual-Pane Mode");
-    printHelpLine(30, "Tab", "Toggle Pinned / Switch Pane");
-    printHelpLine(31, "m", "Mounts & External Devices");
-    printHelpLine(32, "?", "Show Help");
+    printHelpLine(16, "e", "Extract Archive");
+    printHelpLine(17, ".", "Toggle Hidden");
+    printHelpLine(18, "s", "Toggle Sorting");
+    printHelpLine(19, "P", "Pin Directory");
+    printHelpLine(20, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(21, "/", "Search (ripgrep)");
+    printHelpLine(22, "f", "Fuzzy Find");
+    printHelpLine(23, "w", "Show Active Tasks");
+    printHelpLine(24, "i", "Show File Details");
+    printHelpLine(25, "t", "Create New Tab");
+    printHelpLine(26, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(27, "[ / ]", "Prev / Next Tab");
+    printHelpLine(28, "1 - 9, 0", "Switch to Tab 1-10");
+    printHelpLine(29, ":", "Execute Shell Command");
+    printHelpLine(30, "F2", "Toggle Dual-Pane Mode");
+    printHelpLine(31, "Tab", "Toggle Pinned / Switch Pane");
+    printHelpLine(32, "m", "Mounts & External Devices");
+    printHelpLine(33, "?", "Show Help");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -5348,6 +5449,9 @@ public:
           break;
         case 'z':
           handleZip();
+          break;
+        case 'e':
+          handleExtract();
           break;
         case '.':
           toggleHidden();

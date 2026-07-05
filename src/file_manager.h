@@ -184,6 +184,12 @@ private:
   }
 
   bool copyFileWithProgress(const fs::path& src, const fs::path& dest, std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied, uint64_t totalBytes) {
+    try {
+      if (fs::is_symlink(fs::symlink_status(dest))) {
+        fs::remove(dest);
+      }
+    } catch (...) {}
+
     std::ifstream in(src, std::ios::binary);
     if (!in) return false;
 

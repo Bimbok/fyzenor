@@ -91,6 +91,7 @@ private:
   bool isSearching = false;
   bool isTrashMode = false;
   fs::path preTrashPath;
+  std::vector<fs::path> lastTrashedFiles;
 
   // Async Preview State
   std::mutex previewMutex;
@@ -2762,6 +2763,94 @@ public:
     }
   }
 
+  fs::path findTrashedFile(const fs::path& origPath) {
+    try {
+      fs::path absPath = fs::absolute(origPath);
+      const char* home = std::getenv("HOME");
+      std::vector<fs::path> searchDirs;
+      if (home) {
+        searchDirs.push_back(fs::path(home) / ".local/share/Trash");
+      }
+      uid_t uid = getuid();
+      fs::path mountPoint = getMountPoint(absPath);
+      fs::path localTrash = mountPoint / (".Trash-" + std::to_string(uid));
+      if (fs::exists(localTrash)) {
+        searchDirs.push_back(localTrash);
+      }
+
+      for (const auto& trashDir : searchDirs) {
+        fs::path infoDir = trashDir / "info";
+        fs::path filesDir = trashDir / "files";
+        if (fs::exists(infoDir)) {
+          for (const auto& entry : fs::directory_iterator(infoDir)) {
+            if (entry.path().extension() == ".trashinfo") {
+              std::ifstream f(entry.path());
+              std::string line;
+              while (std::getline(f, line)) {
+                if (line.rfind("Path=", 0) == 0) {
+                  std::string p = line.substr(5);
+                  if (p == absPath.string()) {
+                    std::string base = entry.path().stem().string();
+                    return filesDir / base;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (...) {}
+    return "";
+  }
+
+  void handleUndoTrash() {
+    if (lastTrashedFiles.empty()) {
+      setStatus("Nothing to undo");
+      return;
+    }
+
+    int successCount = 0;
+    for (const auto& p : lastTrashedFiles) {
+      TrashInfo ti = getTrashInfo(p);
+      if (ti.originalPath.empty()) continue;
+      try {
+        fs::path dest(ti.originalPath);
+        if (dest.has_parent_path()) {
+          fs::create_directories(dest.parent_path());
+        }
+        if (fs::exists(dest)) {
+          std::string newName = dest.filename().string() + "_restored";
+          dest = dest.parent_path() / newName;
+          int count = 1;
+          while (fs::exists(dest)) {
+            dest = dest.parent_path() / (newName + "_" + std::to_string(count));
+            count++;
+          }
+        }
+        try {
+          fs::rename(p, dest);
+        } catch (...) {
+          fs::copy(p, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+          fs::remove_all(p);
+        }
+
+        fs::path infoFile = p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
+        if (fs::exists(infoFile)) {
+          fs::remove(infoFile);
+        }
+        successCount++;
+      } catch (...) {}
+    }
+
+    if (successCount > 0) {
+      setStatus("Undone: Restored " + std::to_string(successCount) + " item(s)");
+    } else {
+      setStatus("Undo failed");
+    }
+    lastTrashedFiles.clear();
+    reloadAll();
+  }
+
   void handleMoveToTrash() {
     if (currentFiles.empty())
       return;
@@ -2778,11 +2867,16 @@ public:
     if (confirm != "y" && confirm != "Y")
       return;
 
+    lastTrashedFiles.clear();
     int successCount = 0;
     std::vector<fs::path> failedTargets;
     for (const auto& p : targets) {
       if (moveToTrash(p)) {
         successCount++;
+        fs::path trashed = findTrashedFile(p);
+        if (!trashed.empty()) {
+          lastTrashedFiles.push_back(trashed);
+        }
       } else {
         failedTargets.push_back(p);
       }
@@ -4387,7 +4481,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 37;
+    int h = 38;
     int w = 60;
     if (h > height - 4) h = height - 4;
     if (w > width - 4) w = width - 4;
@@ -4436,23 +4530,24 @@ public:
     printHelpLine(13, "D", "Delete Permanently");
     printHelpLine(14, "T", "Toggle Trash Manager");
     printHelpLine(15, "r", "Rename (Restore in Trash)");
-    printHelpLine(16, "n / N", "New File / Folder");
-    printHelpLine(17, "z", "Zip");
-    printHelpLine(18, "e", "Extract (Empty in Trash)");
-    printHelpLine(19, ".", "Toggle Hidden");
-    printHelpLine(20, "s", "Toggle Sorting");
-    printHelpLine(21, "P", "Pin Directory");
-    printHelpLine(22, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(23, "/", "Search (ripgrep)");
-    printHelpLine(24, "f", "Fuzzy Find");
-    printHelpLine(25, "w", "Show Active Tasks");
-    printHelpLine(26, "i", "Show File Details");
-    printHelpLine(27, "t", "Create New Tab");
-    printHelpLine(28, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(29, "[ / ]", "Prev / Next Tab");
-    printHelpLine(30, "1 - 9, 0", "Switch to Tab 1-10");
-    printHelpLine(31, ":", "Execute Shell Command");
-    printHelpLine(32, "F2", "Toggle Dual-Pane Mode");
+    printHelpLine(16, "u", "Undo Trash Action");
+    printHelpLine(17, "n / N", "New File / Folder");
+    printHelpLine(18, "z", "Zip");
+    printHelpLine(19, "e", "Extract (Empty in Trash)");
+    printHelpLine(20, ".", "Toggle Hidden");
+    printHelpLine(21, "s", "Toggle Sorting");
+    printHelpLine(22, "P", "Pin Directory");
+    printHelpLine(23, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(24, "/", "Search (ripgrep)");
+    printHelpLine(25, "f", "Fuzzy Find");
+    printHelpLine(26, "w", "Show Active Tasks");
+    printHelpLine(27, "i", "Show File Details");
+    printHelpLine(28, "t", "Create New Tab");
+    printHelpLine(29, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(30, "[ / ]", "Prev / Next Tab");
+    printHelpLine(31, "1 - 9, 0", "Switch to Tab 1-10");
+    printHelpLine(32, ":", "Execute Shell Command");
+    printHelpLine(33, "F2", "Toggle Dual-Pane Mode");
     printHelpLine(31, "Tab", "Toggle Pinned / Switch Pane");
     printHelpLine(32, "m", "Mounts & External Devices");
     printHelpLine(33, "?", "Show Help");
@@ -5212,6 +5307,39 @@ public:
         printw(" %s", pathStr.c_str());
         attroff(A_DIM);
 
+        if (!isTrashMode) {
+          try {
+            fs::space_info si = fs::space(currentPath);
+            if (si.capacity > 0) {
+              double pct = (double)(si.capacity - si.available) / si.capacity * 100.0;
+              int filled = (int)(pct / 10.0 + 0.5);
+              if (filled < 0) filled = 0;
+              if (filled > 10) filled = 10;
+              
+              std::string bar = "";
+              for (int j = 0; j < filled; ++j) bar += "█";
+              for (int j = filled; j < 10; ++j) bar += "░";
+              
+              std::string rootName = getMountPoint(currentPath).filename().string();
+              if (rootName.empty()) rootName = "Root";
+              
+              std::string freeStr = formatSize(si.available);
+              std::string capStr = formatSize(si.capacity);
+              
+              char diskBuf[128];
+              std::snprintf(diskBuf, sizeof(diskBuf), " 󰋊 %s: [%s] %.0f%% (%s/%s free)", 
+                            rootName.c_str(), bar.c_str(), pct, freeStr.c_str(), capStr.c_str());
+              
+              int currentX = getcurx(stdscr);
+              if (width - currentX > (int)std::string(diskBuf).length() + 35) {
+                attron(COLOR_PAIR(6));
+                printw("%s", diskBuf);
+                attroff(COLOR_PAIR(6));
+              }
+            }
+          } catch (...) {}
+        }
+
         int rightOffset = 2; // Right padding
 
         int runningCount = 0;
@@ -5484,6 +5612,11 @@ public:
           break;
         case 'x':
           handleCut();
+          break;
+        case 'u':
+          if (!isTrashMode) {
+            handleUndoTrash();
+          }
           break;
         case 'p':
           handlePaste();

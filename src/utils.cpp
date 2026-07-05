@@ -14,25 +14,44 @@
 #include <sys/stat.h>
 
 // Definition of configuration constants
-const std::set<std::string> VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm"};
-const std::set<std::string> IMAGE_EXTS = {".png", ".jpg",  ".jpeg", ".gif",
-                                          ".bmp", ".webp", ".svg",  ".tiff"};
-const std::set<std::string> FRONTEND_EXTS = {".js",    ".jsx", ".ts",   ".tsx",    ".css",
-                                             ".scss",  ".vue", ".html", ".svelte", ".htm",
-                                             ".astro", ".mjx", ".dart", ".swift"};
-const std::set<std::string> SCRIPTS_EXTS = {".sh", ".bash", ".zsh", ".pl", ".awk", ".ps1", ".psm1"};
+const std::set<std::string> VIDEO_EXTS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"
+};
+const std::set<std::string> IMAGE_EXTS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"
+};
+const std::set<std::string> FRONTEND_EXTS = {
+    ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl",
+    ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"
+};
+const std::set<std::string> SCRIPTS_EXTS = {
+    ".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk",
+    ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"
+};
 const std::set<std::string> CONFIG_EXTS = {
-    ".json", ".xml",        ".yaml",       ".yml",  ".toml",      ".ini",          ".conf",
-    ".env",  ".dockerfile", ".properties", ".lock", ".gitignore", ".gitattributes"};
-const std::set<std::string> DOCUMENTATION_EXTS = {".md",  ".txt",  ".pdf", ".doc",  ".docx",
-                                                  ".ppt", ".pptx", ".xls", ".xlsx", ".csv"};
+    ".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml",
+    ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock",
+    ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"
+};
+const std::set<std::string> DOCUMENTATION_EXTS = {
+    ".md", ".markdown", ".txt", ".text", ".log", ".pdf",
+    ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"
+};
 const std::set<std::string> CORE_EXTS = {
-    ".py",  ".rb",  ".php",   ".cpp",  ".c",    ".hpp",   ".h",  ".rs", ".java", ".go",
-    ".lua", ".sql", ".cmake", ".make", ".diff", ".patch", ".kt", ".cs", ".scala"};
+    ".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php",
+    ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs",
+    ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite",
+    ".sqlite3", ".db3", ".mdb", ".accdb", ".cmake", ".make", ".diff", ".patch",
+    ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs",
+    ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"
+};
 const std::set<std::string> FONT_EXTS = {".woff", ".woff2", ".ttf", ".eot", ".otf"};
-const std::set<std::string> AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a",
-                                          ".aac", ".ogg", ".wma",  ".opus"};
-const std::set<std::string> ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".7z", ".rar", ".xz", ".bz2"};
+const std::set<std::string> AUDIO_EXTS = {
+    ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"
+};
+const std::set<std::string> ARCHIVE_EXTS = {
+    ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"
+};
 
 const char* ICON_DIR = " ";
 const char* ICON_VIDEO = " ";
@@ -157,27 +176,28 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
   std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
 
   if (isDir) {
-    if (lowerName == ".git" || lowerName == ".github")
+    if (lowerName == ".git" || lowerName == ".github" || lowerName == "git")
       return {1, " "};
     if (lowerName == "node_modules")
       return {1, " "};
-    if (lowerName == "src" || lowerName == "source" || lowerName == "sources")
+    if (lowerName == "src" || lowerName == "source" || lowerName == "sources" || lowerName == "code")
       return {1, "󱧼 "};
     if (lowerName == "build" || lowerName == "bin" || lowerName == "target" ||
-        lowerName == "dist" || lowerName == "out")
+        lowerName == "dist" || lowerName == "out" || lowerName == "release" || lowerName == "debug")
       return {1, "󱂀 "};
-    if (lowerName == "include" || lowerName == "headers" || lowerName == "include_dir")
+    if (lowerName == "include" || lowerName == "headers" || lowerName == "include_dir" || lowerName == "inc")
       return {1, "󰙶 "};
-    if (lowerName == "test" || lowerName == "tests" || lowerName == "spec" || lowerName == "specs")
+    if (lowerName == "test" || lowerName == "tests" || lowerName == "spec" || lowerName == "specs" ||
+        lowerName == "__tests__" || lowerName == "testing")
       return {1, "󰙨 "};
-    if (lowerName == "doc" || lowerName == "docs" || lowerName == "documentation")
+    if (lowerName == "doc" || lowerName == "docs" || lowerName == "documentation" || lowerName == "manual")
       return {1, "󰈙 "};
-    if (lowerName == "img" || lowerName == "images" || lowerName == "pictures" ||
-        lowerName == "assets")
+    if (lowerName == "img" || lowerName == "images" || lowerName == "pictures" || lowerName == "pics" ||
+        lowerName == "photos" || lowerName == "assets" || lowerName == "static" || lowerName == "public")
       return {1, "󰥶 "};
-    if (lowerName == "music" || lowerName == "songs" || lowerName == "audio")
+    if (lowerName == "music" || lowerName == "songs" || lowerName == "audio" || lowerName == "sounds")
       return {1, "󰎆 "};
-    if (lowerName == "video" || lowerName == "videos" || lowerName == "movies")
+    if (lowerName == "video" || lowerName == "videos" || lowerName == "movies" || lowerName == "clips")
       return {1, "󰎁 "};
     if (lowerName == "downloads" || lowerName == "download")
       return {1, "󰇚 "};
@@ -185,67 +205,135 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
       return {1, "󰪧 "};
     if (lowerName == "documents" || lowerName == "document")
       return {1, "󱧬 "};
-    if (lowerName == ".vscode" || lowerName == ".idea")
+    if (lowerName == ".vscode" || lowerName == ".idea" || lowerName == ".settings")
       return {1, " "};
+    if (lowerName == "config" || lowerName == ".config" || lowerName == "settings" || lowerName == "preferences")
+      return {1, " "};
+    if (lowerName == "lib" || lowerName == "libs" || lowerName == "library" || lowerName == "libraries")
+      return {1, "󰓏 "};
+    if (lowerName == "temp" || lowerName == "tmp" || lowerName == "cache" || lowerName == ".cache")
+      return {1, "󰏕 "};
+    if (lowerName == "db" || lowerName == "database" || lowerName == "sql" || lowerName == "data")
+      return {1, " "};
+    if (lowerName == "logs" || lowerName == "log")
+      return {1, "󰘔 "};
+    if (lowerName == "backup" || lowerName == "backups" || lowerName == "archive" || lowerName == "archives")
+      return {1, "󰁯 "};
+    if (lowerName == ".ssh" || lowerName == "ssh" || lowerName == "keys" || lowerName == ".gnupg")
+      return {1, "󰣀 "};
+    if (lowerName == "mail" || lowerName == "email" || lowerName == "mails")
+      return {1, "󰇰 "};
+    if (lowerName == "games" || lowerName == "game")
+      return {1, "󰊖 "};
+    if (lowerName == "apps" || lowerName == "applications" || lowerName == "programs")
+      return {1, "󰀻 "};
+    if (lowerName == "theme" || lowerName == "themes" || lowerName == "styles" || lowerName == "css")
+      return {1, "󰔎 "};
 
     return {1, ICON_DIR};
   }
 
   if (lowerName == "cmakelists.txt")
     return {16, " "};
-  if (lowerName == "makefile" || lowerName == "makefile.win" || lowerName == "makefile.am" ||
-      lowerName == "makefile.in")
+  if (lowerName == "makefile" || lowerName == "gnumakefile" || lowerName == "makefile.win" ||
+      lowerName == "makefile.am" || lowerName == "makefile.in")
     return {16, " "};
   if (lowerName == "license" || lowerName == "license.txt" || lowerName == "copying" ||
-      lowerName == "license.md")
+      lowerName == "license.md" || lowerName == "copyleft")
     return {26, "󰘥 "};
-  if (lowerName == "readme" || lowerName == "readme.md" || lowerName == "readme.txt")
+  if (lowerName == "readme" || lowerName == "readme.md" || lowerName == "readme.txt" ||
+      lowerName == "changelog" || lowerName == "changelog.md" || lowerName == "contributing.md")
     return {27, "󰂺 "};
   if (lowerName == "package.json")
     return {24, " "};
-  if (lowerName == "package-lock.json")
+  if (lowerName == "package-lock.json" || lowerName == "yarn.lock" || lowerName == "pnpm-lock.yaml")
     return {25, " "};
   if (lowerName == "cargo.toml")
     return {16, " "};
   if (lowerName == "cargo.lock")
     return {25, " "};
+  if (lowerName == "go.mod" || lowerName == "go.sum" || lowerName == "go.work")
+    return {16, " "};
+  if (lowerName == "composer.json" || lowerName == "composer.lock")
+    return {16, " "};
+  if (lowerName == "gemfile" || lowerName == "gemfile.lock")
+    return {16, " "};
   if (lowerName == "dockerfile" || lowerName == ".dockerignore")
     return {25, "󰡨 "};
   if (lowerName == "docker-compose.yml" || lowerName == "docker-compose.yaml")
     return {25, "󰡨 "};
-  if (lowerName == ".gitignore" || lowerName == ".gitattributes" || lowerName == ".gitmodules")
+  if (lowerName == ".gitignore" || lowerName == ".gitconfig" || lowerName == ".gitattributes" || lowerName == ".gitmodules")
     return {25, " "};
   if (lowerName == ".env" || lowerName == ".env.local" || lowerName == ".env.development" ||
-      lowerName == ".env.production")
+      lowerName == ".env.test" || lowerName == ".env.production")
     return {25, " "};
+  if (lowerName == "webpack.config.js" || lowerName == "webpack.config.ts")
+    return {24, "󰘦 "};
+  if (lowerName == "tsconfig.json")
+    return {25, " "};
+  if (lowerName == "babel.config.js" || lowerName == "babel.config.json")
+    return {24, " "};
+  if (lowerName == "vite.config.js" || lowerName == "vite.config.ts")
+    return {24, "⚡ "};
+  if (lowerName == "tailwind.config.js" || lowerName == "tailwind.config.ts")
+    return {24, "󱏿 "};
+  if (lowerName == "eslint.config.js" || lowerName == ".eslintrc" || lowerName == ".eslintrc.js" ||
+      lowerName == ".eslintrc.json" || lowerName == ".eslintignore")
+    return {25, " "};
 
-  if (ext == ".py" || ext == ".pyw" || ext == ".ipynb")
+  if (ext == ".py" || ext == ".pyw" || ext == ".ipynb" || ext == ".pyc" || ext == ".pyd")
     return {16, " "};
   if (ext == ".rs")
     return {16, " "};
   if (ext == ".go")
     return {16, " "};
-  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx")
+  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx" || ext == ".ixx")
     return {16, " "};
   if (ext == ".c" || ext == ".h")
     return {16, " "};
-  if (ext == ".java" || ext == ".class" || ext == ".jar")
+  if (ext == ".java" || ext == ".class" || ext == ".jar" || ext == ".war")
     return {16, " "};
   if (ext == ".js" || ext == ".mjs" || ext == ".cjs")
     return {24, " "};
-  if (ext == ".ts" || ext == ".mts")
+  if (ext == ".ts" || ext == ".mts" || ext == ".cts")
     return {24, " "};
   if (ext == ".tsx")
     return {24, " "};
   if (ext == ".jsx")
     return {24, " "};
-  if (ext == ".php")
+  if (ext == ".vue")
+    return {24, " "};
+  if (ext == ".svelte")
+    return {24, " "};
+  if (ext == ".php" || ext == ".phtml" || ext == ".php4" || ext == ".php5")
     return {16, " "};
-  if (ext == ".rb" || ext == ".ru")
+  if (ext == ".rb" || ext == ".ru" || ext == ".gemspec")
     return {16, " "};
   if (ext == ".lua")
     return {16, " "};
-  if (ext == ".sql" || ext == ".db" || ext == ".sqlite")
+  if (ext == ".pl" || ext == ".pm" || ext == ".t")
+    return {26, " "};
+  if (ext == ".hs" || ext == ".lhs")
+    return {16, " "};
+  if (ext == ".scala" || ext == ".sc")
+    return {16, " "};
+  if (ext == ".clj" || ext == ".cljs" || ext == ".cljc" || ext == ".edn")
+    return {16, " "};
+  if (ext == ".r" || ext == ".rmd")
+    return {16, " "};
+  if (ext == ".jl")
+    return {16, " "};
+  if (ext == ".dart")
+    return {24, " "};
+  if (ext == ".swift")
+    return {16, " "};
+  if (ext == ".kt" || ext == ".kts")
+    return {16, " "};
+  if (ext == ".cs" || ext == ".csx")
+    return {16, " "};
+  if (ext == ".fs" || ext == ".fsi" || ext == ".fsx")
+    return {16, " "};
+  if (ext == ".sql" || ext == ".db" || ext == ".sqlite" || ext == ".sqlite3" || ext == ".db3" || ext == ".mdb" || ext == ".accdb")
     return {25, " "};
   if (ext == ".html" || ext == ".htm")
     return {24, " "};
@@ -253,28 +341,34 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     return {24, " "};
   if (ext == ".scss" || ext == ".sass")
     return {24, " "};
-  if (ext == ".swift")
-    return {16, " "};
-  if (ext == ".kt" || ext == ".kts")
-    return {16, " "};
-  if (ext == ".cs")
-    return {16, " "};
-  if (ext == ".dart")
-    return {24, " "};
-  if (ext == ".sh" || ext == ".bash" || ext == ".zsh" || ext == ".fish")
+  if (ext == ".less")
+    return {24, " "};
+  if (ext == ".styl")
+    return {24, " "};
+  if (ext == ".sh" || ext == ".bash" || ext == ".zsh" || ext == ".fish" || ext == ".ksh" || ext == ".command")
     return {26, " "};
-  if (ext == ".ps1" || ext == ".psm1" || ext == ".bat" || ext == ".cmd")
+  if (ext == ".ps1" || ext == ".psm1" || ext == ".bat" || ext == ".cmd" || ext == ".vbs" || ext == ".wsf")
     return {26, " "};
-  if (ext == ".json")
+  if (ext == ".json" || ext == ".json5" || ext == ".jsonc")
     return {25, " "};
   if (ext == ".yaml" || ext == ".yml")
     return {25, " "};
-  if (ext == ".toml" || ext == ".ini" || ext == ".conf" || ext == ".cfg")
+  if (ext == ".toml" || ext == ".ini" || ext == ".conf" || ext == ".cfg" || ext == ".prefs" || ext == ".properties")
     return {25, " "};
-  if (ext == ".md")
+  if (ext == ".xml" || ext == ".xsd" || ext == ".xsl" || ext == ".gpx")
+    return {25, "󰗀 "};
+  if (ext == ".md" || ext == ".markdown")
     return {27, " "};
+  if (ext == ".txt" || ext == ".text" || ext == ".log")
+    return {27, "󰈙 "};
   if (ext == ".pdf")
     return {27, "󰈦 "};
+  if (ext == ".doc" || ext == ".docx" || ext == ".odt" || ext == ".rtf")
+    return {27, "󰈬 "};
+  if (ext == ".xls" || ext == ".xlsx" || ext == ".ods" || ext == ".csv")
+    return {27, "󰈛 "};
+  if (ext == ".ppt" || ext == ".pptx" || ext == ".odp")
+    return {27, "󰈧 "};
 
   if (VIDEO_EXTS.count(ext))
     return {4, ICON_VIDEO};

@@ -1292,18 +1292,29 @@ public:
       resultQueue.clear();
     }
     try {
-      for (const auto& entry : fs::directory_iterator(path)) {
-        if (!showHidden && entry.path().filename().string().front() == '.')
-          continue;
-        FileEntry fe(entry);
-        if (isTrashMode) {
-          TrashInfo ti = getTrashInfo(entry.path());
-          if (!ti.originalPath.empty()) {
-            fe.name = fs::path(ti.originalPath).filename().string();
-            fe.extension = fs::path(ti.originalPath).extension().string();
+      if (isTrashMode) {
+        std::vector<fs::path> trashDirs = getAllTrashFilesPaths();
+        for (const auto& trashDir : trashDirs) {
+          if (fs::exists(trashDir) && fs::is_directory(trashDir)) {
+            for (const auto& entry : fs::directory_iterator(trashDir)) {
+              if (!showHidden && entry.path().filename().string().front() == '.')
+                continue;
+              FileEntry fe(entry);
+              TrashInfo ti = getTrashInfo(entry.path());
+              if (!ti.originalPath.empty()) {
+                fe.name = fs::path(ti.originalPath).filename().string();
+                fe.extension = fs::path(ti.originalPath).extension().string();
+              }
+              target.push_back(fe);
+            }
           }
         }
-        target.push_back(fe);
+      } else {
+        for (const auto& entry : fs::directory_iterator(path)) {
+          if (!showHidden && entry.path().filename().string().front() == '.')
+            continue;
+          target.emplace_back(entry);
+        }
       }
     } catch (const std::exception& e) {
       setStatus("Error: " + std::string(e.what()));
@@ -2581,9 +2592,8 @@ public:
   TrashInfo getTrashInfo(const fs::path& trashFile) {
     TrashInfo info;
     try {
-      const char* home = std::getenv("HOME");
-      if (!home) return info;
-      fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (trashFile.filename().string() + ".trashinfo");
+      fs::path infoDir = trashFile.parent_path().parent_path() / "info";
+      fs::path infoFile = infoDir / (trashFile.filename().string() + ".trashinfo");
       if (fs::exists(infoFile)) {
         std::ifstream f(infoFile);
         std::string line;
@@ -2611,6 +2621,67 @@ public:
     return "";
   }
 
+  fs::path getMountPoint(const fs::path& path) {
+    try {
+      fs::path absPath = fs::absolute(path);
+      struct stat st;
+      if (stat(absPath.c_str(), &st) != 0) {
+        return "/";
+      }
+      dev_t devId = st.st_dev;
+
+      fs::path current = absPath;
+      while (current.has_parent_path() && current != current.parent_path()) {
+        fs::path parent = current.parent_path();
+        struct stat pst;
+        if (stat(parent.c_str(), &pst) == 0) {
+          if (pst.st_dev != devId) {
+            return current;
+          }
+        } else {
+          break;
+        }
+        current = parent;
+      }
+      return current;
+    } catch (...) {
+      return "/";
+    }
+  }
+
+  std::vector<fs::path> getAllTrashFilesPaths() {
+    std::vector<fs::path> paths;
+    const char* home = std::getenv("HOME");
+    if (home) {
+      paths.push_back(fs::path(home) / ".local/share/Trash/files");
+    }
+
+    uid_t uid = getuid();
+    std::vector<fs::path> scanDirs;
+    if (home) {
+      std::string user = fs::path(home).filename().string();
+      scanDirs.push_back("/media/" + user);
+      scanDirs.push_back("/run/media/" + user);
+    }
+    scanDirs.push_back("/mnt");
+
+    for (const auto& scanDir : scanDirs) {
+      try {
+        if (fs::exists(scanDir) && fs::is_directory(scanDir)) {
+          for (const auto& entry : fs::directory_iterator(scanDir)) {
+            if (entry.is_directory()) {
+              fs::path localTrash = entry.path() / (".Trash-" + std::to_string(uid));
+              if (fs::exists(localTrash) && fs::is_directory(localTrash)) {
+                paths.push_back(localTrash / "files");
+              }
+            }
+          }
+        }
+      } catch (...) {}
+    }
+    return paths;
+  }
+
   bool moveToTrash(const fs::path& path) {
     if (isCommandAvailable("gio")) {
       std::string cmd = "gio trash " + escapeShellArg(path.string()) + " > /dev/null 2>&1";
@@ -2620,17 +2691,44 @@ public:
     }
 
     try {
+      fs::path absPath = fs::absolute(path);
+      fs::path mountPoint = getMountPoint(absPath);
+
       const char* home = std::getenv("HOME");
       if (!home) return false;
+      fs::path homePath(home);
 
-      fs::path trashDir = fs::path(home) / ".local/share/Trash";
+      struct stat st_mount, st_home;
+      if (stat(mountPoint.c_str(), &st_mount) != 0 || stat(homePath.c_str(), &st_home) != 0) {
+        return false;
+      }
+
+      bool samePartition = (st_mount.st_dev == st_home.st_dev);
+      fs::path trashDir;
+
+      if (samePartition) {
+        trashDir = homePath / ".local/share/Trash";
+      } else {
+        uid_t uid = getuid();
+        fs::path localTrash = mountPoint / (".Trash-" + std::to_string(uid));
+        if (!fs::exists(localTrash)) {
+          try {
+            fs::create_directories(localTrash);
+            fs::permissions(localTrash, fs::perms::owner_all, fs::perm_options::replace);
+          } catch (...) {
+            return false;
+          }
+        }
+        trashDir = localTrash;
+      }
+
       fs::path trashFiles = trashDir / "files";
       fs::path trashInfo = trashDir / "info";
 
       fs::create_directories(trashFiles);
       fs::create_directories(trashInfo);
 
-      std::string filename = path.filename().string();
+      std::string filename = absPath.filename().string();
       fs::path destFile = trashFiles / filename;
 
       int counter = 1;
@@ -2640,17 +2738,17 @@ public:
       }
 
       try {
-        fs::rename(path, destFile);
+        fs::rename(absPath, destFile);
       } catch (const std::filesystem::filesystem_error&) {
-        fs::copy(path, destFile, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
-        fs::remove_all(path);
+        fs::copy(absPath, destFile, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        fs::remove_all(absPath);
       }
 
       fs::path destInfo = trashInfo / (destFile.filename().string() + ".trashinfo");
       std::ofstream out(destInfo);
       if (out.is_open()) {
         out << "[Trash Info]\n";
-        out << "Path=" << fs::absolute(path).string() << "\n";
+        out << "Path=" << absPath.string() << "\n";
 
         std::time_t now = std::time(nullptr);
         char buf[100];
@@ -2681,16 +2779,29 @@ public:
       return;
 
     int successCount = 0;
+    std::vector<fs::path> failedTargets;
     for (const auto& p : targets) {
       if (moveToTrash(p)) {
         successCount++;
+      } else {
+        failedTargets.push_back(p);
+      }
+    }
+
+    if (!failedTargets.empty()) {
+      std::string failedCountStr = (failedTargets.size() > 1) ? std::to_string(failedTargets.size()) + " items"
+                                                              : failedTargets[0].filename().string();
+      std::string permConfirm = promptInput("Trash not supported for " + failedCountStr + ". Delete permanently? (y/n)");
+      if (permConfirm == "y" || permConfirm == "Y") {
+        startDeleteTask(failedTargets);
+        successCount += failedTargets.size();
       }
     }
 
     if (successCount == (int)targets.size()) {
-      setStatus("Moved to Trash");
+      setStatus("Deleted successfully");
     } else {
-      setStatus("Moved " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items to Trash");
+      setStatus("Deleted " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items");
     }
 
     multiSelection.clear();
@@ -2742,12 +2853,9 @@ public:
           fs::remove_all(p);
         }
 
-        const char* home = std::getenv("HOME");
-        if (home) {
-          fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (p.filename().string() + ".trashinfo");
-          if (fs::exists(infoFile)) {
-            fs::remove(infoFile);
-          }
+        fs::path infoFile = p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
+        if (fs::exists(infoFile)) {
+          fs::remove(infoFile);
         }
         successCount++;
       } catch (...) {}
@@ -2768,26 +2876,26 @@ public:
     if (confirm != "y" && confirm != "Y")
       return;
 
-    const char* home = std::getenv("HOME");
-    if (!home) return;
-
-    fs::path trashDir = fs::path(home) / ".local/share/Trash";
-    fs::path trashFiles = trashDir / "files";
-    fs::path trashInfo = trashDir / "info";
-
     std::vector<fs::path> targets;
-    try {
-      if (fs::exists(trashFiles)) {
-        for (const auto& entry : fs::directory_iterator(trashFiles)) {
-          targets.push_back(entry.path());
+    std::vector<fs::path> trashDirs = getAllTrashFilesPaths();
+    for (const auto& filesDir : trashDirs) {
+      try {
+        fs::path trashDir = filesDir.parent_path();
+        fs::path trashFiles = trashDir / "files";
+        fs::path trashInfo = trashDir / "info";
+
+        if (fs::exists(trashFiles)) {
+          for (const auto& entry : fs::directory_iterator(trashFiles)) {
+            targets.push_back(entry.path());
+          }
         }
-      }
-      if (fs::exists(trashInfo)) {
-        for (const auto& entry : fs::directory_iterator(trashInfo)) {
-          targets.push_back(entry.path());
+        if (fs::exists(trashInfo)) {
+          for (const auto& entry : fs::directory_iterator(trashInfo)) {
+            targets.push_back(entry.path());
+          }
         }
-      }
-    } catch (...) {}
+      } catch (...) {}
+    }
 
     if (targets.empty()) {
       setStatus("Trash is already empty");

@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <vector>
 #include <ctime>
+#include <signal.h>
 
 #include <chrono>
 #include <sys/ioctl.h>
@@ -185,11 +186,63 @@ private:
   bool copyFileWithProgress(const fs::path& src, const fs::path& dest, std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied, uint64_t totalBytes) {
     std::ifstream in(src, std::ios::binary);
     if (!in) return false;
-    std::ofstream out(dest, std::ios::binary);
+
+    uintmax_t destSize = 0;
+    bool appendMode = false;
+    try {
+      if (fs::exists(dest) && fs::is_regular_file(dest)) {
+        destSize = fs::file_size(dest);
+        uintmax_t srcSize = fs::file_size(src);
+        if (destSize == srcSize) {
+          bytesCopied += srcSize;
+          if (totalBytes > 0) {
+            int prog = (int)((bytesCopied * 100) / totalBytes);
+            task->progress = prog > 100 ? 100 : prog;
+          }
+          return true; // already copied completely!
+        } else if (destSize < srcSize && destSize > 0) {
+          appendMode = true;
+        }
+      }
+    } catch (...) {}
+
+    std::ofstream out;
+    if (appendMode) {
+      in.seekg(destSize);
+      if (in.good()) {
+        out.open(dest, std::ios::binary | std::ios::in | std::ios::out);
+        if (out) {
+          out.seekp(destSize);
+          if (out.good()) {
+            bytesCopied += destSize;
+            if (totalBytes > 0) {
+              int prog = (int)((bytesCopied * 100) / totalBytes);
+              task->progress = prog > 100 ? 100 : prog;
+            }
+          } else {
+            out.close();
+            appendMode = false;
+          }
+        } else {
+          appendMode = false;
+        }
+      } else {
+        appendMode = false;
+      }
+    }
+
+    if (!appendMode) {
+      in.seekg(0);
+      out.close();
+      out.clear();
+      out.open(dest, std::ios::binary);
+    }
+
     if (!out) return false;
 
     char buffer[65536];
     while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
+      task->checkPause();
       if (task->isCancelled.load()) {
         return false;
       }
@@ -247,6 +300,7 @@ private:
       int failCount = 0;
 
       for (const auto& job : jobs) {
+        task->checkPause();
         if (task->isCancelled.load()) {
           failCount = jobs.size() - successCount;
           break;
@@ -261,6 +315,7 @@ private:
             std::vector<fs::path> filesToKeep;
             try {
               for (const auto& entry : fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied)) {
+                task->checkPause();
                 if (task->isCancelled.load()) {
                   dirCopiedFully = false;
                   break;
@@ -352,6 +407,7 @@ private:
       int processed = 0;
 
       for (const auto& p : targets) {
+        task->checkPause();
         if (task->isCancelled.load()) break;
         try {
           fs::remove_all(p);
@@ -444,9 +500,63 @@ private:
     });
   }
 
+  void toggleTaskPause(std::shared_ptr<AsyncTask> task) {
+    if (!task || task->isFinished) return;
+    
+    bool currentlyPaused = task->isPaused;
+    task->isPaused = !currentlyPaused;
+    
+    if (task->type == "Zip" || task->type == "Extract") {
+      std::string prefix = (task->type == "Zip") ? "zip" : "extract";
+      std::string pidFile = "/tmp/fyzenor_" + prefix + "_" + std::to_string(task->id);
+      try {
+        if (fs::exists(pidFile)) {
+          std::ifstream f(pidFile);
+          pid_t pid;
+          if (f >> pid) {
+            if (task->isPaused) {
+              kill(pid, SIGSTOP);
+            } else {
+              kill(pid, SIGCONT);
+            }
+          }
+        }
+      } catch (...) {}
+    }
+    
+    if (!task->isPaused) {
+      std::lock_guard<std::mutex> lock(task->pauseMutex);
+      task->pauseCv.notify_all();
+    }
+    
+    task->statusMessage = task->isPaused ? "Paused" : "Running";
+  }
+
   void cancelTask(std::shared_ptr<AsyncTask> task) {
     if (!task || task->isFinished) return;
     task->isCancelled = true;
+
+    if (task->isPaused) {
+      task->isPaused = false;
+      if (task->type == "Zip" || task->type == "Extract") {
+        std::string prefix = (task->type == "Zip") ? "zip" : "extract";
+        std::string pidFile = "/tmp/fyzenor_" + prefix + "_" + std::to_string(task->id);
+        try {
+          if (fs::exists(pidFile)) {
+            std::ifstream f(pidFile);
+            pid_t pid;
+            if (f >> pid) {
+              kill(pid, SIGCONT);
+            }
+          }
+        } catch (...) {}
+      }
+      
+      {
+        std::lock_guard<std::mutex> lock(task->pauseMutex);
+        task->pauseCv.notify_all();
+      }
+    }
 
     if (task->type == "Zip") {
       std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
@@ -4643,11 +4753,22 @@ public:
             wattroff(taskWin, COLOR_PAIR(4) | A_BOLD);
 
             wattron(taskWin, COLOR_PAIR(10) | A_BOLD);
-            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, task->type.c_str());
+            std::string typeText = task->type + (task->isPaused.load() ? " (Paused)" : "");
+            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, typeText.c_str());
           } else {
-            wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
-            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, task->type.c_str());
-            wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+            std::string typeText = task->type + (task->isPaused.load() ? " (Paused)" : "");
+            if (task->isPaused.load()) {
+              wattron(taskWin, COLOR_PAIR(8) | A_BOLD);
+            } else {
+              wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
+            }
+            mvwprintw(taskWin, y, 3, "[%d] %s", task->id, typeText.c_str());
+            wattroff(taskWin, A_BOLD);
+            if (task->isPaused.load()) {
+              wattroff(taskWin, COLOR_PAIR(8));
+            } else {
+              wattroff(taskWin, COLOR_PAIR(1));
+            }
           }
 
           int barW = 18;
@@ -4685,11 +4806,11 @@ public:
         }
       }
 
-      std::string instr = "j/k: Navigate | c: Clear Finished | x/d: Kill Task | Esc: Close";
+      std::string instr = "j/k: Navigate | Space/p: Pause/Resume | c: Clear | x/d: Kill | Esc: Close";
       if ((int)instr.length() > w - 4) {
-        instr = "j/k: Nav | c: Clear | x/d: Kill | Esc: Close";
+        instr = "j/k: Nav | Space/p: Pause | c: Clr | x: Kill | Esc: Close";
         if ((int)instr.length() > w - 4) {
-          instr = "j/k: Nav | c: Clr | x: Kill";
+          instr = "j/k: Nav | Space: Pause | c: Clr | x: Kill";
         }
       }
       wattron(taskWin, A_DIM);
@@ -4724,6 +4845,11 @@ public:
           if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size()) {
             auto taskToCancel = tasksCopy[highlightedIndex];
             cancelTask(taskToCancel);
+          }
+        } else if (ch == ' ' || ch == 'p' || ch == 'P') {
+          if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size()) {
+            auto taskToToggle = tasksCopy[highlightedIndex];
+            toggleTaskPause(taskToToggle);
           }
         } else if (ch == 27 || ch == 'q' || ch == 'Q') {
           break;

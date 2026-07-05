@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-2.0.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-3.0.0-blue?style=flat)](#-cli-usage)
 
 ### Maintainer
 
@@ -75,6 +75,12 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Asynchronous Tabs**              | Open multiple directories in native tabs, navigating easily with `[`/`]` and number keys `1`-`9`, preserving your selections.                       |
 | **Interactive Shell Commands**     | Execute shell commands globally with `:`. Supports foreground utilities, background tasks (`&`), and path placeholders (`$f`/`$s`).                 |
 | **Bulk Rename via Editor**         | Select multiple files and press `r` to rename them all at once inside your default text editor (e.g. `nvim`, `nano`).                                 |
+| **Smart Copy Resumption**         | Resumes interrupted file copies block-by-block (`seekg`/`seekp`) by comparing file sizes and copying only the remaining bytes.                        |
+| **Task Play/Pause Controls**      | Suspend (pause) and resume background copy, move, delete, zip, and extract tasks directly from the task list.                                         |
+| **Freedesktop Trash System**      | Move items to trash (`d`) and restore/empty them in-build. Integrates home trash and local partition trash folders.                                  |
+| **Undo Trash Action (`u`)**        | Undo the last move-to-trash action instantly, restoring items back to their original paths.                                                           |
+| **Dynamic Disk Space Status**     | Displays partition name, progress bar, percent used, and free space dynamically for the current drive.                                                |
+| **Dynamic Empty Folder Icons**    | Instantly identifies empty directories (` `) versus populated ones (` `) using fast metadata caching.                                               |
 | **Simultaneous Multi-Open**        | Open all selected files simultaneously; code/text files load in a single editor, media in an `mpv` playlist, others in background launchers.         |
 | **Robust Symlink Management**     | Custom link icons (`󰌹`), detailed resolution preview (detects broken paths), and quick absolute symlink pasting with Shift+Y (`Y`).                 |
 | **Dynamic Sorting Modes**          | Toggle sorting order dynamically by pressing `s`, cycling between **Name**, **Size (Desc)**, and **Date Modified (Desc)**.                             |
@@ -374,11 +380,15 @@ flowchart TD
 | `x`             | **Cut** selected items                               |
 | `p`             | **Paste** items from clipboard                       |
 | `Y`             | **Paste as Symlink** (absolute symlinks of clipboard)|
-| `d` or `Delete` | **Delete** selected items with confirmation          |
-| `r`             | **Rename** current item (Bulk rename if multi-selected) |
+| `d` or `Delete` | **Move to Trash** (deletes permanently if inside Trash Manager) |
+| `D`             | **Delete permanently** (skips Trash)                 |
+| `T`             | **Toggle Trash Manager**                             |
+| `u`             | **Undo** last move-to-trash action                   |
+| `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
 | `n`             | Create **New File**                                  |
 | `N`             | Create **New Folder**                                |
 | `z`             | **Zip** selected items into an archive               |
+| `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |
 
 ### Selection, View & Pins
@@ -429,7 +439,27 @@ Icons are rendered using [Nerd Fonts](https://www.nerdfonts.com/). Ensure your t
 
 ### Syntax Highlighting
 
-Text previews use `bat` or `batcat` when available. If neither is installed, Fyzenor falls back to plain text preview. Binary files are detected and skipped to prevent terminal corruption.
+Fyzenor integrates with `bat` or `batcat` to preview code and text files with rich syntax highlighting. Highlighted files are parsed directly into standard ncurses colors via a custom ANSI escape parser.
+
+## 󰩹 Trash, Tasks & Smart Copying
+
+### 1. Multi-Partition Trash System
+Fyzenor provides an in-built Freedesktop.org-compliant Trash manager:
+*   **Automatic Mount Detection**: Trashing (`d`) automatically detects the mount point of the partition containing the file.
+*   **Partition Bins**: If the file is on your home partition, it moves to `~/.local/share/Trash`. On separate partitions (like shared drives or USB mounts), it creates and moves the file to `<mount_point>/.Trash-<uid>` to avoid slow, redundant cross-device copies.
+*   **External Drive Fallbacks**: On read-only or unsupported filesystems (where local trash folders cannot be created), Fyzenor prompts: `"Trash not supported. Delete permanently? (y/n)"`.
+*   **Trash Manager (`T`)**: Displays a unified list of trashed items across all mounted partition trash bins, resolving original filenames/extensions and allowing bulk Restoring (`r`), permanent Deletion (`d`), or Emptying (`e`) of all trash folders in the background.
+
+### 2. Play/Pause Task Manager (`w`)
+Pressing `w` displays background worker queues (copying, moving, deleting, zipping, and extracting).
+*   **C++ Worker Suspend**: Pressing `Space` or `p` on a C++ task (like copy or delete) uses C++ condition variables to suspend the worker threads. They sleep at **0% CPU** consumption until resumed.
+*   **POSIX Subprocess Suspend**: Pausing external operations (Zip/Extract) sends a `SIGSTOP` signal to suspend the child process, and `SIGCONT` to resume it.
+*   **Safe Cancellation**: Paused tasks can be safely killed (`x` / `d`), automatically waking up the threads/subprocesses first to ensure clean exits and prevent zombie processes.
+
+### 3. Smart Copy Resumption (Delta Copying)
+When performing a paste operation:
+*   **Skipping**: Files that already exist at the destination and match the source size are skipped instantly.
+*   **Resumption**: If a copy was cancelled or interrupted, Fyzenor opens the destination file, seeks to its current size, seeks to the same position in the source file, and resumes copying **only the remaining bytes** block-by-block. Symlinks are automatically deleted and replaced to avoid overwriting their target paths.
 
 ---
 

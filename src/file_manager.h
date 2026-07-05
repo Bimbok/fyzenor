@@ -28,6 +28,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <ctime>
 
 #include <chrono>
 #include <sys/ioctl.h>
@@ -57,6 +58,7 @@ private:
     size_t selectedIndex = 0;
     size_t scrollOffset = 0;
     bool isSearching = false;
+    bool isTrashMode = false;
     std::set<fs::path> multiSelection;
     std::vector<FileEntry> currentFiles;
   };
@@ -87,6 +89,8 @@ private:
   bool showHidden = false;
   SortMode sortMode = SortMode::NAME;
   bool isSearching = false;
+  bool isTrashMode = false;
+  fs::path preTrashPath;
 
   // Async Preview State
   std::mutex previewMutex;
@@ -864,6 +868,7 @@ public:
     defTab.selectedIndex = 0;
     defTab.scrollOffset = 0;
     defTab.isSearching = false;
+    defTab.isTrashMode = false;
     defTab.multiSelection = {};
     tabs.push_back(defTab);
     activeTabIndex = 0;
@@ -1290,7 +1295,15 @@ public:
       for (const auto& entry : fs::directory_iterator(path)) {
         if (!showHidden && entry.path().filename().string().front() == '.')
           continue;
-        target.emplace_back(entry);
+        FileEntry fe(entry);
+        if (isTrashMode) {
+          TrashInfo ti = getTrashInfo(entry.path());
+          if (!ti.originalPath.empty()) {
+            fe.name = fs::path(ti.originalPath).filename().string();
+            fe.extension = fs::path(ti.originalPath).extension().string();
+          }
+        }
+        target.push_back(fe);
       }
     } catch (const std::exception& e) {
       setStatus("Error: " + std::string(e.what()));
@@ -1326,6 +1339,10 @@ public:
   }
 
   void loadParent() {
+    if (isTrashMode) {
+      parentFiles.clear();
+      return;
+    }
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       parentFiles.clear();
       try {
@@ -2531,12 +2548,291 @@ public:
         targets.push_back(p);
     std::string countStr = (targets.size() > 1) ? std::to_string(targets.size()) + " items"
                                                 : targets[0].filename().string();
-    std::string confirm = promptInput("Delete " + countStr + "? (y/n)");
+    
+    std::string confirmMsg = isTrashMode ? "Permanently delete " + countStr + " from Trash? (y/n)"
+                                         : "Delete " + countStr + " permanently? (y/n)";
+    std::string confirm = promptInput(confirmMsg);
     if (confirm != "y" && confirm != "Y")
       return;
 
+    if (isTrashMode) {
+      const char* home = std::getenv("HOME");
+      if (home) {
+        for (const auto& p : targets) {
+          fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (p.filename().string() + ".trashinfo");
+          try {
+            if (fs::exists(infoFile)) {
+              fs::remove(infoFile);
+            }
+          } catch (...) {}
+        }
+      }
+    }
+
     startDeleteTask(targets);
     multiSelection.clear();
+  }
+
+  struct TrashInfo {
+    std::string originalPath;
+    std::string deletionDate;
+  };
+
+  TrashInfo getTrashInfo(const fs::path& trashFile) {
+    TrashInfo info;
+    try {
+      const char* home = std::getenv("HOME");
+      if (!home) return info;
+      fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (trashFile.filename().string() + ".trashinfo");
+      if (fs::exists(infoFile)) {
+        std::ifstream f(infoFile);
+        std::string line;
+        while (std::getline(f, line)) {
+          if (line.rfind("Path=", 0) == 0) {
+            info.originalPath = line.substr(5);
+          } else if (line.rfind("DeletionDate=", 0) == 0) {
+            info.deletionDate = line.substr(13);
+            size_t tPos = info.deletionDate.find('T');
+            if (tPos != std::string::npos) {
+              info.deletionDate[tPos] = ' ';
+            }
+          }
+        }
+      }
+    } catch (...) {}
+    return info;
+  }
+
+  fs::path getTrashFilesPath() {
+    const char* home = std::getenv("HOME");
+    if (home) {
+      return fs::path(home) / ".local/share/Trash/files";
+    }
+    return "";
+  }
+
+  bool moveToTrash(const fs::path& path) {
+    if (isCommandAvailable("gio")) {
+      std::string cmd = "gio trash " + escapeShellArg(path.string()) + " > /dev/null 2>&1";
+      if (std::system(cmd.c_str()) == 0) {
+        return true;
+      }
+    }
+
+    try {
+      const char* home = std::getenv("HOME");
+      if (!home) return false;
+
+      fs::path trashDir = fs::path(home) / ".local/share/Trash";
+      fs::path trashFiles = trashDir / "files";
+      fs::path trashInfo = trashDir / "info";
+
+      fs::create_directories(trashFiles);
+      fs::create_directories(trashInfo);
+
+      std::string filename = path.filename().string();
+      fs::path destFile = trashFiles / filename;
+
+      int counter = 1;
+      while (fs::exists(destFile)) {
+        destFile = trashFiles / (filename + "_" + std::to_string(counter));
+        counter++;
+      }
+
+      try {
+        fs::rename(path, destFile);
+      } catch (const std::filesystem::filesystem_error&) {
+        fs::copy(path, destFile, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        fs::remove_all(path);
+      }
+
+      fs::path destInfo = trashInfo / (destFile.filename().string() + ".trashinfo");
+      std::ofstream out(destInfo);
+      if (out.is_open()) {
+        out << "[Trash Info]\n";
+        out << "Path=" << fs::absolute(path).string() << "\n";
+
+        std::time_t now = std::time(nullptr);
+        char buf[100];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::localtime(&now));
+        out << "DeletionDate=" << buf << "\n";
+        out.close();
+      }
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+
+  void handleMoveToTrash() {
+    if (currentFiles.empty())
+      return;
+    std::vector<fs::path> targets;
+    if (multiSelection.empty())
+      targets.push_back(currentFiles[selectedIndex].path);
+    else
+      for (const auto& p : multiSelection)
+        targets.push_back(p);
+
+    std::string countStr = (targets.size() > 1) ? std::to_string(targets.size()) + " items"
+                                                : targets[0].filename().string();
+    std::string confirm = promptInput("Move " + countStr + " to Trash? (y/n)");
+    if (confirm != "y" && confirm != "Y")
+      return;
+
+    int successCount = 0;
+    for (const auto& p : targets) {
+      if (moveToTrash(p)) {
+        successCount++;
+      }
+    }
+
+    if (successCount == (int)targets.size()) {
+      setStatus("Moved to Trash");
+    } else {
+      setStatus("Moved " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items to Trash");
+    }
+
+    multiSelection.clear();
+    reloadAll();
+  }
+
+  void handleRestoreFromTrash() {
+    if (currentFiles.empty())
+      return;
+    std::vector<fs::path> targets;
+    if (multiSelection.empty())
+      targets.push_back(currentFiles[selectedIndex].path);
+    else
+      for (const auto& p : multiSelection)
+        targets.push_back(p);
+
+    std::string countStr = (targets.size() > 1) ? std::to_string(targets.size()) + " items"
+                                                : targets[0].filename().string();
+    std::string confirm = promptInput("Restore " + countStr + " from Trash? (y/n)");
+    if (confirm != "y" && confirm != "Y")
+      return;
+
+    int successCount = 0;
+    for (const auto& p : targets) {
+      TrashInfo ti = getTrashInfo(p);
+      if (ti.originalPath.empty()) {
+        continue;
+      }
+      try {
+        fs::path dest(ti.originalPath);
+        if (dest.has_parent_path()) {
+          fs::create_directories(dest.parent_path());
+        }
+
+        if (fs::exists(dest)) {
+          std::string newName = dest.filename().string() + "_restored";
+          dest = dest.parent_path() / newName;
+          int count = 1;
+          while (fs::exists(dest)) {
+            dest = dest.parent_path() / (newName + "_" + std::to_string(count));
+            count++;
+          }
+        }
+
+        try {
+          fs::rename(p, dest);
+        } catch (const std::filesystem::filesystem_error&) {
+          fs::copy(p, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+          fs::remove_all(p);
+        }
+
+        const char* home = std::getenv("HOME");
+        if (home) {
+          fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (p.filename().string() + ".trashinfo");
+          if (fs::exists(infoFile)) {
+            fs::remove(infoFile);
+          }
+        }
+        successCount++;
+      } catch (...) {}
+    }
+
+    if (successCount == (int)targets.size()) {
+      setStatus("Restored successfully");
+    } else {
+      setStatus("Restored " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items");
+    }
+
+    multiSelection.clear();
+    reloadAll();
+  }
+
+  void handleEmptyTrash() {
+    std::string confirm = promptInput("Empty Trash? All files will be permanently deleted. (y/n)");
+    if (confirm != "y" && confirm != "Y")
+      return;
+
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    fs::path trashDir = fs::path(home) / ".local/share/Trash";
+    fs::path trashFiles = trashDir / "files";
+    fs::path trashInfo = trashDir / "info";
+
+    std::vector<fs::path> targets;
+    try {
+      if (fs::exists(trashFiles)) {
+        for (const auto& entry : fs::directory_iterator(trashFiles)) {
+          targets.push_back(entry.path());
+        }
+      }
+      if (fs::exists(trashInfo)) {
+        for (const auto& entry : fs::directory_iterator(trashInfo)) {
+          targets.push_back(entry.path());
+        }
+      }
+    } catch (...) {}
+
+    if (targets.empty()) {
+      setStatus("Trash is already empty");
+      return;
+    }
+
+    startDeleteTask(targets);
+    setStatus("Emptying Trash in background...");
+  }
+
+  void toggleTrashMode() {
+    if (isTrashMode) {
+      isTrashMode = false;
+      if (!preTrashPath.empty() && fs::exists(preTrashPath)) {
+        currentPath = preTrashPath;
+      } else {
+        const char* home = std::getenv("HOME");
+        currentPath = home ? fs::path(home) : "/";
+      }
+      reloadAll();
+      selectedIndex = 0;
+      scrollOffset = 0;
+      setStatus("Exited Trash");
+    } else {
+      fs::path trashPath = getTrashFilesPath();
+      if (trashPath.empty()) {
+        setStatus("Error: Trash not available");
+        return;
+      }
+      if (!fs::exists(trashPath)) {
+        try {
+          fs::create_directories(trashPath);
+        } catch (...) {
+          setStatus("Error: Trash not available");
+          return;
+        }
+      }
+      preTrashPath = currentPath;
+      isTrashMode = true;
+      currentPath = trashPath;
+      reloadAll();
+      selectedIndex = 0;
+      scrollOffset = 0;
+      setStatus("Entered Trash Manager (press 'T' to exit, 'r' to restore, 'e' to empty)");
+    }
   }
 
   void reloadAll() {
@@ -2566,6 +2862,7 @@ public:
         newTab.selectedIndex = 0;
         newTab.scrollOffset = 0;
         newTab.isSearching = false;
+        newTab.isTrashMode = false;
         newTab.multiSelection = {};
         newTab.currentFiles = {};
         tabs.push_back(newTab);
@@ -2820,6 +3117,7 @@ public:
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
+    tabs[activeTabIndex].isTrashMode = isTrashMode;
     tabs[activeTabIndex].multiSelection = multiSelection;
     tabs[activeTabIndex].currentFiles = currentFiles;
 
@@ -2828,6 +3126,7 @@ public:
     newTab.selectedIndex = selectedIndex;
     newTab.scrollOffset = scrollOffset;
     newTab.isSearching = false;
+    newTab.isTrashMode = false;
     newTab.multiSelection = {};
     newTab.currentFiles = {};
 
@@ -2869,6 +3168,7 @@ public:
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
     isSearching = tabs[activeTabIndex].isSearching;
+    isTrashMode = tabs[activeTabIndex].isTrashMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
     
     auto savedSelection = tabs[activeTabIndex].multiSelection;
@@ -2886,6 +3186,7 @@ public:
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
+    tabs[activeTabIndex].isTrashMode = isTrashMode;
     tabs[activeTabIndex].multiSelection = multiSelection;
     tabs[activeTabIndex].currentFiles = currentFiles;
 
@@ -2894,6 +3195,7 @@ public:
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
     isSearching = tabs[activeTabIndex].isSearching;
+    isTrashMode = tabs[activeTabIndex].isTrashMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
 
     auto savedSelection = tabs[activeTabIndex].multiSelection;
@@ -2939,7 +3241,7 @@ public:
   void drawPane(WINDOW* win, const fs::path& panePath, const std::vector<FileEntry>& paneFiles,
                 size_t paneSelectedIndex, size_t& paneScrollOffset,
                 const std::set<fs::path>& paneMultiSelection, bool paneIsSearching,
-                bool hasFocus) {
+                bool paneIsTrashMode, bool hasFocus) {
     werase(win);
     if (hasFocus)
       wattron(win, COLOR_PAIR(6) | A_BOLD);
@@ -2952,6 +3254,8 @@ public:
     wattron(win, A_BOLD | COLOR_PAIR(1));
     if (paneIsSearching) {
       mvwprintw(win, 0, 2, "  Search Results ");
+    } else if (paneIsTrashMode) {
+      mvwprintw(win, 0, 2, " 󰩹 Trash ");
     } else {
       std::string title = " 󰉖 " + panePath.filename().string() + " ";
       int maxTitleW = getmaxx(win) - 4;
@@ -3188,17 +3492,17 @@ public:
     if (isDualPaneMode) {
       size_t leftIdx = leftTabIndex;
       if (activeTabIndex == leftIdx) {
-        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, true);
+        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true);
       } else {
         loadInactiveTabDirectoryIfNeeded(leftIdx);
         drawPane(winCurrent, tabs[leftIdx].currentPath, tabs[leftIdx].currentFiles,
                  tabs[leftIdx].selectedIndex, tabs[leftIdx].scrollOffset,
-                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, false);
+                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode, false);
       }
       return;
     }
 
-    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, !focusPinned);
+    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, !focusPinned);
   }
 
   struct DeviceInfo {
@@ -3975,7 +4279,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 35;
+    int h = 37;
     int w = 60;
     if (h > height - 4) h = height - 4;
     if (w > width - 4) w = width - 4;
@@ -4020,25 +4324,27 @@ public:
     printHelpLine(9, "x", "Cut");
     printHelpLine(10, "p", "Paste");
     printHelpLine(11, "Y", "Paste as Symlink");
-    printHelpLine(12, "d", "Delete");
-    printHelpLine(13, "r", "Rename");
-    printHelpLine(14, "n / N", "New File / Folder");
-    printHelpLine(15, "z", "Zip");
-    printHelpLine(16, "e", "Extract Archive");
-    printHelpLine(17, ".", "Toggle Hidden");
-    printHelpLine(18, "s", "Toggle Sorting");
-    printHelpLine(19, "P", "Pin Directory");
-    printHelpLine(20, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(21, "/", "Search (ripgrep)");
-    printHelpLine(22, "f", "Fuzzy Find");
-    printHelpLine(23, "w", "Show Active Tasks");
-    printHelpLine(24, "i", "Show File Details");
-    printHelpLine(25, "t", "Create New Tab");
-    printHelpLine(26, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(27, "[ / ]", "Prev / Next Tab");
-    printHelpLine(28, "1 - 9, 0", "Switch to Tab 1-10");
-    printHelpLine(29, ":", "Execute Shell Command");
-    printHelpLine(30, "F2", "Toggle Dual-Pane Mode");
+    printHelpLine(12, "d / Delete", "Move to Trash");
+    printHelpLine(13, "D", "Delete Permanently");
+    printHelpLine(14, "T", "Toggle Trash Manager");
+    printHelpLine(15, "r", "Rename (Restore in Trash)");
+    printHelpLine(16, "n / N", "New File / Folder");
+    printHelpLine(17, "z", "Zip");
+    printHelpLine(18, "e", "Extract (Empty in Trash)");
+    printHelpLine(19, ".", "Toggle Hidden");
+    printHelpLine(20, "s", "Toggle Sorting");
+    printHelpLine(21, "P", "Pin Directory");
+    printHelpLine(22, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(23, "/", "Search (ripgrep)");
+    printHelpLine(24, "f", "Fuzzy Find");
+    printHelpLine(25, "w", "Show Active Tasks");
+    printHelpLine(26, "i", "Show File Details");
+    printHelpLine(27, "t", "Create New Tab");
+    printHelpLine(28, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(29, "[ / ]", "Prev / Next Tab");
+    printHelpLine(30, "1 - 9, 0", "Switch to Tab 1-10");
+    printHelpLine(31, ":", "Execute Shell Command");
+    printHelpLine(32, "F2", "Toggle Dual-Pane Mode");
     printHelpLine(31, "Tab", "Toggle Pinned / Switch Pane");
     printHelpLine(32, "m", "Mounts & External Devices");
     printHelpLine(33, "?", "Show Help");
@@ -4231,12 +4537,12 @@ public:
     if (isDualPaneMode) {
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
-        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, true);
+        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true);
       } else {
         loadInactiveTabDirectoryIfNeeded(rightIdx);
         drawPane(winPreview, tabs[rightIdx].currentPath, tabs[rightIdx].currentFiles,
                  tabs[rightIdx].selectedIndex, tabs[rightIdx].scrollOffset,
-                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, false);
+                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, tabs[rightIdx].isTrashMode, false);
       }
       return;
     }
@@ -4332,7 +4638,20 @@ public:
     wattroff(winPreview, A_DIM);
 
     int dividerLine = 5;
-    if (file.is_symlink) {
+    if (isTrashMode) {
+      TrashInfo ti = getTrashInfo(file.path);
+      std::string orig = ti.originalPath;
+      int maxPathW = getmaxx(winPreview) - 15;
+      if (maxPathW < 10) maxPathW = 10;
+      if ((int)orig.length() > maxPathW) {
+        orig = utf8_safe_truncate_left(orig, maxPathW - 3);
+      }
+      wattron(winPreview, A_DIM);
+      mvwprintw(winPreview, 5, 2, " Original: %s", orig.c_str());
+      mvwprintw(winPreview, 6, 2, " Deleted:  %s", ti.deletionDate.c_str());
+      wattroff(winPreview, A_DIM);
+      dividerLine = 8;
+    } else if (file.is_symlink) {
       wattron(winPreview, A_DIM);
       mvwprintw(winPreview, 5, 2, " Target: %s", file.symlink_target.c_str());
       wattroff(winPreview, A_DIM);
@@ -4770,7 +5089,7 @@ public:
         }
 
         attron(A_DIM);
-        std::string pathStr = currentPath.string();
+        std::string pathStr = isTrashMode ? "trash://" : currentPath.string();
         int maxPathW = width - 35;
         if (maxPathW < 10) maxPathW = 10;
         if ((int)pathStr.length() > maxPathW) {
@@ -5035,18 +5354,39 @@ public:
         case 'Y':
           handlePasteSymlink();
           break;
+        case 'd':
+        case KEY_DC:
+          if (isTrashMode) {
+            handleDelete();
+          } else {
+            handleMoveToTrash();
+          }
+          break;
+        case 'D':
+          handleDelete();
+          break;
+        case 'T':
+          toggleTrashMode();
+          break;
         case 'x':
           handleCut();
           break;
         case 'p':
           handlePaste();
           break;
-        case 'd':
-        case KEY_DC:
-          handleDelete();
-          break;
         case 'r':
-          handleRename();
+          if (isTrashMode) {
+            handleRestoreFromTrash();
+          } else {
+            handleRename();
+          }
+          break;
+        case 'e':
+          if (isTrashMode) {
+            handleEmptyTrash();
+          } else {
+            handleExtract();
+          }
           break;
         case 'm':
           drawDevicesOverlay();
@@ -5059,9 +5399,6 @@ public:
           break;
         case 'z':
           handleZip();
-          break;
-        case 'e':
-          handleExtract();
           break;
         case '.':
           toggleHidden();

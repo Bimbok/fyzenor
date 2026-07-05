@@ -2209,12 +2209,6 @@ public:
             jobs.push_back({src, dest});
             continue;
           }
-          try {
-            fs::remove_all(dest);
-          } catch (...) {
-            setStatus("Error: Failed to replace " + dest.filename().string());
-            continue;
-          }
           jobs.push_back({src, dest});
         } else if (choice == 'k') {
           jobs.push_back({src, getNonConflictingPath(dest)});

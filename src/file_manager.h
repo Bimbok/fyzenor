@@ -429,6 +429,66 @@ private:
     });
   }
 
+  void startTrashTask(const std::vector<fs::path>& targets) {
+    auto task = std::make_shared<AsyncTask>();
+    {
+      std::lock_guard<std::mutex> lock(taskMutex);
+      task->id = nextTaskId++;
+      task->type = "Trash";
+      task->description = (targets.size() > 1)
+          ? "Trashing " + std::to_string(targets.size()) + " items"
+          : "Trashing " + targets[0].filename().string();
+      activeTasks.push_back(task);
+    }
+
+    setStatus("Trash task started in background");
+
+    std::weak_ptr<AsyncTask> weakTask = task;
+    task->workerThread = std::thread([this, weakTask, targets]() {
+      auto task = weakTask.lock();
+      if (!task) return;
+
+      int totalItems = targets.size();
+      int processed = 0;
+      int successCount = 0;
+      std::vector<fs::path> failedTargets;
+      std::vector<fs::path> trashedFilesTemp;
+
+      for (const auto& p : targets) {
+        task->checkPause();
+        if (task->isCancelled.load()) break;
+
+        if (moveToTrash(p)) {
+          successCount++;
+          fs::path trashed = findTrashedFile(p);
+          if (!trashed.empty()) {
+            trashedFilesTemp.push_back(trashed);
+          }
+        } else {
+          failedTargets.push_back(p);
+        }
+
+        processed++;
+        task->progress = (processed * 100) / totalItems;
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        lastTrashedFiles = trashedFilesTemp;
+      }
+
+      task->progress = 100;
+      if (task->isCancelled.load()) {
+        task->statusMessage = "Cancelled";
+      } else if (!failedTargets.empty()) {
+        task->statusMessage = "Finished with errors (trashed " + std::to_string(successCount) + " items, " + std::to_string(failedTargets.size()) + " failed)";
+      } else {
+        task->statusMessage = "Finished (trashed " + std::to_string(totalItems) + " items)";
+      }
+      task->isFinished = true;
+    });
+  }
+
   void startZipTask(const std::string& zipCmd, const std::string& zipName, const fs::path& zipDir) {
     auto task = std::make_shared<AsyncTask>();
     {
@@ -2974,39 +3034,8 @@ public:
     if (confirm != "y" && confirm != "Y")
       return;
 
-    lastTrashedFiles.clear();
-    int successCount = 0;
-    std::vector<fs::path> failedTargets;
-    for (const auto& p : targets) {
-      if (moveToTrash(p)) {
-        successCount++;
-        fs::path trashed = findTrashedFile(p);
-        if (!trashed.empty()) {
-          lastTrashedFiles.push_back(trashed);
-        }
-      } else {
-        failedTargets.push_back(p);
-      }
-    }
-
-    if (!failedTargets.empty()) {
-      std::string failedCountStr = (failedTargets.size() > 1) ? std::to_string(failedTargets.size()) + " items"
-                                                              : failedTargets[0].filename().string();
-      std::string permConfirm = promptInput("Trash not supported for " + failedCountStr + ". Delete permanently? (y/n)");
-      if (permConfirm == "y" || permConfirm == "Y") {
-        startDeleteTask(failedTargets);
-        successCount += failedTargets.size();
-      }
-    }
-
-    if (successCount == (int)targets.size()) {
-      setStatus("Deleted successfully");
-    } else {
-      setStatus("Deleted " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items");
-    }
-
+    startTrashTask(targets);
     multiSelection.clear();
-    reloadAll();
   }
 
   void handleRestoreFromTrash() {

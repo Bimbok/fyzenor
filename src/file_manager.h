@@ -1524,36 +1524,22 @@ public:
           if (job->reqId != requestID)
             continue;
 
-          std::string cmd = "bat --color=always --style=plain --paging=never "
-                            "--wrap=character --line-range=:" +
-                            std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
-          FILE* pipe = popen(cmd.c_str(), "r");
           bool gotOutput = false;
-          if (pipe) {
-            char buffer[4096];
-            while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-              if (job->reqId != requestID || stopWorker)
-                break;
-              std::string line(buffer);
-              if (!line.empty() && line.back() == '\n')
-                line.pop_back();
-              lines.push_back(line);
-              gotOutput = true;
-            }
-            pclose(pipe);
-          }
-
-          if (job->reqId != requestID)
-            continue;
-
-          if (!gotOutput) {
-            lines.clear();
+          std::string cmd;
+          if (isCommandAvailable("bat")) {
+            cmd = "bat --color=always --style=plain --paging=never "
+                  "--wrap=character --line-range=:" +
+                  std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
+          } else if (isCommandAvailable("batcat")) {
             cmd = "batcat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
                   std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
-            pipe = popen(cmd.c_str(), "r");
+          }
+
+          if (!cmd.empty()) {
+            FILE* pipe = popen(cmd.c_str(), "r");
             if (pipe) {
-              char buffer[1024];
+              char buffer[4096];
               while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
                 if (job->reqId != requestID || stopWorker)
                   break;
@@ -1914,7 +1900,7 @@ public:
   }
 
   void handleSearch() {
-    if (system("which rg > /dev/null 2>&1") != 0) {
+    if (!isCommandAvailable("rg")) {
       setStatus("Error: ripgrep ('rg') is not installed");
       return;
     }
@@ -2313,9 +2299,9 @@ public:
       if (!editor)
         editor = getenv("VISUAL");
       if (!editor) {
-        if (system("which nvim > /dev/null 2>&1") == 0)
+        if (isCommandAvailable("nvim"))
           editor = "nvim";
-        else if (system("which nano > /dev/null 2>&1") == 0)
+        else if (isCommandAvailable("nano"))
           editor = "nano";
         else
           editor = "vi";
@@ -2435,6 +2421,10 @@ public:
     }
   }
   void handleZip() {
+    if (!isCommandAvailable("zip")) {
+      setStatus("Error: 'zip' utility is not installed/available");
+      return;
+    }
     if (currentFiles.empty())
       return;
     std::vector<fs::path> targets;
@@ -2469,7 +2459,8 @@ public:
     }
     
     std::string extractCmd;
-    auto getExtractCommand = [this](const fs::path& archivePath, const fs::path& destDir, std::string& cmd) -> bool {
+    std::string requiredTool;
+    auto getExtractCommand = [this, &requiredTool](const fs::path& archivePath, const fs::path& destDir, std::string& cmd) -> bool {
       std::string ext = archivePath.extension().string();
       std::string pathStr = archivePath.string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
@@ -2482,15 +2473,19 @@ public:
                      (pathStr.length() > 4 && pathStr.substr(pathStr.length() - 4) == ".txz");
 
       if (ext == ".zip") {
+        requiredTool = "unzip";
         cmd = "unzip -q " + escapeShellArg(archivePath.string()) + " -d " + escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".tar" || isTarGz || isTarBz2 || isTarXz) {
+        requiredTool = "tar";
         cmd = "tar -xf " + escapeShellArg(archivePath.string()) + " -C " + escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".7z") {
+        requiredTool = "7z";
         cmd = "7z x -y " + escapeShellArg(archivePath.string()) + " -o" + escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".rar") {
+        requiredTool = "unrar";
         cmd = "unrar x -y " + escapeShellArg(archivePath.string()) + " " + escapeShellArg(destDir.string());
         return true;
       }
@@ -2499,6 +2494,11 @@ public:
 
     if (!getExtractCommand(file.path, currentPath, extractCmd)) {
       setStatus("Error: Unsupported archive format!");
+      return;
+    }
+
+    if (!isCommandAvailable(requiredTool)) {
+      setStatus("Error: '" + requiredTool + "' utility is not installed/available");
       return;
     }
 
@@ -4423,6 +4423,11 @@ public:
         mvwprintw(winPreview, contentStart, 2, " [Media File - No Preview on MTP] ");
         wattroff(winPreview, COLOR_PAIR(8));
         wnoutrefresh(winPreview);
+      } else if ((isVid || isImg) && (!isCommandAvailable("ffmpeg") || !isCommandAvailable("ffprobe"))) {
+        wattron(winPreview, COLOR_PAIR(8));
+        mvwprintw(winPreview, contentStart, 2, " [Media File - Install ffmpeg & ffprobe for preview] ");
+        wattroff(winPreview, COLOR_PAIR(8));
+        wnoutrefresh(winPreview);
       } else {
         bool match = false;
         {
@@ -4513,7 +4518,11 @@ public:
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
       if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
-        mediaFiles.push_back(p);
+        if (isCommandAvailable("mpv")) {
+          mediaFiles.push_back(p);
+        } else {
+          otherFiles.push_back(p);
+        }
       } else if (isCodeFile(ext) || !is_binary_file(p.string())) {
         codeFiles.push_back(p);
       } else {
@@ -4546,9 +4555,9 @@ public:
       if (!editor)
         editor = getenv("VISUAL");
       if (!editor) {
-        if (system("which nvim > /dev/null 2>&1") == 0)
+        if (isCommandAvailable("nvim"))
           editor = "nvim";
-        else if (system("which nano > /dev/null 2>&1") == 0)
+        else if (isCommandAvailable("nano"))
           editor = "nano";
         else
           editor = "vi";

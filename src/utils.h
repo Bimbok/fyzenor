@@ -74,5 +74,6 @@ bool is_binary_file(const std::string& path);
 std::string escapeShellArg(const std::string& str);
 bool fuzzyMatch(const std::string& str, const std::string& query);
 void initColors();
+bool isCommandAvailable(const std::string& cmd);
 
 #endif // UTILS_H

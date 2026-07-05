@@ -8,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <mutex>
 #include <ncurses.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -424,6 +425,23 @@ bool fuzzyMatch(const std::string& str, const std::string& query) {
     }
   }
   return false;
+}
+
+bool isCommandAvailable(const std::string& cmd) {
+  static std::unordered_map<std::string, bool> cache;
+  static std::mutex cacheMutex;
+
+  std::lock_guard<std::mutex> lock(cacheMutex);
+  auto it = cache.find(cmd);
+  if (it != cache.end()) {
+    return it->second;
+  }
+
+  std::string checkCmd = "which " + cmd + " > /dev/null 2>&1";
+  int res = std::system(checkCmd.c_str());
+  bool available = (res == 0);
+  cache[cmd] = available;
+  return available;
 }
 
 void initColors() {

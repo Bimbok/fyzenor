@@ -65,7 +65,7 @@ std::string getCachePath(const fs::path& p, int w, int h);
 size_t utf8_length(const std::string& str);
 std::string utf8_safe_truncate(const std::string& str, size_t max_cols);
 std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols);
-FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir);
+FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir, bool isEmptyDir = false);
 int getFinalPair(int base, bool isSelected, bool isSecondary);
 std::string base64_encode(const unsigned char* bytes, size_t len);
 std::string formatSize(uintmax_t size);

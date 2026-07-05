@@ -64,6 +64,15 @@ FileEntry::FileEntry(const fs::path& p) : path(p) {
     size = 0;
   }
 
+  is_empty_directory = false;
+  if (is_directory) {
+    try {
+      if (!isGvfs) {
+        is_empty_directory = (fs::directory_iterator(p) == fs::directory_iterator());
+      }
+    } catch (...) {}
+  }
+
   // Pre-format the compact modified time
   if (isGvfs || modified_time == fs::file_time_type::min()) {
     modified_time_str = "Unknown";
@@ -142,6 +151,15 @@ FileEntry::FileEntry(const fs::directory_entry& entry) : path(entry.path()) {
     }
   } catch (...) {
     size = 0;
+  }
+
+  is_empty_directory = false;
+  if (is_directory) {
+    try {
+      if (!isGvfs) {
+        is_empty_directory = (fs::directory_iterator(path) == fs::directory_iterator());
+      }
+    } catch (...) {}
   }
 
   // Pre-format the compact modified time

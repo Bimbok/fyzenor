@@ -13,6 +13,7 @@ struct FileEntry {
   std::string symlink_target;
   bool symlink_target_exists;
   bool is_symlink_directory;
+  bool is_empty_directory;
   fs::file_time_type modified_time;
   std::string modified_time_str;
 

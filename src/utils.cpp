@@ -171,7 +171,7 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   return "..." + str.substr(bytes);
 }
 
-FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir) {
+FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir, bool isEmptyDir) {
   std::string lowerName = name;
   std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
 
@@ -230,7 +230,7 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     if (lowerName == "theme" || lowerName == "themes" || lowerName == "styles" || lowerName == "css")
       return {1, "󰔎 "};
 
-    return {1, ICON_DIR};
+    return {1, isEmptyDir ? " " : ICON_DIR};
   }
 
   if (lowerName == "cmakelists.txt")

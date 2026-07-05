@@ -330,7 +330,6 @@ private:
                     if (isCut) filesToKeep.push_back(entry.path());
                   } else {
                     dirCopiedFully = false;
-                    try { fs::remove(d); } catch(...) {}
                   }
                 }
               }
@@ -358,8 +357,6 @@ private:
                 try { fs::remove(src); } catch(...) {}
               }
               jobOk = true;
-            } else {
-              try { fs::remove(dest); } catch(...) {}
             }
           }
           if (jobOk) {

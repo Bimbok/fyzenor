@@ -1857,10 +1857,8 @@ public:
         bool isArchive = (ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz" || 
                           ext == ".rar" || ext == ".bz2" || ext == ".xz" || ext == ".7z");
         
-        bool isMedia = (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || 
-                        ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" || 
-                        ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" || 
-                        ext == ".webp" || ext == ".bmp");
+        bool isAudio = (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" || 
+                        ext == ".m4a" || ext == ".aac" || ext == ".opus" || ext == ".wma");
 
         if (isArchive) {
           std::string archiveCmd;
@@ -1903,7 +1901,7 @@ public:
               lines.push_back("(Failed to run preview command)");
             }
           }
-        } else if (isMedia) {
+        } else if (isAudio) {
           std::string mediaCmd;
           if (isCommandAvailable("mediainfo")) {
             mediaCmd = "mediainfo \"" + job->path + "\" 2>/dev/null | head -n 40";
@@ -5247,11 +5245,9 @@ public:
     std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
     bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
                       extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
-    bool isMedia = (extLower == ".mp4" || extLower == ".mkv" || extLower == ".avi" || extLower == ".mov" || 
-                    extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
-                    extLower == ".jpg" || extLower == ".jpeg" || extLower == ".png" || extLower == ".gif" || 
-                    extLower == ".webp" || extLower == ".bmp");
-    bool isTextPreviewable = isCode || isArchive || isMedia;
+    bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
+                    extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
+    bool isTextPreviewable = isCode || isArchive || isAudio;
 
     bool isPdf = (file.extension == ".pdf");
     bool isDoc = (file.extension == ".doc" || file.extension == ".docx");

@@ -1,0 +1,20 @@
+pkgbase = fyzenor
+	pkgdesc = A modern, blazing-fast terminal file manager built in C++ with live previews and async workflows
+	pkgver = 3.0.0
+	pkgrel = 1
+	url = https://github.com/Bimbok/fyzenor
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cmake
+	makedepends = make
+	makedepends = gcc
+	depends = ncurses
+	depends = ffmpeg
+	depends = zip
+	depends = bat
+	depends = ripgrep
+	source = git+https://github.com/Bimbok/fyzenor.git#tag=v3.0.0
+	md5sums = SKIP
+
+pkgname = fyzenor

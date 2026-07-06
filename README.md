@@ -330,7 +330,7 @@ g=git diff
 l=ls -la
 ```
 
-When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspends NCurses mode, executes the command in your interactive shell (giving you full access to standard I/O), waits for you to press Enter, and then returns to the file manager, reloading the directory.
+When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspends NCurses mode, executes the command directly inside the currently browsed directory in your interactive shell (giving you full access to standard I/O), waits for you to press Enter, and then returns to the file manager, reloading the directory.
 
 ---
 

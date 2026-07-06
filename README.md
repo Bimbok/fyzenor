@@ -460,14 +460,15 @@ Fyzenor integrates with `bat` or `batcat` to preview code and text files with ri
 
 ### 1. Multi-Partition Trash System
 Fyzenor provides an in-built Freedesktop.org-compliant Trash manager:
+*   **Asynchronous Execution**: Trashing (`d`) runs entirely on background `AsyncTask` worker threads, ensuring that deleting large numbers of files (e.g. `Select All` -> `d`) never locks up or freezes the UI loop.
 *   **Automatic Mount Detection**: Trashing (`d`) automatically detects the mount point of the partition containing the file.
 *   **Partition Bins**: If the file is on your home partition, it moves to `~/.local/share/Trash`. On separate partitions (like shared drives or USB mounts), it creates and moves the file to `<mount_point>/.Trash-<uid>` to avoid slow, redundant cross-device copies.
 *   **External Drive Fallbacks**: On read-only or unsupported filesystems (where local trash folders cannot be created), Fyzenor prompts: `"Trash not supported. Delete permanently? (y/n)"`.
 *   **Trash Manager (`T`)**: Displays a unified list of trashed items across all mounted partition trash bins, resolving original filenames/extensions and allowing bulk Restoring (`r`), permanent Deletion (`d`), or Emptying (`e`) of all trash folders in the background.
 
 ### 2. Play/Pause Task Manager (`w`)
-Pressing `w` displays background worker queues (copying, moving, deleting, zipping, and extracting).
-*   **C++ Worker Suspend**: Pressing `Space` or `p` on a C++ task (like copy or delete) uses C++ condition variables to suspend the worker threads. They sleep at **0% CPU** consumption until resumed.
+Pressing `w` displays background worker queues (copying, moving, deleting, trashing, zipping, and extracting).
+*   **C++ Worker Suspend**: Pressing `Space` or `p` on a C++ task (like copy, delete, or trash) uses C++ condition variables to suspend the worker threads. They sleep at **0% CPU** consumption until resumed.
 *   **POSIX Subprocess Suspend**: Pausing external operations (Zip/Extract) sends a `SIGSTOP` signal to suspend the child process, and `SIGCONT` to resume it.
 *   **Safe Cancellation**: Paused tasks can be safely killed (`x` / `d`), automatically waking up the threads/subprocesses first to ensure clean exits and prevent zombie processes.
 

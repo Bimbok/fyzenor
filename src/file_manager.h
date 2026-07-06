@@ -1523,9 +1523,33 @@ public:
     queueCv.notify_one();
   }
 
+  void adjustLeftPane() {
+    if (isDualPaneMode) return;
+    if (!winPinned || !winParent) return;
+
+    int w1 = static_cast<int>(width * 0.18);
+    int hPinned = 0;
+    int hParent = 0;
+
+    if (parentFiles.empty()) {
+      hPinned = height - 2;
+      hParent = 1;
+    } else {
+      hPinned = (height - 2) / 3;
+      hParent = (height - 2) - hPinned;
+    }
+
+    wresize(winPinned, hPinned, w1);
+    mvwin(winPinned, 1, 0);
+
+    wresize(winParent, hParent, w1);
+    mvwin(winParent, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
+  }
+
   void loadParent() {
     if (isTrashMode) {
       parentFiles.clear();
+      adjustLeftPane();
       return;
     }
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
@@ -1547,6 +1571,7 @@ public:
     } else {
       parentFiles.clear();
     }
+    adjustLeftPane();
   }
 
   void updateLayout() {
@@ -1586,11 +1611,18 @@ public:
     if (winPreview)
       delwin(winPreview);
 
-    int hPinned = (height - 2) / 3;
-    int hParent = (height - 2) - hPinned;
+    int hPinned = 0;
+    int hParent = 0;
+    if (parentFiles.empty()) {
+      hPinned = height - 2;
+      hParent = 1;
+    } else {
+      hPinned = (height - 2) / 3;
+      hParent = (height - 2) - hPinned;
+    }
 
     winPinned = newwin(hPinned, w1, 1, 0);
-    winParent = newwin(hParent, w1, 1 + hPinned, 0);
+    winParent = newwin(hParent, w1, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
     winCurrent = newwin(height - 2, w2, 1, w1);
     winPreview = newwin(height - 2, w3, 1, w1 + w2);
 
@@ -3291,6 +3323,10 @@ public:
   void drawParent() {
     if (!winParent) return;
     werase(winParent);
+    if (parentFiles.empty()) {
+      wnoutrefresh(winParent);
+      return;
+    }
     wattron(winParent, COLOR_PAIR(6));
     drawRoundedBox(winParent);
     wattroff(winParent, COLOR_PAIR(6));

@@ -80,7 +80,6 @@ private:
   bool focusPinned = false;
   size_t selectedIndex;
   size_t scrollOffset;
-  std::unordered_map<std::string, std::string> currentGitStatus;
   std::unordered_map<int, std::string> customMacros;
 
   WINDOW *winPinned, *winParent, *winCurrent, *winPreview;
@@ -1555,30 +1554,6 @@ public:
     target.clear();
     multiSelection.clear();
     currentViewId++;
-
-    currentGitStatus.clear();
-    if (!isTrashMode && isCommandAvailable("git")) {
-      std::string gitCmd = "cd \"" + path.string() + "\" 2>/dev/null && git status --porcelain 2>/dev/null";
-      FILE* pipe = popen(gitCmd.c_str(), "r");
-      if (pipe) {
-        char buf[1024];
-        while (fgets(buf, sizeof(buf), pipe) != nullptr) {
-          std::string line(buf);
-          if (line.length() > 3) {
-            std::string status = line.substr(0, 2);
-            std::string gitPath = line.substr(3);
-            if (!gitPath.empty() && gitPath.back() == '\n') gitPath.pop_back();
-            if (gitPath.front() == '"' && gitPath.back() == '"') {
-              gitPath = gitPath.substr(1, gitPath.length() - 2);
-            }
-            size_t slash = gitPath.find('/');
-            std::string topLevelName = (slash == std::string::npos) ? gitPath : gitPath.substr(0, slash);
-            currentGitStatus[topLevelName] = status;
-          }
-        }
-        pclose(pipe);
-      }
-    }
 
     {
       std::lock_guard<std::mutex> lock(queueMutex);
@@ -3953,31 +3928,8 @@ public:
       } else {
         sz = file.modified_time_str;
       }
-      // Git status overlay check for width calculations
-      std::string gitBadge = "";
-      int gitPair = 0;
-      if (!paneIsTrashMode) {
-        auto gitIt = currentGitStatus.find(file.name);
-        if (gitIt != currentGitStatus.end()) {
-          std::string status = gitIt->second;
-          while (!status.empty() && isspace(status.front())) status = status.substr(1);
-          while (!status.empty() && isspace(status.back())) status.pop_back();
-
-          if (status == "M") {
-            gitBadge = " [M]";
-            gitPair = isSelected ? finalPair : 4;
-          } else if (status == "??" || status == "?") {
-            gitBadge = " [?]";
-            gitPair = isSelected ? finalPair : 7;
-          } else if (status == "A") {
-            gitBadge = " [A]";
-            gitPair = isSelected ? finalPair : 26;
-          }
-        }
-      }
 
       int availWidth = getmaxx(win) - sz.length() - 11;
-      if (!gitBadge.empty()) availWidth -= 4;
       if (availWidth < 10) availWidth = 10;
 
       std::string fullDisplay = dirPart + filePart;
@@ -4046,12 +3998,6 @@ public:
         }
       } else {
         wprintw(win, "%s", filePart.c_str());
-      }
-
-      if (!gitBadge.empty()) {
-        wattron(win, COLOR_PAIR(gitPair) | A_BOLD);
-        wprintw(win, "%s", gitBadge.c_str());
-        wattroff(win, COLOR_PAIR(gitPair) | A_BOLD);
       }
 
       if (!symDisplay.empty()) {
@@ -5296,6 +5242,16 @@ public:
     bool isImg = IMAGE_EXTS.count(file.extension);
     bool isCode = isCodeFile(file.extension);
 
+    std::string extLower = file.extension;
+    std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
+    bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
+                      extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
+    bool isMedia = (extLower == ".mp4" || extLower == ".mkv" || extLower == ".avi" || extLower == ".mov" || 
+                    extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
+                    extLower == ".jpg" || extLower == ".jpeg" || extLower == ".png" || extLower == ".gif" || 
+                    extLower == ".webp" || extLower == ".bmp");
+    bool isTextPreviewable = isCode || isArchive || isMedia;
+
     bool isPdf = (file.extension == ".pdf");
     bool isDoc = (file.extension == ".doc" || file.extension == ".docx");
     bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
@@ -5370,7 +5326,7 @@ public:
         mvwprintw(winPreview, contentStart, 2, " [PowerPoint Presentation - No Preview] ");
       wattroff(winPreview, COLOR_PAIR(8));
       wnoutrefresh(winPreview);
-    } else if (isVid || isImg || isCode) {
+    } else if (isVid || isImg || isTextPreviewable) {
       bool isGvfs = (file.path.string().find("/gvfs/") != std::string::npos);
       if ((isVid || isImg) && isGvfs) {
         wattron(winPreview, COLOR_PAIR(8));
@@ -5390,7 +5346,7 @@ public:
             match = true;
         }
         if (match) {
-          if (isCode)
+          if (isTextPreviewable)
             drawCachedTextPreview();
           else
             pendingDirectRenderType = PreviewType::IMAGE;
@@ -5398,7 +5354,7 @@ public:
           wattron(winPreview, A_ITALIC | A_DIM);
           mvwprintw(winPreview, contentStart, 4, "Generating preview...");
           wattroff(winPreview, A_ITALIC | A_DIM);
-          PreviewType type = isCode ? PreviewType::TEXT : PreviewType::IMAGE;
+          PreviewType type = isTextPreviewable ? PreviewType::TEXT : PreviewType::IMAGE;
           startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
         }
       }

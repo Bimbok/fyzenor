@@ -168,6 +168,26 @@ EOF
             echo -e "${YELLOW}Failed to create desktop entry.${NC}"
         fi
     fi
+
+    # 7. Create default keys.fz macro config if not existing
+    CONFIG_DIR="$HOME/.config/fyzenor"
+    KEYS_FILE="$CONFIG_DIR/keys.fz"
+    mkdir -p "$CONFIG_DIR"
+    if [ ! -f "$KEYS_FILE" ]; then
+        echo -e "${BLUE}Generating default keyboard macros config in $KEYS_FILE...${NC}"
+        cat <<EOF > "$KEYS_FILE"
+# Fyzenor Custom Keys Macro Configuration
+# Format: single_key=command
+# Macros:
+#   \$f - expands to the currently highlighted file's absolute path
+#   \$s - expands to space-separated paths of all selected files
+# Examples:
+#   v=nvim "\$f"
+#   g=git status
+#   l=ls -la
+EOF
+        echo -e "${GREEN}Default keys.fz generated!${NC}"
+    fi
 else
     echo -e "${RED}Failed to move binary to $INSTALL_PATH. You may need to move it manually.${NC}"
     exit 1

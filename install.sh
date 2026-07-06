@@ -17,7 +17,28 @@ echo -e "${GREEN}╩   ╩ ╚═╝╚═╝╝╚╝╚═╝╩╚═${NC}"
 echo -e "${BLUE}The Blazing Fast Modern C++ File Manager${NC}\n"
 
 REPO_URL="https://github.com/Bimbok/fyzenor.git"
-INSTALL_PATH="/usr/local/bin/fyzenor"
+
+# Detect Termux environment
+IS_TERMUX=false
+if [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux/files/usr" ]; then
+    IS_TERMUX=true
+fi
+
+if $IS_TERMUX; then
+    PREFIX_PATH="${PREFIX:-/data/data/com.termux/files/usr}"
+    INSTALL_PATH="$PREFIX_PATH/bin/fyzenor"
+else
+    INSTALL_PATH="/usr/local/bin/fyzenor"
+fi
+
+# Helper function to run commands with/without sudo
+run_cmd() {
+    if $IS_TERMUX; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
 
 # Function to check dependency
 check_dep() {
@@ -52,7 +73,11 @@ fi
 
 # 3. Dependencies Check
 echo -e "${BLUE}Checking dependencies...${NC}"
-DEPS=("g++" "cmake" "ffmpeg" "zip" "rg")
+COMPILER="g++"
+if $IS_TERMUX; then
+    COMPILER="clang++"
+fi
+DEPS=("$COMPILER" "cmake" "ffmpeg" "zip" "rg")
 MISSING_DEPS=()
 
 for dep in "${DEPS[@]}"; do
@@ -72,7 +97,11 @@ if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
         echo -e " - $dep"
     done
     echo -e "${YELLOW}Some features (previews, zip, search, fuzzy find) might not work until installed.${NC}"
-    echo -e "On Debian/Ubuntu: ${GREEN}sudo apt install libncursesw5-dev ffmpeg zip bat ripgrep${NC}\n"
+    if $IS_TERMUX; then
+        echo -e "On Termux: ${GREEN}pkg install clang cmake ndk-sysroot ncurses-utils ffmpeg zip bat ripgrep${NC}\n"
+    else
+        echo -e "On Debian/Ubuntu: ${GREEN}sudo apt install libncursesw5-dev ffmpeg zip bat ripgrep${NC}\n"
+    fi
 fi
 
 # 4. Compilation
@@ -83,7 +112,7 @@ if cmake .. && make; then
     echo -e "${GREEN}Compilation successful!${NC}"
     cd ..
 else
-    echo -e "${RED}Compilation failed. Please check if 'libncursesw-dev', 'cmake', and 'g++' are installed.${NC}"
+    echo -e "${RED}Compilation failed. Please check if 'libncursesw-dev' (or 'ncurses-utils'/'ncurses-devel'), 'cmake', and your C++ compiler are installed.${NC}"
     exit 1
 fi
 
@@ -94,32 +123,33 @@ else
     echo -e "${BLUE}Installing Fyzenor...${NC}"
 fi
 
-if sudo mv build/fyzenor "$INSTALL_PATH"; then
+if run_cmd mv build/fyzenor "$INSTALL_PATH"; then
     echo -e "${GREEN}Fyzenor is now installed/updated at $INSTALL_PATH${NC}"
     # Create symlink 'fm'
-    if sudo ln -sf "$INSTALL_PATH" "$(dirname "$INSTALL_PATH")/fm"; then
+    if run_cmd ln -sf "$INSTALL_PATH" "$(dirname "$INSTALL_PATH")/fm"; then
         echo -e "${GREEN}Symlink 'fm' created successfully.${NC}"
     else
-        echo -e "${YELLOW}Failed to create symlink 'fm'. You can do it manually: sudo ln -sf $INSTALL_PATH /usr/local/bin/fm${NC}"
+        echo -e "${YELLOW}Failed to create symlink 'fm'. You can do it manually: ln -sf $INSTALL_PATH $(dirname "$INSTALL_PATH")/fm${NC}"
     fi
 
     # 6. Create Desktop Entry
-    echo -e "${BLUE}Creating desktop entry...${NC}"
-    DESKTOP_FILE="/usr/share/applications/fyzenor.desktop"
-    ICON_SOURCE="fyzenor.png"
-    ICON_DEST="/usr/share/pixmaps/fyzenor.png"
+    if ! $IS_TERMUX; then
+        echo -e "${BLUE}Creating desktop entry...${NC}"
+        DESKTOP_FILE="/usr/share/applications/fyzenor.desktop"
+        ICON_SOURCE="fyzenor.png"
+        ICON_DEST="/usr/share/pixmaps/fyzenor.png"
 
-    # Copy icon if it exists in the current directory
-    if [ -f "$ICON_SOURCE" ]; then
-        if sudo cp "$ICON_SOURCE" "$ICON_DEST"; then
-            echo -e "${GREEN}Icon installed at $ICON_DEST${NC}"
-        else
-            echo -e "${YELLOW}Failed to install icon at $ICON_DEST${NC}"
+        # Copy icon if it exists in the current directory
+        if [ -f "$ICON_SOURCE" ]; then
+            if run_cmd cp "$ICON_SOURCE" "$ICON_DEST"; then
+                echo -e "${GREEN}Icon installed at $ICON_DEST${NC}"
+            else
+                echo -e "${YELLOW}Failed to install icon at $ICON_DEST${NC}"
+            fi
         fi
-    fi
 
-    # Create the .desktop file
-    cat <<EOF | sudo tee "$DESKTOP_FILE" > /dev/null
+        # Create the .desktop file
+        cat <<EOF | run_cmd tee "$DESKTOP_FILE" > /dev/null
 [Desktop Entry]
 Type=Application
 Name=Fyzenor
@@ -131,11 +161,12 @@ Categories=System;FileTools;FileManager;Utility;
 Keywords=file;manager;terminal;tui;cpp;
 EOF
 
-    if [ -f "$DESKTOP_FILE" ]; then
-        sudo chmod 644 "$DESKTOP_FILE"
-        echo -e "${GREEN}Desktop entry created at $DESKTOP_FILE${NC}"
-    else
-        echo -e "${YELLOW}Failed to create desktop entry.${NC}"
+        if [ -f "$DESKTOP_FILE" ]; then
+            run_cmd chmod 644 "$DESKTOP_FILE"
+            echo -e "${GREEN}Desktop entry created at $DESKTOP_FILE${NC}"
+        else
+            echo -e "${YELLOW}Failed to create desktop entry.${NC}"
+        fi
     fi
 else
     echo -e "${RED}Failed to move binary to $INSTALL_PATH. You may need to move it manually.${NC}"

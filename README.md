@@ -144,14 +144,26 @@ On Debian-based or Ubuntu-based systems:
 sudo apt update
 sudo apt install build-essential libncursesw5-dev ffmpeg zip bat xclip wl-copy ripgrep
 ```
-On Fedora based systems:
+On Fedora-based systems:
 
 ```bash
 sudo dnf update
 sudo dnf install gcc gcc-c++ make ncurses-devel ffmpeg zip bat xclip wl-clipboard ripgrep
 ```
+On Arch Linux-based systems:
 
-- **`libncursesw` or `ncurses-devel`**: Essential for wide-character terminal rendering.
+```bash
+sudo pacman -Sy
+sudo pacman -S base-devel ncurses ffmpeg zip bat xclip wl-clipboard ripgrep
+```
+On Termux (Android) environments:
+
+```bash
+pkg update
+pkg install clang cmake ndk-sysroot ncurses-utils ffmpeg zip bat ripgrep
+```
+
+- **`libncursesw`, `ncurses`, or `ncurses-utils`**: Essential for wide-character terminal rendering.
 - **`ffmpeg`**: Powers asynchronous thumbnail generation for images and videos.
 - **`zip`**: Required for built-in archive creation.
 - **`bat` or `batcat`**: Used for syntax-highlighted text previews.

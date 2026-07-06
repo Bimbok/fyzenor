@@ -123,7 +123,7 @@ else
     echo -e "${BLUE}Installing Fyzenor...${NC}"
 fi
 
-if run_cmd mv build/fyzenor "$INSTALL_PATH"; then
+if run_cmd mv build/fyzenor "$INSTALL_PATH" && run_cmd chmod 755 "$INSTALL_PATH"; then
     echo -e "${GREEN}Fyzenor is now installed/updated at $INSTALL_PATH${NC}"
     # Create symlink 'fm'
     if run_cmd ln -sf "$INSTALL_PATH" "$(dirname "$INSTALL_PATH")/fm"; then

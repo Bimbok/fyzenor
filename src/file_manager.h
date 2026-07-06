@@ -5121,8 +5121,28 @@ public:
       return;
     }
 
+    bool samePathAndImage = false;
+    if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+      const auto& nextFile = currentFiles[selectedIndex];
+      std::string extLower = nextFile.extension;
+      std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
+      bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
+                        extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
+      bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
+                      extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
+      bool isCode = isCodeFile(nextFile.extension);
+      bool isTextPreviewable = isCode || isArchive || isAudio;
+      
+      bool isVid = VIDEO_EXTS.count(nextFile.extension);
+      bool isImg = IMAGE_EXTS.count(nextFile.extension);
+      
+      if (nextFile.path.string() == cachedPath && !isTextPreviewable && (isVid || isImg)) {
+        samePathAndImage = true;
+      }
+    }
+
     pendingDirectRenderType = PreviewType::NONE;
-    if (lastWasDirectRender)
+    if (lastWasDirectRender && !samePathAndImage)
       clearDirectRender();
     werase(winPreview);
     wattron(winPreview, COLOR_PAIR(6));

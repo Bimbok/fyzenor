@@ -245,6 +245,14 @@ make
 
 This route is useful if you want direct control over compilation or want to test local modifications before installation.
 
+## 🔍 Rich Previews
+
+### Archive Tree Previewer
+Fyzenor reads `.zip`, `.tar.gz`, `.tgz`, `.7z`, and `.rar` archive tables on the fly without extraction. It leverages background listing tools (`unzip`, `tar`, `7z`, `unrar`) to display a neat directory layout right in the preview pane.
+
+### Media Metadata Inspector
+Get information about your media files (`.mp4`, `.mp3`, `.mov`, `.png`, `.jpg`, etc.) dynamically. The preview worker uses `mediainfo` or `ffprobe` (via `ffmpeg`) to show streams metadata, codecs, channels, sample rates, and tags.
+
 ---
 
 ## 🎨 Customization & Theming

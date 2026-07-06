@@ -1427,7 +1427,8 @@ public:
     std::system("clear");
     std::cout << "\033[1;36m[Fyzenor Macro] Running: " << cmd << "\033[0m\n\n";
     
-    int code = std::system(cmd.c_str());
+    std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && " + cmd;
+    int code = std::system(runCmd.c_str());
     (void)code;
     
     std::cout << "\n\033[1;30mPress Enter to return to Fyzenor...\033[0m";

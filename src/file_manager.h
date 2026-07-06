@@ -80,6 +80,8 @@ private:
   bool focusPinned = false;
   size_t selectedIndex;
   size_t scrollOffset;
+  std::unordered_map<std::string, std::string> currentGitStatus;
+  std::unordered_map<int, std::string> customMacros;
 
   WINDOW *winPinned, *winParent, *winCurrent, *winPreview;
   int width, height;
@@ -1022,6 +1024,7 @@ public:
         winCurrent(nullptr), winPreview(nullptr) {
     setlocale(LC_ALL, "");
     loadPins();
+    loadCustomMacros();
 
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
     previewWorker = std::thread(&FileManager::processPreviewWorker, this);
@@ -1342,6 +1345,101 @@ public:
       }
     }
   }
+  void loadCustomMacros() {
+    customMacros.clear();
+    std::string homeDir = getenv("HOME") ? getenv("HOME") : "";
+    if (homeDir.empty()) return;
+
+    std::string configPath = homeDir + "/.config/fyzenor/keys.fz";
+    try {
+      fs::create_directories(homeDir + "/.config/fyzenor");
+    } catch (...) {}
+
+    if (!fs::exists(configPath)) {
+      std::ofstream df(configPath);
+      df << "# Fyzenor Custom Keys Macro Configuration\n"
+         << "# Format: single_key=command\n"
+         << "# Macros:\n"
+         << "#   $f - expands to the currently highlighted file's absolute path\n"
+         << "#   $s - expands to space-separated paths of all selected files\n"
+         << "# Examples:\n"
+         << "#   v=nvim \"$f\"\n"
+         << "#   g=git status\n"
+         << "#   l=ls -la\n";
+    }
+
+    std::ifstream f(configPath);
+    if (!f.is_open()) return;
+
+    std::string line;
+    while (std::getline(f, line)) {
+      if (line.empty() || line.front() == '#') continue;
+
+      size_t eq = line.find('=');
+      if (eq != std::string::npos && eq > 0) {
+        std::string keyPart = line.substr(0, eq);
+        std::string cmdPart = line.substr(eq + 1);
+        
+        while (!keyPart.empty() && isspace(keyPart.front())) keyPart = keyPart.substr(1);
+        while (!keyPart.empty() && isspace(keyPart.back())) keyPart.pop_back();
+        while (!cmdPart.empty() && isspace(cmdPart.front())) cmdPart = cmdPart.substr(1);
+        while (!cmdPart.empty() && isspace(cmdPart.back())) cmdPart.pop_back();
+
+        if (keyPart.length() == 1 && !cmdPart.empty()) {
+          int keyChar = keyPart[0];
+          customMacros[keyChar] = cmdPart;
+        }
+      }
+    }
+  }
+
+  void executeMacro(const std::string& rawCmd) {
+    if (rawCmd.empty()) return;
+
+    std::string cmd = rawCmd;
+    std::string currentFile = "";
+    if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+      currentFile = currentFiles[selectedIndex].path.string();
+    }
+
+    size_t pos;
+    while ((pos = cmd.find("$f")) != std::string::npos) {
+      cmd.replace(pos, 2, "\"" + currentFile + "\"");
+    }
+
+    if (cmd.find("$s") != std::string::npos) {
+      std::string selList = "";
+      if (!multiSelection.empty()) {
+        for (const auto& p : multiSelection) {
+          selList += "\"" + p.string() + "\" ";
+        }
+        if (!selList.empty()) selList.pop_back();
+      } else {
+        selList = "\"" + currentFile + "\"";
+      }
+      while ((pos = cmd.find("$s")) != std::string::npos) {
+        cmd.replace(pos, 2, selList);
+      }
+    }
+
+    def_prog_mode();
+    endwin();
+    
+    std::system("clear");
+    std::cout << "\033[1;36m[Fyzenor Macro] Running: " << cmd << "\033[0m\n\n";
+    
+    int code = std::system(cmd.c_str());
+    (void)code;
+    
+    std::cout << "\n\033[1;30mPress Enter to return to Fyzenor...\033[0m";
+    std::cin.get();
+    
+    reset_prog_mode();
+    refresh();
+    clear();
+    updateLayout();
+    reloadAll();
+  }
   void savePins() {
     std::ofstream f(getPinFile());
     for (const auto& p : pinnedPaths)
@@ -1457,6 +1555,31 @@ public:
     target.clear();
     multiSelection.clear();
     currentViewId++;
+
+    currentGitStatus.clear();
+    if (!isTrashMode && isCommandAvailable("git")) {
+      std::string gitCmd = "cd \"" + path.string() + "\" 2>/dev/null && git status --porcelain 2>/dev/null";
+      FILE* pipe = popen(gitCmd.c_str(), "r");
+      if (pipe) {
+        char buf[1024];
+        while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+          std::string line(buf);
+          if (line.length() > 3) {
+            std::string status = line.substr(0, 2);
+            std::string gitPath = line.substr(3);
+            if (!gitPath.empty() && gitPath.back() == '\n') gitPath.pop_back();
+            if (gitPath.front() == '"' && gitPath.back() == '"') {
+              gitPath = gitPath.substr(1, gitPath.length() - 2);
+            }
+            size_t slash = gitPath.find('/');
+            std::string topLevelName = (slash == std::string::npos) ? gitPath : gitPath.substr(0, slash);
+            currentGitStatus[topLevelName] = status;
+          }
+        }
+        pclose(pipe);
+      }
+    }
+
     {
       std::lock_guard<std::mutex> lock(queueMutex);
       sizeQueue.clear();
@@ -1752,7 +1875,92 @@ public:
           }
         }
       } else if (job->type == PreviewType::TEXT) {
-        if (is_binary_file(job->path)) {
+        std::string ext = fs::path(job->path).extension().string();
+        for (auto& c : ext) c = tolower(c);
+
+        bool isArchive = (ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz" || 
+                          ext == ".rar" || ext == ".bz2" || ext == ".xz" || ext == ".7z");
+        
+        bool isMedia = (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || 
+                        ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" || 
+                        ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" || 
+                        ext == ".webp" || ext == ".bmp");
+
+        if (isArchive) {
+          std::string archiveCmd;
+          if (ext == ".zip") {
+            archiveCmd = "unzip -l \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".7z") {
+            archiveCmd = "7z l \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".rar") {
+            archiveCmd = "unrar l \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".tar") {
+            archiveCmd = "tar -tf \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".gz" || ext == ".tgz") {
+            archiveCmd = "tar -ztf \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".bz2") {
+            archiveCmd = "tar -jtf \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (ext == ".xz") {
+            archiveCmd = "tar -Jtf \"" + job->path + "\" 2>/dev/null | head -n 40";
+          }
+
+          lines.push_back("\033[1;36mArchive Contents:\033[0m");
+          lines.push_back("--------------------------------");
+          if (!archiveCmd.empty()) {
+            FILE* pipe = popen(archiveCmd.c_str(), "r");
+            if (pipe) {
+              char buf[4096];
+              bool hasData = false;
+              while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+                if (job->reqId != requestID || stopWorker)
+                  break;
+                std::string ln(buf);
+                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                lines.push_back(ln);
+                hasData = true;
+              }
+              pclose(pipe);
+              if (!hasData) {
+                lines.push_back("(No list tool available or empty archive)");
+              }
+            } else {
+              lines.push_back("(Failed to run preview command)");
+            }
+          }
+        } else if (isMedia) {
+          std::string mediaCmd;
+          if (isCommandAvailable("mediainfo")) {
+            mediaCmd = "mediainfo \"" + job->path + "\" 2>/dev/null | head -n 40";
+          } else if (isCommandAvailable("ffprobe")) {
+            mediaCmd = "ffprobe -v error -show_format -show_streams \"" + job->path + "\" 2>/dev/null | grep -E \"codec_name|duration|bit_rate|width|height|sample_rate|channels|title|artist\" | head -n 40";
+          }
+
+          lines.push_back("\033[1;35mMedia Info Metadata:\033[0m");
+          lines.push_back("--------------------------------");
+          if (!mediaCmd.empty()) {
+            FILE* pipe = popen(mediaCmd.c_str(), "r");
+            if (pipe) {
+              char buf[4096];
+              bool hasData = false;
+              while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+                if (job->reqId != requestID || stopWorker)
+                  break;
+                std::string ln(buf);
+                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                lines.push_back(ln);
+                hasData = true;
+              }
+              pclose(pipe);
+              if (!hasData) {
+                lines.push_back("(Failed to read stream metadata)");
+              }
+            } else {
+              lines.push_back("(Failed to run media probe)");
+            }
+          } else {
+            lines.push_back("(Install 'mediainfo' or 'ffmpeg' for full metadata previews)");
+          }
+        } else if (is_binary_file(job->path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
           if (job->reqId != requestID)
@@ -3745,7 +3953,31 @@ public:
       } else {
         sz = file.modified_time_str;
       }
+      // Git status overlay check for width calculations
+      std::string gitBadge = "";
+      int gitPair = 0;
+      if (!paneIsTrashMode) {
+        auto gitIt = currentGitStatus.find(file.name);
+        if (gitIt != currentGitStatus.end()) {
+          std::string status = gitIt->second;
+          while (!status.empty() && isspace(status.front())) status = status.substr(1);
+          while (!status.empty() && isspace(status.back())) status.pop_back();
+
+          if (status == "M") {
+            gitBadge = " [M]";
+            gitPair = isSelected ? finalPair : 4;
+          } else if (status == "??" || status == "?") {
+            gitBadge = " [?]";
+            gitPair = isSelected ? finalPair : 7;
+          } else if (status == "A") {
+            gitBadge = " [A]";
+            gitPair = isSelected ? finalPair : 26;
+          }
+        }
+      }
+
       int availWidth = getmaxx(win) - sz.length() - 11;
+      if (!gitBadge.empty()) availWidth -= 4;
       if (availWidth < 10) availWidth = 10;
 
       std::string fullDisplay = dirPart + filePart;
@@ -3814,6 +4046,12 @@ public:
         }
       } else {
         wprintw(win, "%s", filePart.c_str());
+      }
+
+      if (!gitBadge.empty()) {
+        wattron(win, COLOR_PAIR(gitPair) | A_BOLD);
+        wprintw(win, "%s", gitBadge.c_str());
+        wattroff(win, COLOR_PAIR(gitPair) | A_BOLD);
       }
 
       if (!symDisplay.empty()) {
@@ -5617,6 +5855,15 @@ public:
       needsRedraw = true;
       if (ch != ERR) {
         statusMessage = "";
+      }
+
+      // Check for custom key bindings macro first!
+      if (!focusPinned && ch != ERR) {
+        auto macroIt = customMacros.find(ch);
+        if (macroIt != customMacros.end()) {
+          executeMacro(macroIt->second);
+          continue;
+        }
       }
 
       if (ch == 'q') {

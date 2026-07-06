@@ -98,6 +98,9 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Flicker-Free Rendering**         | Optimized redraw behavior keeps the interface smooth while reducing unnecessary terminal updates.                                                     |
 | **Rich File Operations**           | Create files/folders, rename entries, zip selections, copy absolute paths, and manage content without leaving the TUI.                                |
 | **Theme Support**                  | Customize the UI through `~/.config/fyzenor/colors.fz`, with optional Matugen-powered wallpaper theming.                                              |
+| **Archive Previewer**              | Inspect contents of `.zip`, `.tar.gz`, `.rar`, `.7z` archives directly in the TUI preview pane without extracting them.                                |
+| **Media Metadata Inspector**        | Read codec names, bitrates, dimensions, sample rates, title, and artist metadata tags for images, audio, and video tracks.                             |
+| **Custom Key Macros**              | Map single-key binds in `~/.config/fyzenor/keys.fz` to run terminal macros with path placeholders (`$f`, `$s`).                                         |
 | **Editor Integration**             | Opens text/code files with your configured editor via `$EDITOR` or `$VISUAL`, with sensible fallbacks.                                                |
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
@@ -308,6 +311,26 @@ output_path = "~/.config/fyzenor/colors.fz"
 ```bash
 matugen image /path/to/your/wallpaper.jpg
 ```
+
+---
+
+### 🛠️ Custom Keyboard Macros (`keys.fz`)
+
+You can map single-key shortcuts to run shell commands on currently highlighted or selected files. 
+
+Create `~/.config/fyzenor/keys.fz` and specify key mappings:
+
+```text
+# Syntax: key_character=shell_command
+# $f - Expands to highlighted file path
+# $s - Expands to space-separated selected paths (falls back to $f if none selected)
+
+v=nvim "$f"
+g=git diff
+l=ls -la
+```
+
+When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspends NCurses mode, executes the command in your interactive shell (giving you full access to standard I/O), waits for you to press Enter, and then returns to the file manager, reloading the directory.
 
 ---
 

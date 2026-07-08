@@ -2011,9 +2011,12 @@ public:
 
   int getPreviewContentStartLine() {
     if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
-      return 7;
+      return 6;
     }
-    return currentFiles[selectedIndex].is_symlink ? 8 : 7;
+    if (isTrashMode) {
+      return 8;
+    }
+    return currentFiles[selectedIndex].is_symlink ? 7 : 6;
   }
 
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
@@ -5244,7 +5247,7 @@ public:
       mvwprintw(winPreview, 5, 2, " Original: %s", orig.c_str());
       mvwprintw(winPreview, 6, 2, " Deleted:  %s", ti.deletionDate.c_str());
       wattroff(winPreview, A_DIM);
-      dividerLine = 8;
+      dividerLine = 7;
     } else if (file.is_symlink) {
       wattron(winPreview, A_DIM);
       mvwprintw(winPreview, 5, 2, " Target: %s", file.symlink_target.c_str());

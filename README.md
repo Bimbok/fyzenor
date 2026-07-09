@@ -253,6 +253,9 @@ Fyzenor reads `.zip`, `.tar.gz`, `.tgz`, `.7z`, and `.rar` archive tables on the
 ### Media Metadata Inspector
 Get information about your media files (`.mp4`, `.mp3`, `.mov`, `.png`, `.jpg`, etc.) dynamically. The preview worker uses `mediainfo` or `ffprobe` (via `ffmpeg`) to show streams metadata, codecs, channels, sample rates, and tags.
 
+### PDF Text Layout Previewer
+If `pdftotext` (from `poppler-utils`) is installed on your system, Fyzenor asynchronously extracts and renders the formatted text layouts of the first 3 pages of `.pdf` files directly in the preview pane.
+
 ---
 
 ## 🎨 Customization & Theming

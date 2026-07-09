@@ -415,6 +415,9 @@ flowchart TD
 | `/`                   | **Search** content (ripgrep)    |
 | `f`                   | **Fuzzy Find** files (internal) |
 | `w`                   | **Active Tasks** manager overlay |
+| `Ctrl+O`              | Go back in directory navigation history |
+| `Ctrl+P`              | Go forward in directory navigation history |
+| `H`                   | **History Overlay** (jump to recently visited directories) |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 
@@ -436,6 +439,7 @@ flowchart TD
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |
+| `I`             | **Visual Permissions & Ownership Editor** (inspect/edit chmod/chown) |
 
 ### Selection, View & Pins
 
@@ -502,11 +506,24 @@ Pressing `w` displays background worker queues (copying, moving, deleting, trash
 *   **C++ Worker Suspend**: Pressing `Space` or `p` on a C++ task (like copy, delete, or trash) uses C++ condition variables to suspend the worker threads. They sleep at **0% CPU** consumption until resumed.
 *   **POSIX Subprocess Suspend**: Pausing external operations (Zip/Extract) sends a `SIGSTOP` signal to suspend the child process, and `SIGCONT` to resume it.
 *   **Safe Cancellation**: Paused tasks can be safely killed (`x` / `d`), automatically waking up the threads/subprocesses first to ensure clean exits and prevent zombie processes.
+*   **Throughput & Timing Metrics**: Actively displays task execution durations (in seconds) and live transfer speeds (e.g. `MB/s`) for copying and moving operations.
+*   **Completed Tasks History Log**: Displays a split-pane log of recent completed, cancelled, or failed background operations. Clear the logs by pressing `c`.
 
 ### 3. Smart Copy Resumption (Delta Copying)
 When performing a paste operation:
 *   **Skipping**: Files that already exist at the destination and match the source size are skipped instantly.
 *   **Resumption**: If a copy was cancelled or interrupted, Fyzenor opens the destination file, seeks to its current size, seeks to the same position in the source file, and resumes copying **only the remaining bytes** block-by-block. Symlinks are automatically deleted and replaced to avoid overwriting their target paths.
+
+### 4. Visual Permissions & Ownership Editor (`I`)
+Instead of typing commands in a shell command prompt, users can launch an interactive modal overlay by pressing `I` (Shift+i) on any highlighted file.
+*   **Checkbox Permission Grid**: Visual 3x3 checkbox matrix to view and toggle Read, Write, and Execute bits for Owner, Group, and Others.
+*   **Ncurses Interactive Controls**: Allows using Vim navigation keys (`h`/`j`/`k`/`l` or Arrows) and toggling with `Space` or `Enter`.
+*   **Metadata Field Modifiers**: Pressing `Enter` on the Owner or Group rows prompts the user to easily change the user/group IDs or usernames via POSIX `chown`.
+
+### 5. Tab-Scoped Navigation History (`Ctrl+O` / `Ctrl+P` / `H`)
+Fyzenor tracks navigation transitions (folder entries, parent traversal, pinned jumps, mount browsing) independently for each tab.
+*   **Jump Navigation**: Press `Ctrl+O` to jump back to the previously visited directory, and `Ctrl+P` to jump forward.
+*   **Navigation History List (`H`)**: Press `H` to open a pop-up listing recently visited directory paths (newest first). Selecting a path and pressing `Enter` jumps directly to that folder and saves the jump to the back history stack.
 
 ---
 

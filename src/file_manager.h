@@ -283,15 +283,20 @@ private:
           bool isSel = (i == (int)selectedHistoryIndex);
           int lineY = 3 + i;
 
+          std::string pathStr = path.string();
+          if ((int)pathStr.length() > w - 6) {
+            pathStr = utf8_safe_truncate_left(pathStr, w - 6);
+          }
+
           if (isSel) {
             wattron(histWin, COLOR_PAIR(6) | A_BOLD);
             for (int j = 1; j < w - 1; ++j) {
               mvwaddch(histWin, lineY, j, ' ');
             }
-            mvwprintw(histWin, lineY, 2, "➜ %s", path.string().c_str());
+            mvwprintw(histWin, lineY, 2, "➜ %s", pathStr.c_str());
             wattroff(histWin, COLOR_PAIR(6) | A_BOLD);
           } else {
-            mvwprintw(histWin, lineY, 2, "  %s", path.string().c_str());
+            mvwprintw(histWin, lineY, 2, "  %s", pathStr.c_str());
           }
         }
       }
@@ -400,8 +405,8 @@ private:
       wattroff(permWin, COLOR_PAIR(1) | A_BOLD);
 
       std::string nameDisp = "File: " + filePath.filename().string();
-      if ((int)nameDisp.length() > w - 4) {
-        nameDisp = utf8_safe_truncate(nameDisp, w - 4);
+      if ((int)nameDisp.length() > w - 6) {
+        nameDisp = utf8_safe_truncate(nameDisp, w - 6);
       }
       mvwprintw(permWin, 3, 2, "%s", nameDisp.c_str());
 
@@ -4741,8 +4746,8 @@ public:
 
       wattron(devWin, COLOR_PAIR(1) | A_BOLD);
       std::string title = "󰋊 Devices & External Storage";
-      if ((int)title.length() > w - 4) {
-        title = utf8_safe_truncate(title, w - 4);
+      if ((int)title.length() > w - 6) {
+        title = utf8_safe_truncate(title, w - 6);
       }
       mvwprintw(devWin, 1, 2, "%s", title.c_str());
       wattroff(devWin, COLOR_PAIR(1) | A_BOLD);
@@ -5295,8 +5300,8 @@ public:
 
     wattron(helpWin, COLOR_PAIR(1) | A_BOLD);
     std::string title = "󰘳 Fyzenor Keybindings";
-    if ((int)title.length() > w - 4) {
-      title = utf8_safe_truncate(title, w - 4);
+    if ((int)title.length() > w - 6) {
+      title = utf8_safe_truncate(title, w - 6);
     }
     mvwprintw(helpWin, 1, 2, "%s", title.c_str());
     wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
@@ -5306,8 +5311,8 @@ public:
       std::string lineStr = key;
       while (lineStr.length() < 13) lineStr += " ";
       lineStr += " → " + desc;
-      if ((int)lineStr.length() > w - 4) {
-        lineStr = utf8_safe_truncate(lineStr, w - 4);
+      if ((int)lineStr.length() > w - 6) {
+        lineStr = utf8_safe_truncate(lineStr, w - 6);
       }
       mvwprintw(helpWin, row, 2, "%s", lineStr.c_str());
     };
@@ -5392,8 +5397,8 @@ public:
 
       wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
       std::string title = "󰙵 Active Tasks & Workers";
-      if ((int)title.length() > w - 4) {
-        title = utf8_safe_truncate(title, w - 4);
+      if ((int)title.length() > w - 6) {
+        title = utf8_safe_truncate(title, w - 6);
       }
       mvwprintw(taskWin, 1, 2, "%s", title.c_str());
       wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
@@ -5537,8 +5542,8 @@ public:
         int showCount = std::min(historyMaxLines, logCount);
         for (int i = 0; i < showCount; ++i) {
           std::string logLine = logsCopy[logCount - 1 - i]; // newest first
-          if ((int)logLine.length() > w - 4) {
-            logLine = utf8_safe_truncate(logLine, w - 4);
+          if ((int)logLine.length() > w - 6) {
+            logLine = utf8_safe_truncate(logLine, w - 6);
           }
           mvwprintw(taskWin, historyStartY + i, 2, "%s", logLine.c_str());
         }

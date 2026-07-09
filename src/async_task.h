@@ -7,6 +7,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <chrono>
+
 struct AsyncTask {
   int id;
   std::string type; // "Copy", "Move", "Delete", "Zip", "Extract"
@@ -22,6 +24,11 @@ struct AsyncTask {
 
   std::mutex pauseMutex;
   std::condition_variable pauseCv;
+
+  // Throughput & timing metrics
+  uint64_t totalBytes = 0;
+  std::atomic<uint64_t> bytesProcessed{0};
+  std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
 
   void checkPause() {
     if (isPaused) {

@@ -62,6 +62,8 @@ private:
     bool isTrashMode = false;
     std::set<fs::path> multiSelection;
     std::vector<FileEntry> currentFiles;
+    std::vector<fs::path> backHistory;
+    std::vector<fs::path> forwardHistory;
   };
   std::vector<Tab> tabs;
   size_t activeTabIndex = 0;
@@ -157,6 +159,7 @@ private:
 
   // Async Background Tasks State
   std::vector<std::shared_ptr<AsyncTask>> activeTasks;
+  std::vector<std::string> taskHistoryLogs;
   std::mutex taskMutex;
   int nextTaskId = 1;
 
@@ -170,6 +173,411 @@ private:
       }
     } catch (...) {}
     return size;
+  }
+
+  void changeDirectory(const fs::path& target, bool recordHistory = true) {
+    if (currentPath == target) return;
+    if (recordHistory) {
+      if (activeTabIndex < tabs.size()) {
+        auto& tab = tabs[activeTabIndex];
+        if (tab.backHistory.empty() || tab.backHistory.back() != currentPath) {
+          tab.backHistory.push_back(currentPath);
+          if (tab.backHistory.size() > 100) {
+            tab.backHistory.erase(tab.backHistory.begin());
+          }
+        }
+        tab.forwardHistory.clear();
+      }
+    }
+    currentPath = target;
+  }
+
+  void handleGoBack() {
+    if (activeTabIndex >= tabs.size()) return;
+    auto& tab = tabs[activeTabIndex];
+    if (tab.backHistory.empty()) {
+      setStatus("No back history");
+      return;
+    }
+    tab.forwardHistory.push_back(currentPath);
+    if (tab.forwardHistory.size() > 100) {
+      tab.forwardHistory.erase(tab.forwardHistory.begin());
+    }
+    
+    fs::path target = tab.backHistory.back();
+    tab.backHistory.pop_back();
+    
+    currentPath = target;
+    reloadAll();
+    selectedIndex = 0;
+    scrollOffset = 0;
+    setStatus("Navigated back");
+  }
+
+  void handleGoForward() {
+    if (activeTabIndex >= tabs.size()) return;
+    auto& tab = tabs[activeTabIndex];
+    if (tab.forwardHistory.empty()) {
+      setStatus("No forward history");
+      return;
+    }
+    tab.backHistory.push_back(currentPath);
+    if (tab.backHistory.size() > 100) {
+      tab.backHistory.erase(tab.backHistory.begin());
+    }
+    
+    fs::path target = tab.forwardHistory.back();
+    tab.forwardHistory.pop_back();
+    
+    currentPath = target;
+    reloadAll();
+    selectedIndex = 0;
+    scrollOffset = 0;
+    setStatus("Navigated forward");
+  }
+
+  void drawHistoryOverlay() {
+    clearDirectRender();
+    if (activeTabIndex >= tabs.size()) return;
+    auto& tab = tabs[activeTabIndex];
+    
+    std::vector<fs::path> hist = tab.backHistory;
+    std::reverse(hist.begin(), hist.end());
+    
+    int h = 15;
+    int w = 70;
+    if (h > height - 4) h = height - 4;
+    if (w > width - 4) w = width - 4;
+    if (h < 6) h = 6;
+    if (w < 20) w = 20;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* histWin = newwin(h, w, startY, startX);
+    if (!histWin) return;
+    keypad(histWin, TRUE);
+    wtimeout(histWin, 200);
+
+    size_t selectedHistoryIndex = 0;
+
+    while (true) {
+      werase(histWin);
+      wattron(histWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(histWin);
+      wattroff(histWin, COLOR_PAIR(6) | A_BOLD);
+
+      wattron(histWin, COLOR_PAIR(1) | A_BOLD);
+      std::string title = " Navigation History";
+      mvwprintw(histWin, 1, 2, "%s", title.c_str());
+      wattroff(histWin, COLOR_PAIR(1) | A_BOLD);
+
+      if (hist.empty()) {
+        wattron(histWin, A_ITALIC | COLOR_PAIR(27));
+        mvwprintw(histWin, h / 2, (w - 20) / 2, "No history recorded yet");
+        wattroff(histWin, A_ITALIC | COLOR_PAIR(27));
+      } else {
+        int maxLines = h - 4;
+        for (int i = 0; i < maxLines && i < (int)hist.size(); ++i) {
+          const auto& path = hist[i];
+          bool isSel = (i == (int)selectedHistoryIndex);
+          int lineY = 3 + i;
+
+          if (isSel) {
+            wattron(histWin, COLOR_PAIR(6) | A_BOLD);
+            for (int j = 1; j < w - 1; ++j) {
+              mvwaddch(histWin, lineY, j, ' ');
+            }
+            mvwprintw(histWin, lineY, 2, "➜ %s", path.string().c_str());
+            wattroff(histWin, COLOR_PAIR(6) | A_BOLD);
+          } else {
+            mvwprintw(histWin, lineY, 2, "  %s", path.string().c_str());
+          }
+        }
+      }
+
+      wattron(histWin, A_DIM);
+      mvwprintw(histWin, h - 2, 2, "[Enter] Jump  [Esc/q] Close");
+      wattroff(histWin, A_DIM);
+
+      wrefresh(histWin);
+
+      int ch = wgetch(histWin);
+      if (ch == ERR) continue;
+      if (ch == 'q' || ch == 27) {
+        break;
+      }
+      if (ch == 'j' || ch == KEY_DOWN) {
+        if (!hist.empty() && selectedHistoryIndex < hist.size() - 1) {
+          selectedHistoryIndex++;
+        }
+      }
+      if (ch == 'k' || ch == KEY_UP) {
+        if (selectedHistoryIndex > 0) {
+          selectedHistoryIndex--;
+        }
+      }
+      if (ch == 10) {
+        if (!hist.empty() && selectedHistoryIndex < hist.size()) {
+          fs::path target = hist[selectedHistoryIndex];
+          changeDirectory(target, true);
+          reloadAll();
+          selectedIndex = 0;
+          scrollOffset = 0;
+          setStatus("Jumped to history entry");
+          break;
+        }
+      }
+    }
+
+    delwin(histWin);
+    updateLayout();
+  }
+
+  void drawPermissionsOverlay() {
+    clearDirectRender();
+    if (currentFiles.empty() || selectedIndex >= currentFiles.size()) return;
+    fs::path filePath = currentFiles[selectedIndex].path;
+
+    fs::perms perms;
+    try {
+      perms = fs::status(filePath).permissions();
+    } catch (...) {
+      setStatus("Error: Cannot read file permissions");
+      return;
+    }
+
+    bool grid[3][3];
+    grid[0][0] = (perms & fs::perms::owner_read) != fs::perms::none;
+    grid[0][1] = (perms & fs::perms::owner_write) != fs::perms::none;
+    grid[0][2] = (perms & fs::perms::owner_exec) != fs::perms::none;
+
+    grid[1][0] = (perms & fs::perms::group_read) != fs::perms::none;
+    grid[1][1] = (perms & fs::perms::group_write) != fs::perms::none;
+    grid[1][2] = (perms & fs::perms::group_exec) != fs::perms::none;
+
+    grid[2][0] = (perms & fs::perms::others_read) != fs::perms::none;
+    grid[2][1] = (perms & fs::perms::others_write) != fs::perms::none;
+    grid[2][2] = (perms & fs::perms::others_exec) != fs::perms::none;
+
+    std::string owner = "";
+    std::string group = "";
+    struct stat info;
+    if (stat(filePath.c_str(), &info) == 0) {
+      struct passwd *pw = getpwuid(info.st_uid);
+      struct group  *gr = getgrgid(info.st_gid);
+      owner = pw ? pw->pw_name : std::to_string(info.st_uid);
+      group = gr ? gr->gr_name : std::to_string(info.st_gid);
+    }
+
+    int h = 18;
+    int w = 60;
+    if (h > height - 4) h = height - 4;
+    if (w > width - 4) w = width - 4;
+    if (h < 6) h = 6;
+    if (w < 20) w = 20;
+
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+
+    WINDOW* permWin = newwin(h, w, startY, startX);
+    if (!permWin) return;
+    keypad(permWin, TRUE);
+    wtimeout(permWin, 200);
+
+    int activeRow = 0; 
+    int activeCol = 0; 
+
+    while (true) {
+      werase(permWin);
+      wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(permWin);
+      wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+
+      wattron(permWin, COLOR_PAIR(1) | A_BOLD);
+      std::string title = "󰋊 Permissions & Ownership";
+      mvwprintw(permWin, 1, 2, "%s", title.c_str());
+      wattroff(permWin, COLOR_PAIR(1) | A_BOLD);
+
+      std::string nameDisp = "File: " + filePath.filename().string();
+      if ((int)nameDisp.length() > w - 4) {
+        nameDisp = utf8_safe_truncate(nameDisp, w - 4);
+      }
+      mvwprintw(permWin, 3, 2, "%s", nameDisp.c_str());
+
+      mvwprintw(permWin, 5, 16, "Read");
+      mvwprintw(permWin, 5, 28, "Write");
+      mvwprintw(permWin, 5, 40, "Execute");
+
+      const char* rowLabels[3] = {"Owner:", "Group:", "Others:"};
+      for (int r = 0; r < 3; ++r) {
+        mvwprintw(permWin, 6 + r, 4, "%s", rowLabels[r]);
+        for (int c = 0; c < 3; ++c) {
+          int posX = 16 + c * 12;
+          bool isSel = (activeRow == r && activeCol == c);
+          
+          if (isSel) {
+            wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+          }
+          mvwprintw(permWin, 6 + r, posX, "[%s]", grid[r][c] ? "X" : " ");
+          if (isSel) {
+            wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+          }
+        }
+      }
+
+      mvwprintw(permWin, 10, 4, "Owner:");
+      if (activeRow == 3) {
+        wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+      mvwprintw(permWin, 10, 16, "%s (press Enter to Edit)", owner.c_str());
+      if (activeRow == 3) {
+        wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+
+      mvwprintw(permWin, 11, 4, "Group:");
+      if (activeRow == 4) {
+        wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+      mvwprintw(permWin, 11, 16, "%s (press Enter to Edit)", group.c_str());
+      if (activeRow == 4) {
+        wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+
+      int btnY = h - 4;
+      if (activeRow == 5 && activeCol == 0) {
+        wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+      mvwprintw(permWin, btnY, 15, "[ SAVE ]");
+      if (activeRow == 5 && activeCol == 0) {
+        wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+
+      if (activeRow == 5 && activeCol == 1) {
+        wattron(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+      mvwprintw(permWin, btnY, 35, "[ CANCEL ]");
+      if (activeRow == 5 && activeCol == 1) {
+        wattroff(permWin, COLOR_PAIR(6) | A_BOLD);
+      }
+
+      wattron(permWin, A_DIM);
+      mvwprintw(permWin, h - 2, 2, "[hjkl/Arrows] Move  [Space/Enter] Toggle  [Esc/q] Close");
+      wattroff(permWin, A_DIM);
+
+      wrefresh(permWin);
+
+      int ch = wgetch(permWin);
+      if (ch == ERR) continue;
+      if (ch == 'q' || ch == 27) {
+        break;
+      }
+      if (ch == 'j' || ch == KEY_DOWN) {
+        activeRow = (activeRow + 1) % 6;
+      }
+      if (ch == 'k' || ch == KEY_UP) {
+        activeRow = (activeRow + 5) % 6;
+      }
+      if (ch == 'h' || ch == KEY_LEFT) {
+        if (activeRow < 3) {
+          activeCol = (activeCol + 2) % 3;
+        } else if (activeRow == 5) {
+          activeCol = (activeCol + 1) % 2;
+        }
+      }
+      if (ch == 'l' || ch == KEY_RIGHT) {
+        if (activeRow < 3) {
+          activeCol = (activeCol + 1) % 3;
+        } else if (activeRow == 5) {
+          activeCol = (activeCol + 1) % 2;
+        }
+      }
+      if (ch == ' ') {
+        if (activeRow < 3) {
+          grid[activeRow][activeCol] = !grid[activeRow][activeCol];
+        }
+      }
+      if (ch == 10) { 
+        if (activeRow < 3) {
+          grid[activeRow][activeCol] = !grid[activeRow][activeCol];
+        } else if (activeRow == 3) {
+          std::string val = promptInput("New Owner", owner);
+          if (!val.empty()) owner = val;
+        } else if (activeRow == 4) {
+          std::string val = promptInput("New Group", group);
+          if (!val.empty()) group = val;
+        } else if (activeRow == 5) {
+          if (activeCol == 0) {
+            fs::perms newPerms = fs::perms::none;
+            if (grid[0][0]) newPerms |= fs::perms::owner_read;
+            if (grid[0][1]) newPerms |= fs::perms::owner_write;
+            if (grid[0][2]) newPerms |= fs::perms::owner_exec;
+
+            if (grid[1][0]) newPerms |= fs::perms::group_read;
+            if (grid[1][1]) newPerms |= fs::perms::group_write;
+            if (grid[1][2]) newPerms |= fs::perms::group_exec;
+
+            if (grid[2][0]) newPerms |= fs::perms::others_read;
+            if (grid[2][1]) newPerms |= fs::perms::others_write;
+            if (grid[2][2]) newPerms |= fs::perms::others_exec;
+
+            try {
+              fs::permissions(filePath, newPerms, fs::perm_options::replace);
+            } catch (const std::exception& e) {
+              setStatus("Error setting permissions: " + std::string(e.what()));
+              break;
+            }
+
+            uid_t newUid = -1;
+            gid_t newGid = -1;
+
+            if (!owner.empty()) {
+              struct passwd* pw = getpwnam(owner.c_str());
+              if (pw) {
+                newUid = pw->pw_uid;
+              } else {
+                try {
+                  newUid = std::stoi(owner);
+                } catch (...) {
+                  setStatus("Error: Invalid owner name/UID");
+                  break;
+                }
+              }
+            }
+
+            if (!group.empty()) {
+              struct group* gr = getgrnam(group.c_str());
+              if (gr) {
+                newGid = gr->gr_gid;
+              } else {
+                try {
+                  newGid = std::stoi(group);
+                } catch (...) {
+                  setStatus("Error: Invalid group name/GID");
+                  break;
+                }
+              }
+            }
+
+            if (chown(filePath.c_str(), newUid, newGid) != 0) {
+              if (errno == EPERM) {
+                setStatus("Error: Permission denied (run as root)");
+              } else {
+                setStatus("Error: Failed to change owner/group: " + std::string(strerror(errno)));
+              }
+            } else {
+              setStatus("Updated permissions & ownership successfully");
+            }
+            break;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    delwin(permWin);
+    updateLayout();
   }
 
   bool isDescendant(const fs::path& child, const fs::path& parent) {
@@ -202,6 +610,7 @@ private:
         uintmax_t srcSize = fs::file_size(src);
         if (destSize == srcSize) {
           bytesCopied += srcSize;
+          task->bytesProcessed = bytesCopied;
           if (totalBytes > 0) {
             int prog = (int)((bytesCopied * 100) / totalBytes);
             task->progress = prog > 100 ? 100 : prog;
@@ -222,6 +631,7 @@ private:
           out.seekp(destSize);
           if (out.good()) {
             bytesCopied += destSize;
+            task->bytesProcessed = bytesCopied;
             if (totalBytes > 0) {
               int prog = (int)((bytesCopied * 100) / totalBytes);
               task->progress = prog > 100 ? 100 : prog;
@@ -258,6 +668,7 @@ private:
         return false;
       }
       bytesCopied += in.gcount();
+      task->bytesProcessed = bytesCopied;
       if (totalBytes > 0) {
         int prog = (int)((bytesCopied * 100) / totalBytes);
         task->progress = prog > 100 ? 100 : prog;
@@ -301,6 +712,7 @@ private:
           }
         } catch (...) {}
       }
+      task->totalBytes = totalBytes;
 
       uint64_t bytesCopied = 0;
       int successCount = 0;
@@ -384,6 +796,11 @@ private:
       } else {
         task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
       }
+      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        taskHistoryLogs.push_back(logMsg);
+      }
       task->isFinished = true;
     });
   }
@@ -425,6 +842,11 @@ private:
         task->statusMessage = "Cancelled";
       } else {
         task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
+      }
+      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        taskHistoryLogs.push_back(logMsg);
       }
       task->isFinished = true;
     });
@@ -486,6 +908,11 @@ private:
       } else {
         task->statusMessage = "Finished (trashed " + std::to_string(totalItems) + " items)";
       }
+      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        taskHistoryLogs.push_back(logMsg);
+      }
       task->isFinished = true;
     });
   }
@@ -523,6 +950,11 @@ private:
       } else {
         task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
       }
+      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        taskHistoryLogs.push_back(logMsg);
+      }
       task->isFinished = true;
     });
   }
@@ -559,6 +991,11 @@ private:
         task->statusMessage = "Cancelled";
       } else {
         task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+      }
+      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        taskHistoryLogs.push_back(logMsg);
       }
       task->isFinished = true;
     });
@@ -1485,7 +1922,7 @@ public:
         setStatus("Error: Cannot access pinned path");
         return;
       }
-      currentPath = target;
+      changeDirectory(target, true);
       reloadAll();
       focusPinned = false;
       setStatus("Jumped to pin");
@@ -4432,7 +4869,7 @@ public:
             unmountDevice(dev);
             if (!dev.mountPath.empty() && (currentPath == dev.mountPath || isDescendant(currentPath, dev.mountPath))) {
               const char* home = getenv("HOME");
-              currentPath = home ? fs::path(home) : fs::path("/");
+              changeDirectory(home ? fs::path(home) : fs::path("/"), true);
               reloadAll();
             }
             devices = detectDevices();
@@ -4453,7 +4890,7 @@ public:
           }
           if (dev.isMounted && !dev.mountPath.empty()) {
             clearDirectRender();
-            currentPath = dev.mountPath;
+            changeDirectory(dev.mountPath, true);
             reloadAll();
             break;
           }
@@ -4929,8 +5366,8 @@ public:
 
   void drawTasksOverlay() {
     clearDirectRender();
-    int h = 15;
-    int w = 70;
+    int h = 18;
+    int w = 75;
     if (h > height - 4) h = height - 4;
     if (w > width - 4) w = width - 4;
     if (h < 6) h = 6;
@@ -4975,10 +5412,10 @@ public:
         tasksCopy = activeTasks;
       }
 
-      int maxDisplay = h - 5;
+      int maxDisplay = 7;
       if (tasksCopy.empty()) {
         wattron(taskWin, A_DIM);
-        mvwprintw(taskWin, h / 2, (w - 20) / 2, "No background tasks");
+        mvwprintw(taskWin, 5, (w - 20) / 2, "No active background tasks");
         wattroff(taskWin, A_DIM);
         highlightedIndex = 0;
       } else {
@@ -5019,7 +5456,7 @@ public:
             }
           }
 
-          int barW = 18;
+          int barW = 16;
           int prog = task->progress;
           if (prog < 0) prog = 0;
           if (prog > 100) prog = 100;
@@ -5032,21 +5469,41 @@ public:
           bar += "]";
 
           if (isSelected) {
-            mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
+            mvwprintw(taskWin, y, 14, "%s %3d%%", bar.c_str(), prog);
           } else {
             wattron(taskWin, COLOR_PAIR(7));
-            mvwprintw(taskWin, y, 15, "%s %3d%%", bar.c_str(), prog);
+            mvwprintw(taskWin, y, 14, "%s %3d%%", bar.c_str(), prog);
             wattroff(taskWin, COLOR_PAIR(7));
           }
 
+          std::string metrics = "";
+          if (!task->isFinished.load()) {
+            double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
+            if (elapsed > 0.1) {
+              std::stringstream ss;
+              ss << std::fixed << std::setprecision(0) << elapsed << "s";
+              metrics = "[" + ss.str() + "]";
+              if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
+                double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
+                std::stringstream ssSpeed;
+                ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
+                metrics += " (" + ssSpeed.str() + ")";
+              }
+            }
+          }
+
           std::string desc = task->description;
-          int maxDescW = w - 42;
+          if (!metrics.empty()) {
+            desc += " " + metrics;
+          }
+
+          int maxDescW = w - 38;
           if (desc.length() > (size_t)maxDescW) {
             int limit = maxDescW - 3;
             if (limit < 1) limit = 1;
             desc = utf8_safe_truncate(desc, limit);
           }
-          mvwprintw(taskWin, y, 40, "%s", desc.c_str());
+          mvwprintw(taskWin, y, 36, "%s", desc.c_str());
 
           if (isSelected) {
             wattroff(taskWin, COLOR_PAIR(10) | A_BOLD);
@@ -5054,12 +5511,42 @@ public:
         }
       }
 
-      std::string instr = "j/k: Navigate | Space/p: Pause/Resume | c: Clear | x/d: Kill | Esc: Close";
+      // Draw Completed Tasks History Panel
+      wattron(taskWin, COLOR_PAIR(6) | A_DIM);
+      mvwprintw(taskWin, 10, 1, "%s", separator.c_str());
+      wattroff(taskWin, COLOR_PAIR(6) | A_DIM);
+
+      wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
+      mvwprintw(taskWin, 10, 2, " Completed Tasks Log");
+      wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
+
+      int historyStartY = 11;
+      int historyMaxLines = h - 3 - historyStartY; // e.g. 18 - 3 - 11 = 4 lines
+      std::vector<std::string> logsCopy;
+      {
+        std::lock_guard<std::mutex> lock(taskMutex);
+        logsCopy = taskHistoryLogs;
+      }
+
+      if (logsCopy.empty()) {
+        wattron(taskWin, A_DIM);
+        mvwprintw(taskWin, historyStartY + 1, (w - 20) / 2, "No task logs recorded");
+        wattroff(taskWin, A_DIM);
+      } else {
+        int logCount = logsCopy.size();
+        int showCount = std::min(historyMaxLines, logCount);
+        for (int i = 0; i < showCount; ++i) {
+          std::string logLine = logsCopy[logCount - 1 - i]; // newest first
+          if ((int)logLine.length() > w - 4) {
+            logLine = utf8_safe_truncate(logLine, w - 4);
+          }
+          mvwprintw(taskWin, historyStartY + i, 2, "%s", logLine.c_str());
+        }
+      }
+
+      std::string instr = "j/k: Navigate | Space/p: Pause/Resume | c: Clear logs | x/d: Kill | Esc: Close";
       if ((int)instr.length() > w - 4) {
         instr = "j/k: Nav | Space/p: Pause | c: Clr | x: Kill | Esc: Close";
-        if ((int)instr.length() > w - 4) {
-          instr = "j/k: Nav | Space: Pause | c: Clr | x: Kill";
-        }
       }
       wattron(taskWin, A_DIM);
       mvwprintw(taskWin, h - 2, 2, "%s", instr.c_str());
@@ -5081,6 +5568,7 @@ public:
                            [](const std::shared_ptr<AsyncTask>& t) { return t->isFinished.load(); }),
             activeTasks.end()
           );
+          taskHistoryLogs.clear();
         } else if (ch == 'j' || ch == KEY_DOWN) {
           if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size() - 1) {
             highlightedIndex++;
@@ -5464,7 +5952,7 @@ public:
       const auto& file = currentFiles[selectedIndex];
       if (file.is_directory) {
         clearDirectRender();
-        currentPath = file.path;
+        changeDirectory(file.path, true);
         selectedIndex = 0;
         scrollOffset = 0;
         isSearching = false;
@@ -5545,7 +6033,7 @@ public:
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
       std::string oldDirName = currentPath.filename().string();
-      currentPath = currentPath.parent_path();
+      changeDirectory(currentPath.parent_path(), true);
       reloadAll();
       selectedIndex = 0;
       for (size_t i = 0; i < currentFiles.size(); ++i) {
@@ -5918,6 +6406,18 @@ public:
         }
         continue;
       }
+      if (ch == 15) { // Ctrl+O
+        handleGoBack();
+        continue;
+      }
+      if (ch == 16) { // Ctrl+P
+        handleGoForward();
+        continue;
+      }
+      if (ch == 'H') {
+        drawHistoryOverlay();
+        continue;
+      }
 
       if (focusPinned) {
         switch (ch) {
@@ -6075,6 +6575,9 @@ public:
           break;
         case 'i':
           showFileDetails();
+          break;
+        case 'I':
+          drawPermissionsOverlay();
           break;
         case 'f':
           handleFuzzyFind();

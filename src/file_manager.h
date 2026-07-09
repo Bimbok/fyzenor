@@ -5371,13 +5371,14 @@ public:
 
   void drawTasksOverlay() {
     clearDirectRender();
-    int h = 18;
-    int w = 75;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    int h = height - 4;
+    int w = width - 8;
+    if (h < 18) h = 18;
+    if (w < 80) w = 80;
+    if (h > height - 2) h = height - 2;
+    if (w > width - 2) w = width - 2;
 
+    int splitLine = h / 2 + 1;
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
 
@@ -5417,7 +5418,7 @@ public:
         tasksCopy = activeTasks;
       }
 
-      int maxDisplay = 7;
+      int maxDisplay = splitLine - 3;
       if (tasksCopy.empty()) {
         wattron(taskWin, A_DIM);
         mvwprintw(taskWin, 5, (w - 20) / 2, "No active background tasks");
@@ -5518,14 +5519,14 @@ public:
 
       // Draw Completed Tasks History Panel
       wattron(taskWin, COLOR_PAIR(6) | A_DIM);
-      mvwprintw(taskWin, 10, 1, "%s", separator.c_str());
+      mvwprintw(taskWin, splitLine, 1, "%s", separator.c_str());
       wattroff(taskWin, COLOR_PAIR(6) | A_DIM);
 
       wattron(taskWin, COLOR_PAIR(1) | A_BOLD);
-      mvwprintw(taskWin, 10, 2, " Completed Tasks Log");
+      mvwprintw(taskWin, splitLine, 2, " Completed Tasks Log");
       wattroff(taskWin, COLOR_PAIR(1) | A_BOLD);
 
-      int historyStartY = 11;
+      int historyStartY = splitLine + 1;
       int historyMaxLines = h - 3 - historyStartY; // e.g. 18 - 3 - 11 = 4 lines
       std::vector<std::string> logsCopy;
       {

@@ -91,7 +91,7 @@ std::string getCacheDir() {
 
 std::string getCachePath(const fs::path& p, int w, int h) {
   try {
-    auto mtime = fs::last_write_time(p).time_since_epoch().count();
+    auto mtime = static_cast<long long>(fs::last_write_time(p).time_since_epoch().count());
     std::string to_hash =
         p.string() + std::to_string(mtime) + std::to_string(w) + std::to_string(h);
 

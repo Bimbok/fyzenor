@@ -2376,6 +2376,34 @@ public:
           } else {
             lines.push_back("(Install 'mediainfo' or 'ffmpeg' for full metadata previews)");
           }
+        } else if (ext == ".pdf") {
+          if (isCommandAvailable("pdftotext")) {
+            std::string pdfCmd = "pdftotext -layout -l 3 \"" + job->path + "\" - 2>/dev/null | head -n 40";
+            lines.push_back("\033[1;32mPDF Document Preview (First 3 Pages):\033[0m");
+            lines.push_back("--------------------------------");
+            FILE* pipe = popen(pdfCmd.c_str(), "r");
+            if (pipe) {
+              char buf[4096];
+              bool hasData = false;
+              while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+                if (job->reqId != requestID || stopWorker)
+                  break;
+                std::string ln(buf);
+                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                lines.push_back(ln);
+                hasData = true;
+              }
+              pclose(pipe);
+              if (!hasData) {
+                lines.push_back("(Empty or encrypted PDF document)");
+              }
+            } else {
+              lines.push_back("(Failed to read PDF document)");
+            }
+          } else {
+            lines.push_back(" \033[1;31m[PDF File - No Preview]\033[0m ");
+            lines.push_back(" (Install 'poppler-utils' / 'pdftotext' to view text preview) ");
+          }
         } else if (is_binary_file(job->path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
         } else {
@@ -5764,9 +5792,9 @@ public:
                       extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
     bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
                     extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
-    bool isTextPreviewable = isCode || isArchive || isAudio;
+    bool isPdf = (extLower == ".pdf");
+    bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
 
-    bool isPdf = (file.extension == ".pdf");
     bool isDoc = (file.extension == ".doc" || file.extension == ".docx");
     bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
     bool isPpt = (file.extension == ".ppt" || file.extension == ".pptx");
@@ -5828,11 +5856,9 @@ public:
       } catch (...) {
       }
       wnoutrefresh(winPreview);
-    } else if (isPdf || isDoc || isXls || isPpt) {
+    } else if (isDoc || isXls || isPpt) {
       wattron(winPreview, COLOR_PAIR(8));
-      if (isPdf)
-        mvwprintw(winPreview, contentStart, 2, " [PDF File - No Preview] ");
-      else if (isDoc)
+      if (isDoc)
         mvwprintw(winPreview, contentStart, 2, " [Word Document - No Preview] ");
       else if (isXls)
         mvwprintw(winPreview, contentStart, 2, " [Excel Spreadsheet - No Preview] ");
@@ -5941,12 +5967,23 @@ public:
       std::string ext = p.extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
+      bool isKnownBinary = (ext == ".pdf" || ext == ".zip" || ext == ".7z" || ext == ".rar" || 
+                            ext == ".tar" || ext == ".gz" || ext == ".tgz" || ext == ".bz2" || 
+                            ext == ".xz" || ext == ".doc" || ext == ".docx" || ext == ".xls" || 
+                            ext == ".xlsx" || ext == ".ppt" || ext == ".pptx" || ext == ".epub" || 
+                            ext == ".odt" || ext == ".ods" || ext == ".odp" || ext == ".png" || 
+                            ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || 
+                            ext == ".bmp" || ext == ".ico" || ext == ".exe" || ext == ".dll" || 
+                            ext == ".so" || ext == ".o" || ext == ".a" || ext == ".bin");
+
       if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
         if (isCommandAvailable("mpv")) {
           mediaFiles.push_back(p);
         } else {
           otherFiles.push_back(p);
         }
+      } else if (isKnownBinary) {
+        otherFiles.push_back(p);
       } else if (isCodeFile(ext) || !is_binary_file(p.string())) {
         codeFiles.push_back(p);
       } else {

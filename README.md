@@ -456,6 +456,8 @@ flowchart TD
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |
+| `Ctrl+G`       | **Grow active pane width** (Dual-Pane mode only) |
+| `Ctrl+B` / `Ctrl+H` | **Shrink active pane width** (Dual-Pane mode only) |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `i`            | Show **File Details** (permissions, owner, size, times) |
 | `m`            | Show **Devices & Mounts** overlay (detect, mount, unmount USB drives & Android phones) |

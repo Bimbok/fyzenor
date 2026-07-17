@@ -112,8 +112,20 @@ std::string getCacheDir() {
 }
 
 std::string getCachePath(const fs::path& p, int w, int h) {
+  std::string pStr = p.string();
+  std::string cDir = getCacheDir();
+  if (!cDir.empty() && pStr.rfind(cDir, 0) == 0) {
+    return pStr;
+  }
+
+  uintmax_t mtime = 0;
   try {
-    auto mtime = fs::last_write_time(p).time_since_epoch().count();
+    mtime = fs::last_write_time(p).time_since_epoch().count();
+  } catch (...) {
+    mtime = 0;
+  }
+
+  try {
     std::string to_hash =
         p.string() + std::to_string(mtime) + std::to_string(w) + std::to_string(h);
 

@@ -1801,7 +1801,7 @@ public:
     std::string homeDir = getenv("HOME") ? getenv("HOME") : "";
     if (homeDir.empty()) return;
 
-    std::string configPath = homeDir + "/.config/fyzenor/keys.fz";
+    std::string configPath = homeDir + "/.config/fyzenor/keys.toml";
     try {
       fs::create_directories(homeDir + "/.config/fyzenor");
     } catch (...) {}
@@ -1809,36 +1809,63 @@ public:
     if (!fs::exists(configPath)) {
       std::ofstream df(configPath);
       df << "# Fyzenor Custom Keys Macro Configuration\n"
-         << "# Format: single_key=command\n"
-         << "# Macros:\n"
+         << "# Macros allow you to execute shell command shortcuts using single keystrokes.\n"
+         << "# Use single quotes for command strings in TOML.\n"
+         << "# Place them under the [macros] section.\n"
          << "#   $f - expands to the currently highlighted file's absolute path\n"
-         << "#   $s - expands to space-separated paths of all selected files\n"
-         << "# Examples:\n"
-         << "#   v=nvim \"$f\"\n"
-         << "#   g=git status\n"
-         << "#   l=ls -la\n";
+         << "#   $s - expands to space-separated paths of all selected files\n\n"
+         << "[macros]\n"
+         << "v = 'nvim \"$f\"'\n"
+         << "g = 'git status'\n"
+         << "l = 'ls -la'\n";
     }
 
     std::ifstream f(configPath);
     if (!f.is_open()) return;
 
     std::string line;
+    std::string section = "";
     while (std::getline(f, line)) {
-      if (line.empty() || line.front() == '#') continue;
+      auto first = line.find_first_not_of(" \t\r\n");
+      if (first == std::string::npos) continue;
+      auto last = line.find_last_not_of(" \t\r\n");
+      line = line.substr(first, last - first + 1);
+
+      if (line.empty() || line[0] == '#') continue;
+
+      if (line[0] == '[' && line.back() == ']') {
+        section = line.substr(1, line.length() - 2);
+        std::transform(section.begin(), section.end(), section.begin(), ::tolower);
+        continue;
+      }
 
       size_t eq = line.find('=');
       if (eq != std::string::npos && eq > 0) {
         std::string keyPart = line.substr(0, eq);
         std::string cmdPart = line.substr(eq + 1);
-        
-        while (!keyPart.empty() && isspace(keyPart.front())) keyPart = keyPart.substr(1);
-        while (!keyPart.empty() && isspace(keyPart.back())) keyPart.pop_back();
-        while (!cmdPart.empty() && isspace(cmdPart.front())) cmdPart = cmdPart.substr(1);
-        while (!cmdPart.empty() && isspace(cmdPart.back())) cmdPart.pop_back();
 
-        if (keyPart.length() == 1 && !cmdPart.empty()) {
-          int keyChar = keyPart[0];
-          customMacros[keyChar] = cmdPart;
+        auto k_first = keyPart.find_first_not_of(" \t");
+        if (k_first != std::string::npos) {
+          auto k_last = keyPart.find_last_not_of(" \t");
+          keyPart = keyPart.substr(k_first, k_last - k_first + 1);
+        }
+        auto c_first = cmdPart.find_first_not_of(" \t");
+        if (c_first != std::string::npos) {
+          auto c_last = cmdPart.find_last_not_of(" \t");
+          cmdPart = cmdPart.substr(c_first, c_last - c_first + 1);
+        }
+
+        if (!cmdPart.empty() && cmdPart.front() == '"' && cmdPart.back() == '"') {
+          cmdPart = cmdPart.substr(1, cmdPart.length() - 2);
+        } else if (!cmdPart.empty() && cmdPart.front() == '\'' && cmdPart.back() == '\'') {
+          cmdPart = cmdPart.substr(1, cmdPart.length() - 2);
+        }
+
+        if (section == "macros") {
+          if (keyPart.length() == 1 && !cmdPart.empty()) {
+            int keyChar = keyPart[0];
+            customMacros[keyChar] = cmdPart;
+          }
         }
       }
     }

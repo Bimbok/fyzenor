@@ -1,0 +1,11 @@
+# Fyzenor Custom Keys Macro Configuration
+# Macros allow you to execute shell command shortcuts using single keystrokes.
+# Use single quotes for command strings in TOML.
+# Place them under the [macros] section.
+#   $f - expands to the currently highlighted file's absolute path
+#   $s - expands to space-separated paths of all selected files
+
+[macros]
+v = 'nvim "$f"'
+g = 'git status'
+l = 'ls -la'

@@ -578,47 +578,80 @@ void initColors() {
     fs::path configDir = fs::path(home) / ".config/fyzenor";
     if (!fs::exists(configDir))
       fs::create_directories(configDir);
-    fs::path colorFile = configDir / "colors.fz";
+    fs::path colorFile = configDir / "theme.toml";
     if (fs::exists(colorFile)) {
       std::ifstream f(colorFile);
       std::string line;
+      std::string section = "";
       while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#')
+        auto first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) continue;
+        auto last = line.find_last_not_of(" \t\r\n");
+        line = line.substr(first, last - first + 1);
+
+        if (line.empty() || line[0] == '#') continue;
+
+        if (line[0] == '[' && line.back() == ']') {
+          section = line.substr(1, line.length() - 2);
+          std::transform(section.begin(), section.end(), section.begin(), ::tolower);
           continue;
-        size_t pos = line.find(':');
+        }
+
+        size_t pos = line.find('=');
         if (pos != std::string::npos) {
           std::string key = line.substr(0, pos);
           std::string val = line.substr(pos + 1);
-          key.erase(0, key.find_first_not_of(" \t"));
-          key.erase(key.find_last_not_of(" \t") + 1);
-          val.erase(0, val.find_first_not_of(" \t"));
-          val.erase(val.find_last_not_of(" \t") + 1);
-          if (!val.empty() && val[0] == '#')
-            colors[key] = val;
+
+          auto k_first = key.find_first_not_of(" \t");
+          if (k_first != std::string::npos) {
+            auto k_last = key.find_last_not_of(" \t");
+            key = key.substr(k_first, k_last - k_first + 1);
+          }
+          auto v_first = val.find_first_not_of(" \t");
+          if (v_first != std::string::npos) {
+            auto v_last = val.find_last_not_of(" \t");
+            val = val.substr(v_first, v_last - v_first + 1);
+          }
+
+          if (!val.empty() && val.front() == '"' && val.back() == '"') {
+            val = val.substr(1, val.length() - 2);
+          } else if (!val.empty() && val.front() == '\'' && val.back() == '\'') {
+            val = val.substr(1, val.length() - 2);
+          }
+
+          if (section == "colors") {
+            std::transform(key.begin(), key.end(), key.begin(), ::toupper);
+            std::replace(key.begin(), key.end(), '-', '_');
+            if (!val.empty() && val[0] == '#') {
+              colors[key] = val;
+            }
+          }
         }
       }
     } else {
       std::ofstream f(colorFile);
-      f << "# Fyzenor Theme: Catppuccin Mocha (Matugen ready)\n";
-      f << "DIR: #89b4fa\n";
-      f << "FILE: #cdd6f4\n";
-      f << "SEL_BG: #585b70\n";
-      f << "MEDIA: #f9e2af\n";
-      f << "IMAGE: #f5c2e7\n";
-      f << "BORDER: #b4befe\n";
-      f << "SUCCESS: #a6e3a1\n";
-      f << "ERROR: #f38ba8\n";
-      f << "MULTI: #f5e0dc\n";
-      f << "PIN_BG: #cba6f7\n";
-      f << "PIN_BORDER: #89b4fa\n";
-      f << "SEC_SEL_BG: #313244\n";
-      f << "CORE: #a6e3a1\n";
-      f << "ARCHIVE: #eba0ac\n";
-      f << "FRONTEND: #fab387\n";
-      f << "CONFIG: #94e2d5\n";
-      f << "SCRIPT: #f9e2af\n";
-      f << "DOCS: #f2cdcd\n";
-      f << "FONT: #cba6f7\n";
+      f << "# Fyzenor Theme Configuration File\n"
+        << "# Catppuccin Mocha colors\n\n"
+        << "[colors]\n"
+        << "dir = \"#89b4fa\"\n"
+        << "file = \"#cdd6f4\"\n"
+        << "sel_bg = \"#585b70\"\n"
+        << "media = \"#f9e2af\"\n"
+        << "image = \"#f5c2e7\"\n"
+        << "border = \"#b4befe\"\n"
+        << "success = \"#a6e3a1\"\n"
+        << "error = \"#f38ba8\"\n"
+        << "multi = \"#f5e0dc\"\n"
+        << "pin_bg = \"#cba6f7\"\n"
+        << "pin_border = \"#89b4fa\"\n"
+        << "sec_sel_bg = \"#313244\"\n"
+        << "core = \"#a6e3a1\"\n"
+        << "archive = \"#eba0ac\"\n"
+        << "frontend = \"#fab387\"\n"
+        << "config = \"#94e2d5\"\n"
+        << "script = \"#f9e2af\"\n"
+        << "docs = \"#f2cdcd\"\n"
+        << "font = \"#cba6f7\"\n";
     }
   }
 

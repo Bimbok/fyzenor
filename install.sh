@@ -169,28 +169,73 @@ EOF
         fi
     fi
 
-    # 7. Create default keys.fz macro config if not existing
+    # 7. Create default keys.toml macro config if not existing
     CONFIG_DIR="$HOME/.config/fyzenor"
-    KEYS_FILE="$CONFIG_DIR/keys.fz"
+    KEYS_FILE="$CONFIG_DIR/keys.toml"
+    THEME_FILE="$CONFIG_DIR/theme.toml"
     CONFIG_FILE="$CONFIG_DIR/config.toml"
     mkdir -p "$CONFIG_DIR"
+
     if [ ! -f "$KEYS_FILE" ]; then
-        echo -e "${BLUE}Generating default keyboard macros config in $KEYS_FILE...${NC}"
-        cat <<EOF > "$KEYS_FILE"
+        if [ -f "keys.toml" ]; then
+            cp "keys.toml" "$KEYS_FILE"
+            echo -e "${GREEN}Default keys.toml copied to $KEYS_FILE!${NC}"
+        else
+            echo -e "${BLUE}Generating default keys.toml in $KEYS_FILE...${NC}"
+            cat <<EOF > "$KEYS_FILE"
 # Fyzenor Custom Keys Macro Configuration
-# Format: single_key=command
-# Macros:
+# Macros allow you to execute shell command shortcuts using single keystrokes.
+# Use single quotes for command strings in TOML.
+# Place them under the [macros] section.
 #   \$f - expands to the currently highlighted file's absolute path
 #   \$s - expands to space-separated paths of all selected files
-# Examples:
-#   v=nvim "\$f"
-#   g=git status
-#   l=ls -la
+
+[macros]
+v = 'nvim "\$f"'
+g = 'git status'
+l = 'ls -la'
 EOF
-        echo -e "${GREEN}Default keys.fz generated!${NC}"
+            echo -e "${GREEN}Default keys.toml generated!${NC}"
+        fi
     fi
 
-    # 8. Create default config.toml if not existing
+    # 8. Create default theme.toml if not existing
+    if [ ! -f "$THEME_FILE" ]; then
+        if [ -f "theme.toml" ]; then
+            cp "theme.toml" "$THEME_FILE"
+            echo -e "${GREEN}Default theme.toml copied to $THEME_FILE!${NC}"
+        else
+            echo -e "${BLUE}Generating default theme.toml in $THEME_FILE...${NC}"
+            cat <<EOF > "$THEME_FILE"
+# Fyzenor Theme Configuration File
+# Catppuccin Mocha colors
+
+[colors]
+dir = "#89b4fa"
+file = "#cdd6f4"
+sel_bg = "#585b70"
+media = "#f9e2af"
+image = "#f5c2e7"
+border = "#b4befe"
+success = "#a6e3a1"
+error = "#f38ba8"
+multi = "#f5e0dc"
+pin_bg = "#cba6f7"
+pin_border = "#89b4fa"
+sec_sel_bg = "#313244"
+core = "#a6e3a1"
+archive = "#eba0ac"
+frontend = "#fab387"
+config = "#94e2d5"
+script = "#f9e2af"
+docs = "#f2cdcd"
+font = "#cba6f7"
+EOF
+            echo -e "${GREEN}Default theme.toml generated!${NC}"
+        fi
+    fi
+
+    # 9. Create default config.toml if not existing
     if [ ! -f "$CONFIG_FILE" ]; then
         if [ -f "config.toml" ]; then
             cp "config.toml" "$CONFIG_FILE"

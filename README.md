@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.0.0-blue?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer

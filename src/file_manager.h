@@ -5309,12 +5309,10 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 38;
-    int w = 60;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    int h = 24;
+    int w = 82;
+    if (h > height - 2) h = height - 2;
+    if (w > width - 2) w = width - 2;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
@@ -5334,51 +5332,60 @@ public:
     mvwprintw(helpWin, 1, 2, "%s", title.c_str());
     wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
 
-    auto printHelpLine = [&](int row, const std::string& key, const std::string& desc) {
+    auto printHelpLine = [&](int row, int col, const std::string& key, const std::string& desc) {
       if (row >= h - 2) return;
       std::string lineStr = key;
       while (lineStr.length() < 13) lineStr += " ";
       lineStr += " → " + desc;
-      if ((int)lineStr.length() > w - 6) {
-        lineStr = utf8_safe_truncate(lineStr, w - 6);
+      int maxLen = (w / 2) - 4;
+      if ((int)lineStr.length() > maxLen) {
+        lineStr = utf8_safe_truncate(lineStr, maxLen);
       }
-      mvwprintw(helpWin, row, 2, "%s", lineStr.c_str());
+      mvwprintw(helpWin, row, col, "%s", lineStr.c_str());
     };
 
-    printHelpLine(3, "j / k", "Navigate");
-    printHelpLine(4, "h / l", "Back / Open");
-    printHelpLine(5, "Space / v", "Select");
-    printHelpLine(6, "a", "Select All");
-    printHelpLine(7, "Esc", "Clear Selection");
-    printHelpLine(8, "y", "Copy");
-    printHelpLine(9, "x", "Cut");
-    printHelpLine(10, "p", "Paste");
-    printHelpLine(11, "Y", "Paste as Symlink");
-    printHelpLine(12, "d / Delete", "Move to Trash");
-    printHelpLine(13, "D", "Delete Permanently");
-    printHelpLine(14, "T", "Toggle Trash Manager");
-    printHelpLine(15, "r", "Rename (Restore in Trash)");
-    printHelpLine(16, "u", "Undo Trash Action");
-    printHelpLine(17, "n / N", "New File / Folder");
-    printHelpLine(18, "z", "Zip");
-    printHelpLine(19, "e", "Extract (Empty in Trash)");
-    printHelpLine(20, ".", "Toggle Hidden");
-    printHelpLine(21, "s", "Toggle Sorting");
-    printHelpLine(22, "P", "Pin Directory");
-    printHelpLine(23, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(24, "/", "Search (ripgrep)");
-    printHelpLine(25, "f", "Fuzzy Find");
-    printHelpLine(26, "w", "Show Active Tasks");
-    printHelpLine(27, "i", "Show File Details");
-    printHelpLine(28, "t", "Create New Tab");
-    printHelpLine(29, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(30, "[ / ]", "Prev / Next Tab");
-    printHelpLine(31, "1 - 9, 0", "Switch to Tab 1-10");
-    printHelpLine(32, ":", "Execute Shell Command");
-    printHelpLine(33, "F2", "Toggle Dual-Pane Mode");
-    printHelpLine(31, "Tab", "Toggle Pinned / Switch Pane");
-    printHelpLine(32, "m", "Mounts & External Devices");
-    printHelpLine(33, "?", "Show Help");
+    // Left Column (Col 2)
+    printHelpLine(3, 2, "j / k", "Navigate");
+    printHelpLine(4, 2, "h / l", "Back / Open");
+    printHelpLine(5, 2, "Space / v", "Select");
+    printHelpLine(6, 2, "a", "Select All");
+    printHelpLine(7, 2, "Esc", "Clear Selection");
+    printHelpLine(8, 2, "y", "Copy");
+    printHelpLine(9, 2, "x", "Cut");
+    printHelpLine(10, 2, "p", "Paste");
+    printHelpLine(11, 2, "Y", "Paste as Symlink");
+    printHelpLine(12, 2, "d / Delete", "Move to Trash");
+    printHelpLine(13, 2, "D", "Delete Permanently");
+    printHelpLine(14, 2, "T", "Toggle Trash Manager");
+    printHelpLine(15, 2, "r", "Rename (Restore)");
+    printHelpLine(16, 2, "u", "Undo Trash Action");
+    printHelpLine(17, 2, "n / N", "New File / Folder");
+    printHelpLine(18, 2, "z", "Zip");
+    printHelpLine(19, 2, "e", "Extract / Empty Trash");
+    printHelpLine(20, 2, ".", "Toggle Hidden");
+    printHelpLine(21, 2, "s", "Toggle Sorting");
+
+    // Right Column (Col w / 2 + 1)
+    int rCol = w / 2 + 1;
+    printHelpLine(3, rCol, "P", "Pin Directory");
+    printHelpLine(4, rCol, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(5, rCol, "/", "Search (ripgrep)");
+    printHelpLine(6, rCol, "f", "Fuzzy Find");
+    printHelpLine(7, rCol, "w", "Show Active Tasks");
+    printHelpLine(8, rCol, "i", "Show File Details");
+    printHelpLine(9, rCol, "I", "Edit Permissions");
+    printHelpLine(10, rCol, "Ctrl+O", "History Back");
+    printHelpLine(11, rCol, "Ctrl+P", "History Forward");
+    printHelpLine(12, rCol, "H", "History Jump List");
+    printHelpLine(13, rCol, "t", "Create New Tab");
+    printHelpLine(14, rCol, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(15, rCol, "[ / ]", "Prev / Next Tab");
+    printHelpLine(16, rCol, "1 - 9, 0", "Switch Tab 1-10");
+    printHelpLine(17, rCol, ":", "Execute Shell Cmd");
+    printHelpLine(18, rCol, "F2", "Toggle Dual-Pane");
+    printHelpLine(19, rCol, "Tab", "Switch Pane / Pin");
+    printHelpLine(20, rCol, "m", "Mounts & Devices");
+    printHelpLine(21, rCol, "?", "Show Help");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {

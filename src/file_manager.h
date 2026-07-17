@@ -5442,15 +5442,19 @@ public:
           }
 
           std::string desc = task->description;
-          if (!metrics.empty()) {
-            desc += " " + metrics;
-          }
+          int maxTotalW = w - 38;
+          int metricsW = metrics.empty() ? 0 : (metrics.length() + 1);
+          int maxDescW = maxTotalW - metricsW;
+          if (maxDescW < 10) maxDescW = 10;
 
-          int maxDescW = w - 38;
           if (desc.length() > (size_t)maxDescW) {
             int limit = maxDescW - 3;
             if (limit < 1) limit = 1;
-            desc = utf8_safe_truncate(desc, limit);
+            desc = utf8_safe_truncate(desc, limit) + "...";
+          }
+
+          if (!metrics.empty()) {
+            desc += " " + metrics;
           }
           mvwprintw(taskWin, y, 36, "%s", desc.c_str());
 

@@ -118,6 +118,10 @@ std::string getCachePath(const fs::path& p, int w, int h) {
     return pStr;
   }
 
+  if (pStr.find("Trash/files/") != std::string::npos || pStr.find(".Trash-") != std::string::npos) {
+    return "/tmp/fm_preview_thumb.png";
+  }
+
   uintmax_t mtime = 0;
   try {
     mtime = fs::last_write_time(p).time_since_epoch().count();

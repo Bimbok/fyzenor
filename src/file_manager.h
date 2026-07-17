@@ -5413,6 +5413,26 @@ public:
                 std::stringstream ssSpeed;
                 ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
                 metrics += " (" + ssSpeed.str() + ")";
+
+                if (task->totalBytes > task->bytesProcessed.load() && !task->isPaused.load()) {
+                  uint64_t remainingBytes = task->totalBytes - task->bytesProcessed.load();
+                  double speedBytesPerSec = task->bytesProcessed.load() / elapsed;
+                  if (speedBytesPerSec > 1.0) {
+                    double remainingSeconds = (double)remainingBytes / speedBytesPerSec;
+                    auto formatETA = [](double remSec) -> std::string {
+                      if (remSec < 0) return "0s";
+                      int total_secs = (int)remSec;
+                      if (total_secs < 60) return std::to_string(total_secs) + "s";
+                      int mins = total_secs / 60;
+                      int secs = total_secs % 60;
+                      if (mins < 60) return std::to_string(mins) + "m " + std::to_string(secs) + "s";
+                      int hours = mins / 60;
+                      mins = mins % 60;
+                      return std::to_string(hours) + "h " + std::to_string(mins) + "m";
+                    };
+                    metrics += " ETA: " + formatETA(remainingSeconds);
+                  }
+                }
               }
             }
           }

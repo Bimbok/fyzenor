@@ -1464,6 +1464,11 @@ public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr) {
+    showHidden = configShowHidden;
+    if (configSortMode == "size") sortMode = SortMode::SIZE;
+    else if (configSortMode == "date") sortMode = SortMode::DATE;
+    else sortMode = SortMode::NAME;
+
     setlocale(LC_ALL, "");
     loadPins();
     loadCustomMacros();

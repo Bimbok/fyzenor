@@ -1,4 +1,5 @@
 #include "file_manager.h"
+#include "utils.h"
 #include <iostream>
 
 const std::string VERSION = "3.0.0";
@@ -20,6 +21,7 @@ int main(int argc, char* argv[]) {
       }
     }
   }
+  loadConfiguration();
   FileManager fm;
   fm.run();
   return 0;

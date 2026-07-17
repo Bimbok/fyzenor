@@ -12,16 +12,20 @@
 namespace fs = std::filesystem;
 
 // Configuration extern declarations
-extern const std::set<std::string> VIDEO_EXTS;
-extern const std::set<std::string> IMAGE_EXTS;
-extern const std::set<std::string> FRONTEND_EXTS;
-extern const std::set<std::string> SCRIPTS_EXTS;
-extern const std::set<std::string> CONFIG_EXTS;
-extern const std::set<std::string> DOCUMENTATION_EXTS;
-extern const std::set<std::string> CORE_EXTS;
-extern const std::set<std::string> FONT_EXTS;
-extern const std::set<std::string> AUDIO_EXTS;
-extern const std::set<std::string> ARCHIVE_EXTS;
+extern std::set<std::string> VIDEO_EXTS;
+extern std::set<std::string> IMAGE_EXTS;
+extern std::set<std::string> FRONTEND_EXTS;
+extern std::set<std::string> SCRIPTS_EXTS;
+extern std::set<std::string> CONFIG_EXTS;
+extern std::set<std::string> DOCUMENTATION_EXTS;
+extern std::set<std::string> CORE_EXTS;
+extern std::set<std::string> FONT_EXTS;
+extern std::set<std::string> AUDIO_EXTS;
+extern std::set<std::string> ARCHIVE_EXTS;
+
+extern bool configShowHidden;
+extern std::string configSortMode;
+void loadConfiguration();
 
 extern const char* ICON_DIR;
 extern const char* ICON_VIDEO;

@@ -97,10 +97,10 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Persistent Pins**                | Save frequently used directories to `~/.fm_pins` and jump back to them instantly.                                                                     |
 | **Flicker-Free Rendering**         | Optimized redraw behavior keeps the interface smooth while reducing unnecessary terminal updates.                                                     |
 | **Rich File Operations**           | Create files/folders, rename entries, zip selections, copy absolute paths, and manage content without leaving the TUI.                                |
-| **Theme Support**                  | Customize the UI through `~/.config/fyzenor/colors.fz`, with optional Matugen-powered wallpaper theming.                                              |
+| **Theme Support**                  | Customize the UI through `~/.config/fyzenor/theme.toml`, with optional Matugen-powered wallpaper theming.                                              |
 | **Archive Previewer**              | Inspect contents of `.zip`, `.tar.gz`, `.rar`, `.7z` archives directly in the TUI preview pane without extracting them.                                |
 | **Media Metadata Inspector**        | Read codec names, bitrates, dimensions, sample rates, title, and artist metadata tags for images, audio, and video tracks.                             |
-| **Custom Key Macros**              | Map single-key binds in `~/.config/fyzenor/keys.fz` to run terminal macros with path placeholders (`$f`, `$s`).                                         |
+| **Custom Key Macros**              | Map single-key binds in `~/.config/fyzenor/keys.toml` to run terminal macros with path placeholders (`$f`, `$s`).                                         |
 | **Editor Integration**             | Opens text/code files with your configured editor via `$EDITOR` or `$VISUAL`, with sensible fallbacks.                                                |
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
@@ -320,27 +320,28 @@ archive = [".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2",
 
 ## 🎨 Customization & Theming
 
-Fyzenor supports custom themes via `~/.config/fyzenor/colors.fz`. The default theme is **Catppuccin Mocha**.
+Fyzenor supports custom themes via `~/.config/fyzenor/theme.toml`. The default theme is **Catppuccin Mocha**.
 
 ### Configuration Format
 
-Create `~/.config/fyzenor/colors.fz` and define colors using hex codes:
+Create `~/.config/fyzenor/theme.toml` and define colors using hex codes inside the `[colors]` section:
 
-```text
-DIR: #89b4fa
-FILE: #cdd6f4
-SEL_BG: #585b70
-MEDIA: #f9e2af
-IMAGE: #f5c2e7
-BORDER: #b4befe
-SUCCESS: #a6e3a1
-ERROR: #f38ba8
-MULTI: #fab387
-PIN_BG: #cba6f7
-PIN_BORDER: #89b4fa
-SEC_SEL_BG: #313244
-CODE: #a6e3a1
-ARCHIVE: #eba0ac
+```toml
+[colors]
+dir = "#89b4fa"
+file = "#cdd6f4"
+sel_bg = "#585b70"
+media = "#f9e2af"
+image = "#f5c2e7"
+border = "#b4befe"
+success = "#a6e3a1"
+error = "#f38ba8"
+multi = "#fab387"
+pin_bg = "#cba6f7"
+pin_border = "#89b4fa"
+sec_sel_bg = "#313244"
+code = "#a6e3a1"
+archive = "#eba0ac"
 ```
 
 ### Wallpaper-Based Theming (Matugen)
@@ -351,20 +352,22 @@ Instead of manually writing colors, you can use **Matugen** to generate a theme 
 
 Create `~/.config/matugen/templates/fyzenor-colors.template`:
 
-```text
+```toml
 # Fyzenor Theme: Matugen Generated
-DIR: {{colors.primary.default.hex}}
-FILE: {{colors.on_surface.default.hex}}
-SEL_BG: {{colors.surface_variant.default.hex}}
-MEDIA: {{colors.tertiary.default.hex}}
-IMAGE: {{colors.secondary.default.hex}}
-BORDER: {{colors.outline.default.hex}}
-SUCCESS: {{colors.primary_fixed.default.hex}}
-ERROR: {{colors.error.default.hex}}
-MULTI: {{colors.tertiary_container.default.hex}}
-PIN_BG: {{colors.secondary_container.default.hex}}
-PIN_BORDER: {{colors.primary.default.hex}}
-SEC_SEL_BG: {{colors.surface_dim.default.hex}}
+
+[colors]
+dir = "{{colors.primary.default.hex}}"
+file = "{{colors.on_surface.default.hex}}"
+sel_bg = "{{colors.surface_variant.default.hex}}"
+media = "{{colors.tertiary.default.hex}}"
+image = "{{colors.secondary.default.hex}}"
+border = "{{colors.outline.default.hex}}"
+success = "{{colors.primary_fixed.default.hex}}"
+error = "{{colors.error.default.hex}}"
+multi = "{{colors.tertiary_container.default.hex}}"
+pin_bg = "{{colors.secondary_container.default.hex}}"
+pin_border = "{{colors.primary.default.hex}}"
+sec_sel_bg = "{{colors.surface_dim.default.hex}}"
 ```
 
 #### Step 2: Update your Matugen Config
@@ -374,7 +377,7 @@ Add this block to your `~/.config/matugen/config.toml`:
 ```toml
 [templates.fyzenor]
 input_path = "~/.config/matugen/templates/fyzenor-colors.template"
-output_path = "~/.config/fyzenor/colors.fz"
+output_path = "~/.config/fyzenor/theme.toml"
 ```
 
 #### Step 3: Generate the Colors
@@ -385,20 +388,19 @@ matugen image /path/to/your/wallpaper.jpg
 
 ---
 
-### 🛠️ Custom Keyboard Macros (`keys.fz`)
+### 🛠️ Custom Keyboard Macros (`keys.toml`)
 
 You can map single-key shortcuts to run shell commands on currently highlighted or selected files. 
 
-Create `~/.config/fyzenor/keys.fz` and specify key mappings:
+Create `~/.config/fyzenor/keys.toml` and specify key mappings inside the `[macros]` section:
 
-```text
-# Syntax: key_character=shell_command
+```toml
+[macros]
 # $f - Expands to highlighted file path
 # $s - Expands to space-separated selected paths (falls back to $f if none selected)
-
-v=nvim "$f"
-g=git diff
-l=ls -la
+v = 'nvim "$f"'
+g = 'git diff'
+l = 'ls -la'
 ```
 
 When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspends NCurses mode, executes the command directly inside the currently browsed directory in your interactive shell (giving you full access to standard I/O), waits for you to press Enter, and then returns to the file manager, reloading the directory.

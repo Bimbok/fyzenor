@@ -2108,6 +2108,12 @@ public:
         if (job->reqId != requestID)
           continue;
 
+        if (cachePath == "/tmp/fm_preview_thumb.png") {
+          try {
+            fs::remove(cachePath);
+          } catch (...) {}
+        }
+
         if (!fs::exists(cachePath)) {
           std::string fileCmd = "\"" + job->path + "\"";
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +

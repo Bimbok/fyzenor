@@ -72,6 +72,7 @@ private:
   size_t leftTabIndex = 0;
   size_t rightTabIndex = 1;
   bool focusLeftPane = true;
+  int dualPaneSplitOffset = 0;
 
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
@@ -2122,8 +2123,18 @@ public:
     getmaxyx(stdscr, height, width);
 
     if (isDualPaneMode) {
-      int w1 = width / 2;
+      int w1 = width / 2 + dualPaneSplitOffset;
+      int minCols = 20;
+      if (w1 < minCols) {
+        w1 = minCols;
+        dualPaneSplitOffset = w1 - width / 2;
+      }
       int w2 = width - w1;
+      if (w2 < minCols) {
+        w2 = minCols;
+        w1 = width - w2;
+        dualPaneSplitOffset = w1 - width / 2;
+      }
 
       if (winPinned) { delwin(winPinned); winPinned = nullptr; }
       if (winParent) { delwin(winParent); winParent = nullptr; }
@@ -5309,7 +5320,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 24;
+    int h = 25;
     int w = 82;
     if (h > height - 2) h = height - 2;
     if (w > width - 2) w = width - 2;
@@ -5364,6 +5375,7 @@ public:
     printHelpLine(19, 2, "e", "Extract / Empty Trash");
     printHelpLine(20, 2, ".", "Toggle Hidden");
     printHelpLine(21, 2, "s", "Toggle Sorting");
+    printHelpLine(22, 2, "Ctrl+G", "Grow Pane Width");
 
     // Right Column (Col w / 2 + 1)
     int rCol = w / 2 + 1;
@@ -5386,6 +5398,7 @@ public:
     printHelpLine(19, rCol, "Tab", "Switch Pane / Pin");
     printHelpLine(20, rCol, "m", "Mounts & Devices");
     printHelpLine(21, rCol, "?", "Show Help");
+    printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -6412,6 +6425,34 @@ public:
       }
       if (ch == KEY_F(2)) {
         toggleDualPaneMode();
+        continue;
+      }
+      if (ch == 7) { // Ctrl+G (Grow focused pane width)
+        if (isDualPaneMode) {
+          if (focusLeftPane) {
+            dualPaneSplitOffset++;
+          } else {
+            dualPaneSplitOffset--;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          needsRedraw = true;
+        }
+        continue;
+      }
+      if (ch == 2 || ch == 8) { // Ctrl+B or Ctrl+H (Shrink focused pane width)
+        if (isDualPaneMode) {
+          if (focusLeftPane) {
+            dualPaneSplitOffset--;
+          } else {
+            dualPaneSplitOffset++;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          needsRedraw = true;
+        }
         continue;
       }
       if (ch == '\t') {

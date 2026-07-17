@@ -55,6 +55,10 @@ std::set<std::string> ARCHIVE_EXTS = {
 
 bool configShowHidden = false;
 std::string configSortMode = "name";
+double configParentWidth = 0.18;
+double configCurrentWidth = 0.32;
+bool configHidePreview = false;
+bool configHideParent = false;
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";
@@ -760,6 +764,11 @@ void loadConfiguration() {
           << "[general]\n"
           << "show_hidden = false\n"
           << "sort_mode = \"name\" # \"name\", \"size\", or \"date\"\n\n"
+          << "[layout]\n"
+          << "parent_width = 0.18\n"
+          << "current_width = 0.32\n"
+          << "hide_preview = false\n"
+          << "hide_parent = false\n\n"
           << "[icons]\n"
           << "dir = \" \"\n"
           << "video = \" \"\n"
@@ -858,6 +867,16 @@ void loadConfiguration() {
         configShowHidden = (val == "true");
       } else if (key == "sort_mode") {
         configSortMode = parse_string(val);
+      }
+    } else if (section == "layout") {
+      if (key == "parent_width") {
+        try { configParentWidth = std::stod(val); } catch (...) {}
+      } else if (key == "current_width") {
+        try { configCurrentWidth = std::stod(val); } catch (...) {}
+      } else if (key == "hide_preview") {
+        configHidePreview = (val == "true");
+      } else if (key == "hide_parent") {
+        configHideParent = (val == "true");
       }
     } else if (section == "icons") {
       std::string icon_val = parse_string(val);

@@ -25,6 +25,10 @@ extern std::set<std::string> ARCHIVE_EXTS;
 
 extern bool configShowHidden;
 extern std::string configSortMode;
+extern double configParentWidth;
+extern double configCurrentWidth;
+extern bool configHidePreview;
+extern bool configHideParent;
 void loadConfiguration();
 
 extern const char* ICON_DIR;

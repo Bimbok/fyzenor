@@ -73,6 +73,8 @@ private:
   size_t rightTabIndex = 1;
   bool focusLeftPane = true;
   int dualPaneSplitOffset = 0;
+  bool hidePreview = false;
+  bool hideParent = false;
 
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
@@ -1465,6 +1467,8 @@ public:
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr) {
     showHidden = configShowHidden;
+    hidePreview = configHidePreview;
+    hideParent = configHideParent;
     if (configSortMode == "size") sortMode = SortMode::SIZE;
     else if (configSortMode == "date") sortMode = SortMode::DATE;
     else sortMode = SortMode::NAME;
@@ -2153,35 +2157,36 @@ public:
       return;
     }
 
-    // Adjusted widths for a more modern Miller Column feel (2:3:5 ratio
-    // roughly)
-    int w1 = static_cast<int>(width * 0.18); // Pins/Parent
-    int w2 = static_cast<int>(width * 0.32); // Current Files
-    int w3 = width - w1 - w2;                // Large Preview
+    // Adjusted widths dynamically from layout configuration values and visibility states
+    int w1 = hideParent ? 0 : static_cast<int>(width * configParentWidth);
+    int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
+    if (w3 < 0) w3 = 0;
+    int w2 = width - w1 - w3;
 
-    if (winPinned)
-      delwin(winPinned);
-    if (winParent)
-      delwin(winParent);
-    if (winCurrent)
-      delwin(winCurrent);
-    if (winPreview)
-      delwin(winPreview);
+    if (winPinned) { delwin(winPinned); winPinned = nullptr; }
+    if (winParent) { delwin(winParent); winParent = nullptr; }
+    if (winCurrent) { delwin(winCurrent); winCurrent = nullptr; }
+    if (winPreview) { delwin(winPreview); winPreview = nullptr; }
 
     int hPinned = 0;
     int hParent = 0;
-    if (parentFiles.empty()) {
-      hPinned = height - 2;
-      hParent = 1;
-    } else {
-      hPinned = (height - 2) / 3;
-      hParent = (height - 2) - hPinned;
+    if (!hideParent) {
+      if (parentFiles.empty()) {
+        hPinned = height - 2;
+        hParent = 1;
+      } else {
+        hPinned = (height - 2) / 3;
+        hParent = (height - 2) - hPinned;
+      }
+      winPinned = newwin(hPinned, w1, 1, 0);
+      winParent = newwin(hParent, w1, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
     }
 
-    winPinned = newwin(hPinned, w1, 1, 0);
-    winParent = newwin(hParent, w1, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
     winCurrent = newwin(height - 2, w2, 1, w1);
-    winPreview = newwin(height - 2, w3, 1, w1 + w2);
+
+    if (!hidePreview) {
+      winPreview = newwin(height - 2, w3, 1, w1 + w2);
+    }
 
     refresh();
   }
@@ -5325,7 +5330,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 25;
+    int h = 26;
     int w = 82;
     if (h > height - 2) h = height - 2;
     if (w > width - 2) w = width - 2;
@@ -5381,6 +5386,7 @@ public:
     printHelpLine(20, 2, ".", "Toggle Hidden");
     printHelpLine(21, 2, "s", "Toggle Sorting");
     printHelpLine(22, 2, "Ctrl+G", "Grow Pane Width");
+    printHelpLine(23, 2, "F3", "Toggle Preview Pane");
 
     // Right Column (Col w / 2 + 1)
     int rCol = w / 2 + 1;
@@ -5404,6 +5410,7 @@ public:
     printHelpLine(20, rCol, "m", "Mounts & Devices");
     printHelpLine(21, rCol, "?", "Show Help");
     printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
+    printHelpLine(23, rCol, "F4", "Toggle Parent Pane");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -5658,6 +5665,7 @@ public:
   }
 
   void drawPreview() {
+    if (!winPreview) return;
     if (isDualPaneMode) {
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
@@ -6430,6 +6438,26 @@ public:
       }
       if (ch == KEY_F(2)) {
         toggleDualPaneMode();
+        continue;
+      }
+      if (ch == KEY_F(3)) { // F3 (Toggle Preview Pane visibility)
+        if (!isDualPaneMode) {
+          hidePreview = !hidePreview;
+          updateLayout();
+          reloadAll();
+          setStatus(hidePreview ? "Preview hidden" : "Preview visible");
+          needsRedraw = true;
+        }
+        continue;
+      }
+      if (ch == KEY_F(4)) { // F4 (Toggle Parent Pane visibility)
+        if (!isDualPaneMode) {
+          hideParent = !hideParent;
+          updateLayout();
+          reloadAll();
+          setStatus(hideParent ? "Parent pane hidden" : "Parent pane visible");
+          needsRedraw = true;
+        }
         continue;
       }
       if (ch == 7) { // Ctrl+G (Grow focused pane width)

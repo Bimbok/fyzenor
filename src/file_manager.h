@@ -5403,34 +5403,38 @@ public:
 
           std::string metrics = "";
           if (!task->isFinished.load()) {
-            double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
-            if (elapsed > 0.1) {
-              std::stringstream ss;
-              ss << std::fixed << std::setprecision(0) << elapsed << "s";
-              metrics = "[" + ss.str() + "]";
-              if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
-                double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
-                std::stringstream ssSpeed;
-                ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
-                metrics += " (" + ssSpeed.str() + ")";
+            if (task->totalBytes > 0 && task->bytesProcessed.load() >= task->totalBytes) {
+              metrics = "[Finalizing...]";
+            } else {
+              double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
+              if (elapsed > 0.1) {
+                std::stringstream ss;
+                ss << std::fixed << std::setprecision(0) << elapsed << "s";
+                metrics = "[" + ss.str() + "]";
+                if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
+                  double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
+                  std::stringstream ssSpeed;
+                  ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
+                  metrics += " (" + ssSpeed.str() + ")";
 
-                if (task->totalBytes > task->bytesProcessed.load() && !task->isPaused.load()) {
-                  uint64_t remainingBytes = task->totalBytes - task->bytesProcessed.load();
-                  double speedBytesPerSec = task->bytesProcessed.load() / elapsed;
-                  if (speedBytesPerSec > 1.0) {
-                    double remainingSeconds = (double)remainingBytes / speedBytesPerSec;
-                    auto formatETA = [](double remSec) -> std::string {
-                      if (remSec < 0) return "0s";
-                      int total_secs = (int)remSec;
-                      if (total_secs < 60) return std::to_string(total_secs) + "s";
-                      int mins = total_secs / 60;
-                      int secs = total_secs % 60;
-                      if (mins < 60) return std::to_string(mins) + "m " + std::to_string(secs) + "s";
-                      int hours = mins / 60;
-                      mins = mins % 60;
-                      return std::to_string(hours) + "h " + std::to_string(mins) + "m";
-                    };
-                    metrics += " ETA: " + formatETA(remainingSeconds);
+                  if (task->totalBytes > task->bytesProcessed.load() && !task->isPaused.load()) {
+                    uint64_t remainingBytes = task->totalBytes - task->bytesProcessed.load();
+                    double speedBytesPerSec = task->bytesProcessed.load() / elapsed;
+                    if (speedBytesPerSec > 1.0) {
+                      double remainingSeconds = (double)remainingBytes / speedBytesPerSec;
+                      auto formatETA = [](double remSec) -> std::string {
+                        if (remSec < 0) return "0s";
+                        int total_secs = (int)remSec;
+                        if (total_secs < 60) return std::to_string(total_secs) + "s";
+                        int mins = total_secs / 60;
+                        int secs = total_secs % 60;
+                        if (mins < 60) return std::to_string(mins) + "m " + std::to_string(secs) + "s";
+                        int hours = mins / 60;
+                        mins = mins % 60;
+                        return std::to_string(hours) + "h " + std::to_string(mins) + "m";
+                      };
+                      metrics += " ETA: " + formatETA(remainingSeconds);
+                    }
                   }
                 }
               }

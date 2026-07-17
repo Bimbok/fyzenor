@@ -256,6 +256,66 @@ Get information about your media files (`.mp4`, `.mp3`, `.mov`, `.png`, `.jpg`, 
 ### PDF Text Layout Previewer
 If `pdftotext` (from `poppler-utils`) is installed on your system, Fyzenor asynchronously extracts and renders the formatted text layouts of the first 3 pages of `.pdf` files directly in the preview pane.
 
+## ⚙️ External Configuration (`config.toml`)
+
+Fyzenor uses an external configuration file located at `~/.config/fyzenor/config.toml` (automatically created on first launch or during installation). It allows you to customize the program's general options, panel sizes, pane visibility rules, icon glyphs (Nerd Fonts), and file extension mappings.
+
+### Configuration Format
+
+Here is the fully documented default structure of `~/.config/fyzenor/config.toml`:
+
+```toml
+[general]
+# Show hidden files by default on startup
+show_hidden = false
+
+# Default sorting mode: "name", "size" (descending), or "date" (descending)
+sort_mode = "name"
+
+[layout]
+# Proportional width of the left parent/pinned column in normal mode (ratio between 0.0 and 1.0)
+parent_width = 0.18
+
+# Proportional width of the central files list column in normal mode
+current_width = 0.32
+
+# Set to true to hide the rightmost file preview pane by default on startup (toggleable via F3)
+hide_preview = false
+
+# Set to true to hide the leftmost parent/pinned navigation sidebar by default on startup (toggleable via F4)
+hide_parent = false
+
+[icons]
+# Custom glyphs for directory and file indicators (Nerd Fonts recommended)
+dir = " "
+video = " "
+image = " "
+core = " "
+frontend = "󰖟 "
+config = " "
+script = " "
+docs = " "
+font = " "
+file = " "
+music = " "
+pin = " "
+zip = "󰿺 "
+link = "󰌹 "
+
+[categories]
+# Map specific file extensions to styling and icon categories
+video = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"]
+image = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"]
+frontend = [".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl", ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"]
+scripts = [".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk", ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"]
+config = [".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock", ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"]
+documentation = [".md", ".markdown", ".txt", ".text", ".log", ".pdf", ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"]
+core = [".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php", ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs", ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite", ".sqlite3", ".db3", ".mdb", ".accdb", ".cmake", ".make", ".diff", ".patch", ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs", ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"]
+font = [".woff", ".woff2", ".ttf", ".eot", ".otf"]
+audio = [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"]
+archive = [".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"]
+```
+
 ---
 
 ## 🎨 Customization & Theming

@@ -283,8 +283,11 @@ current_width = 0.32
 # Set to true to hide the rightmost file preview pane by default on startup (toggleable via F3)
 hide_preview = false
 
-# Set to true to hide the leftmost parent/pinned navigation sidebar by default on startup (toggleable via F4)
+# Set to true to hide the parent directory pane by default on startup (toggleable via F4)
 hide_parent = false
+
+# Set to true to hide the pinned bookmarks pane by default on startup (toggleable via F6)
+hide_pinned = false
 
 [icons]
 # Custom glyphs for directory and file indicators (Nerd Fonts recommended)
@@ -522,6 +525,7 @@ flowchart TD
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |
 | `F3`           | Toggle **Preview Pane** visibility (normal mode only) |
 | `F4`           | Toggle **Parent Pane** visibility (normal mode only) |
+| `F6`           | Toggle **Bookmarks (Pinned) Pane** visibility (normal mode only) |
 | `Ctrl+G`       | **Grow active pane width** (Dual-Pane mode only) |
 | `Ctrl+B` / `Ctrl+H` | **Shrink active pane width** (Dual-Pane mode only) |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |

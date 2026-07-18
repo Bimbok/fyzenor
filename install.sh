@@ -258,9 +258,10 @@ sort_mode = "name"
 parent_width = 0.18
 current_width = 0.32
 
-# Set to true to hide the preview pane or the parent directory listings by default
+# Set to true to hide the preview pane, parent directory listings, or bookmarks pane by default
 hide_preview = false
 hide_parent = false
+hide_pinned = false
 
 [icons]
 # Glyph icons used for different file categories and states (Nerd Fonts required)

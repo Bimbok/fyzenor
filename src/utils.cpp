@@ -59,6 +59,7 @@ double configParentWidth = 0.18;
 double configCurrentWidth = 0.32;
 bool configHidePreview = false;
 bool configHideParent = false;
+bool configHidePinned = false;
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";
@@ -817,7 +818,8 @@ void loadConfiguration() {
           << "parent_width = 0.18\n"
           << "current_width = 0.32\n"
           << "hide_preview = false\n"
-          << "hide_parent = false\n\n"
+          << "hide_parent = false\n"
+          << "hide_pinned = false\n\n"
           << "[icons]\n"
           << "dir = \" \"\n"
           << "video = \" \"\n"
@@ -926,6 +928,8 @@ void loadConfiguration() {
         configHidePreview = (val == "true");
       } else if (key == "hide_parent") {
         configHideParent = (val == "true");
+      } else if (key == "hide_pinned") {
+        configHidePinned = (val == "true");
       }
     } else if (section == "icons") {
       std::string icon_val = parse_string(val);

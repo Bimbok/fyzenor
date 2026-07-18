@@ -29,6 +29,7 @@ extern double configParentWidth;
 extern double configCurrentWidth;
 extern bool configHidePreview;
 extern bool configHideParent;
+extern bool configHidePinned;
 void loadConfiguration();
 
 extern const char* ICON_DIR;

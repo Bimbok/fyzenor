@@ -75,6 +75,7 @@ private:
   int dualPaneSplitOffset = 0;
   bool hidePreview = false;
   bool hideParent = false;
+  bool hidePinned = false;
 
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
@@ -1295,6 +1296,7 @@ public:
     showHidden = configShowHidden;
     hidePreview = configHidePreview;
     hideParent = configHideParent;
+    hidePinned = configHidePinned;
     if (configSortMode == "size") sortMode = SortMode::SIZE;
     else if (configSortMode == "date") sortMode = SortMode::DATE;
     else sortMode = SortMode::NAME;
@@ -1928,9 +1930,28 @@ public:
 
   void adjustLeftPane() {
     if (isDualPaneMode) return;
+    if (hideParent && hidePinned) return;
+
+    int w1 = static_cast<int>(width * configParentWidth);
+
+    if (hidePinned) {
+      if (winParent) {
+        wresize(winParent, height - 2, w1);
+        mvwin(winParent, 1, 0);
+      }
+      return;
+    }
+
+    if (hideParent) {
+      if (winPinned) {
+        wresize(winPinned, height - 2, w1);
+        mvwin(winPinned, 1, 0);
+      }
+      return;
+    }
+
     if (!winPinned || !winParent) return;
 
-    int w1 = static_cast<int>(width * 0.18);
     int hPinned = 0;
     int hParent = 0;
 
@@ -2025,7 +2046,7 @@ public:
     }
 
     // Adjusted widths dynamically from layout configuration values and visibility states
-    int w1 = hideParent ? 0 : static_cast<int>(width * configParentWidth);
+    int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
     int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
     if (w3 < 0) w3 = 0;
     int w2 = width - w1 - w3;
@@ -2037,16 +2058,29 @@ public:
 
     int hPinned = 0;
     int hParent = 0;
-    if (!hideParent) {
-      if (parentFiles.empty()) {
+    if (!hideParent || !hidePinned) {
+      if (hidePinned) {
+        hPinned = 0;
+        hParent = height - 2;
+      } else if (hideParent) {
         hPinned = height - 2;
-        hParent = 1;
+        hParent = 0;
       } else {
-        hPinned = (height - 2) / 3;
-        hParent = (height - 2) - hPinned;
+        if (parentFiles.empty()) {
+          hPinned = height - 2;
+          hParent = 1;
+        } else {
+          hPinned = (height - 2) / 3;
+          hParent = (height - 2) - hPinned;
+        }
       }
-      winPinned = newwin(hPinned, w1, 1, 0);
-      winParent = newwin(hParent, w1, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
+
+      if (!hidePinned) {
+        winPinned = newwin(hPinned, w1, 1, 0);
+      }
+      if (!hideParent) {
+        winParent = newwin(hParent, w1, hidePinned ? 1 : (parentFiles.empty() ? height - 1 : 1 + hPinned), 0);
+      }
     }
 
     winCurrent = newwin(height - 2, w2, 1, w1);
@@ -5375,6 +5409,7 @@ public:
     printHelpLine(21, rCol, "?", "Show Help");
     printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
     printHelpLine(23, rCol, "F4", "Toggle Parent Pane");
+    printHelpLine(24, rCol, "F6", "Toggle Bookmarks Pane");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -6499,6 +6534,19 @@ public:
         }
         continue;
       }
+      if (ch == KEY_F(6)) { // F6 (Toggle Pinned Pane visibility)
+        if (!isDualPaneMode) {
+          hidePinned = !hidePinned;
+          if (hidePinned) {
+            focusPinned = false;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus(hidePinned ? "Pinned pane hidden" : "Pinned pane visible");
+          needsRedraw = true;
+        }
+        continue;
+      }
       if (ch == 7) { // Ctrl+G (Grow focused pane width)
         if (isDualPaneMode) {
           if (focusLeftPane) {
@@ -6532,7 +6580,7 @@ public:
           size_t nextTab = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
           switchTab(nextTab);
           focusLeftPane = (activeTabIndex == leftTabIndex);
-        } else {
+        } else if (!hidePinned) {
           focusPinned = !focusPinned;
         }
         continue;

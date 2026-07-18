@@ -5293,7 +5293,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 26;
+    int h = 27;
     int w = 82;
     if (h > height - 2) h = height - 2;
     if (w > width - 2) w = width - 2;
@@ -5350,6 +5350,7 @@ public:
     printHelpLine(21, 2, "s", "Toggle Sorting");
     printHelpLine(22, 2, "Ctrl+G", "Grow Pane Width");
     printHelpLine(23, 2, "F3", "Toggle Preview Pane");
+    printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
 
     // Right Column (Col w / 2 + 1)
     int rCol = w / 2 + 1;

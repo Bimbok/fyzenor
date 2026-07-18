@@ -80,6 +80,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Bulk Rename via Editor**         | Select multiple files and press `r` to rename them all at once inside your default text editor (e.g. `nvim`, `nano`).                                 |
 | **Smart Copy Resumption**         | Resumes interrupted file copies block-by-block (`seekg`/`seekp`) by comparing file sizes and copying only the remaining bytes.                        |
 | **Task Play/Pause Controls**      | Suspend (pause) and resume background copy, move, delete, zip, and extract tasks directly from the task list.                                         |
+| **Drag & Drop Integration**       | Drop files directly into the terminal window to Copy/Move them, or press `Ctrl-D` to drag files out into GUI applications (via `ripdrag` or `dragon`). |
 | **Freedesktop Trash System**      | Move items to trash (`d`) and restore/empty them in-build. Integrates home trash and local partition trash folders.                                  |
 | **Undo Trash Action (`u`)**        | Undo the last move-to-trash action instantly, restoring items back to their original paths.                                                           |
 | **Dynamic Disk Space Status**     | Displays partition name, progress bar, percent used, and free space dynamically for the current drive.                                                |
@@ -504,6 +505,7 @@ flowchart TD
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |
+| `Ctrl-D`        | **Drag Out** selected/highlighted files using `ripdrag` or `dragon` |
 | `I`             | **Visual Permissions & Ownership Editor** (inspect/edit chmod/chown) |
 
 ### Selection, View & Pins

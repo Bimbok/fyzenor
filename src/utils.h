@@ -83,5 +83,7 @@ std::string escapeShellArg(const std::string& str);
 bool fuzzyMatch(const std::string& str, const std::string& query);
 void initColors();
 bool isCommandAvailable(const std::string& cmd);
+std::string urlDecode(const std::string& str);
+std::vector<fs::path> parsePastedPaths(const std::string& data);
 
 #endif // UTILS_H

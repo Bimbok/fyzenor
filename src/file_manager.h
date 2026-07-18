@@ -1337,6 +1337,7 @@ public:
     keypad(stdscr, TRUE);
     curs_set(0);
     timeout(50);
+    std::cout << "\033[?2004h" << std::flush;
 
     // Enable mouse tracking to prevent terminal text selection override and handle mouse scroll
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
@@ -1417,6 +1418,7 @@ public:
     if (winPreview)
       delwin(winPreview);
     clearDirectRender();
+    std::cout << "\033[?2004l" << std::flush;
     endwin();
   }
 
@@ -1726,8 +1728,7 @@ public:
       }
     }
 
-    def_prog_mode();
-    endwin();
+    suspendTerminal();
     
     std::system("clear");
     std::cout << "\033[1;36m[Fyzenor Macro] Running: " << cmd << "\033[0m\n\n";
@@ -1739,10 +1740,8 @@ public:
     std::cout << "\n\033[1;30mPress Enter to return to Fyzenor...\033[0m";
     std::cin.get();
     
-    reset_prog_mode();
-    refresh();
+    resumeTerminal();
     clear();
-    updateLayout();
     reloadAll();
   }
   void savePins() {
@@ -1976,6 +1975,21 @@ public:
       parentFiles.clear();
     }
     adjustLeftPane();
+  }
+
+  void suspendTerminal() {
+    clearDirectRender();
+    std::cout << "\033[?2004l" << std::flush;
+    def_prog_mode();
+    endwin();
+  }
+
+  void resumeTerminal() {
+    reset_prog_mode();
+    updateLayout();
+    refresh();
+    std::cout << "\033[?2004h" << std::flush;
+    timeout(50);
   }
 
   void updateLayout() {
@@ -3006,9 +3020,7 @@ public:
         }
       });
     } else {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
       
       std::cout << "\033[H\033[J";
       std::cout << "Executing: " << finalCmd << "\n\n";
@@ -3021,9 +3033,7 @@ public:
       std::string dummy;
       std::getline(std::cin, dummy);
       
-      reset_prog_mode();
-      updateLayout();
-      refresh();
+      resumeTerminal();
       reloadAll();
     }
   }
@@ -3054,9 +3064,7 @@ public:
       }
       out.close();
 
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
 
       const char* editor = getenv("EDITOR");
       if (!editor)
@@ -3074,9 +3082,7 @@ public:
       int res = system(cmd.c_str());
       (void)res;
 
-      reset_prog_mode();
-      refresh();
-      timeout(50);
+      resumeTerminal();
 
       std::ifstream in(tempFile);
       if (!in.is_open()) {
@@ -3281,6 +3287,104 @@ public:
     int res = system(cmd.c_str());
     (void)res;
     setStatus("Copied path");
+  }
+
+  void handleDragOut() {
+    if (currentFiles.empty())
+      return;
+
+    std::string tool = "";
+    if (isCommandAvailable("ripdrag")) {
+      tool = "ripdrag";
+    } else if (isCommandAvailable("dragon-drag-and-drop")) {
+      tool = "dragon-drag-and-drop";
+    } else if (isCommandAvailable("dragon")) {
+      tool = "dragon";
+    }
+
+    if (tool.empty()) {
+      setStatus("Error: 'ripdrag' or 'dragon' is not installed");
+      return;
+    }
+
+    std::vector<fs::path> targets;
+    if (!multiSelection.empty()) {
+      for (const auto& p : multiSelection) {
+        targets.push_back(p);
+      }
+    } else {
+      targets.push_back(currentFiles[selectedIndex].path);
+    }
+
+    std::string cmd = tool + " -x";
+    for (const auto& p : targets) {
+      cmd += " " + escapeShellArg(fs::absolute(p).string());
+    }
+    cmd += " >/dev/null 2>&1";
+
+    setStatus("Drag initiated. Drag the file from the pop-up window.");
+
+    std::thread([cmd]() {
+      int res = system(cmd.c_str());
+      (void)res;
+    }).detach();
+  }
+
+  void handlePastedData(const std::string& data) {
+    std::vector<fs::path> paths = parsePastedPaths(data);
+    if (paths.empty()) {
+      return;
+    }
+
+    int h = 7;
+    int w = 60;
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+    WINDOW* promptWin = newwin(h, w, startY, startX);
+    if (!promptWin) return;
+
+    keypad(promptWin, TRUE);
+    wattron(promptWin, COLOR_PAIR(6) | A_BOLD);
+    drawRoundedBox(promptWin);
+    wattroff(promptWin, COLOR_PAIR(6) | A_BOLD);
+
+    wattron(promptWin, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(promptWin, 1, 2, "󰗘 Dropped File(s) Detected");
+    wattroff(promptWin, COLOR_PAIR(1) | A_BOLD);
+
+    std::string countStr = (paths.size() > 1) ? std::to_string(paths.size()) + " items" : paths[0].filename().string();
+    if (countStr.length() > (size_t)(w - 15)) {
+      countStr = countStr.substr(0, w - 18) + "...";
+    }
+    mvwprintw(promptWin, 3, 2, "Source: %s", countStr.c_str());
+    mvwprintw(promptWin, 5, 2, "[c] Copy here  [m] Move here  [Esc] Cancel");
+
+    wrefresh(promptWin);
+
+    int choice = 0;
+    while (true) {
+      int ch = wgetch(promptWin);
+      if (ch == 'c' || ch == 'C') {
+        choice = 'c';
+        break;
+      } else if (ch == 'm' || ch == 'M') {
+        choice = 'm';
+        break;
+      } else if (ch == 27) { // Esc
+        choice = 'e';
+        break;
+      }
+    }
+    delwin(promptWin);
+
+    if (choice == 'c' || choice == 'm') {
+      std::vector<std::pair<fs::path, fs::path>> jobs;
+      for (const auto& p : paths) {
+        jobs.push_back({p, currentPath / p.filename()});
+      }
+      startPasteTask(jobs, choice == 'm');
+    }
+    reloadAll();
   }
 
   void handleDelete() {
@@ -5926,9 +6030,7 @@ public:
 
     bool needsSuspension = !codeFiles.empty() || !mediaFiles.empty();
     if (needsSuspension) {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
     }
 
     if (!codeFiles.empty()) {
@@ -5976,10 +6078,7 @@ public:
     }
 
     if (needsSuspension) {
-      reset_prog_mode();
-      updateLayout();
-      refresh();
-      timeout(50);
+      resumeTerminal();
     }
   }
 
@@ -6236,6 +6335,58 @@ public:
       }
 
       int ch = getch();
+      if (ch == 27) {
+        nodelay(stdscr, TRUE);
+        int ch1 = getch();
+        int ch2 = getch();
+        int ch3 = getch();
+        int ch4 = getch();
+        int ch5 = getch();
+        nodelay(stdscr, FALSE);
+
+        if (ch1 == '[' && ch2 == '2' && ch3 == '0' && ch4 == '0' && ch5 == '~') {
+          std::string pastedData = "";
+          while (true) {
+            int c = getch();
+            if (c == ERR) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(5));
+              c = getch();
+              if (c == ERR) break;
+            }
+            if (c == 27) {
+              nodelay(stdscr, TRUE);
+              int e1 = getch();
+              int e2 = getch();
+              int e3 = getch();
+              int e4 = getch();
+              int e5 = getch();
+              nodelay(stdscr, FALSE);
+              if (e1 == '[' && e2 == '2' && e3 == '0' && e4 == '1' && e5 == '~') {
+                break;
+              } else {
+                pastedData += (char)c;
+                if (e1 != ERR) pastedData += (char)e1;
+                if (e2 != ERR) pastedData += (char)e2;
+                if (e3 != ERR) pastedData += (char)e3;
+                if (e4 != ERR) pastedData += (char)e4;
+                if (e5 != ERR) pastedData += (char)e5;
+              }
+            } else {
+              pastedData += (char)c;
+            }
+          }
+          handlePastedData(pastedData);
+          needsRedraw = true;
+          continue;
+        } else {
+          if (ch1 == ERR) {
+            clearSelection();
+          }
+          needsRedraw = true;
+          continue;
+        }
+      }
+
       if (ch == KEY_MOUSE) {
         MEVENT event;
         if (getmouse(&event) == OK) {
@@ -6508,6 +6659,9 @@ public:
           break;
         case 'a':
           selectAll();
+          break;
+        case 4: // Ctrl-D (Drag Out)
+          handleDragOut();
           break;
         case 27:
           clearSelection();

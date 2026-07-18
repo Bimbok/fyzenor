@@ -978,3 +978,70 @@ void loadConfiguration() {
   ICON_ZIP = g_icon_zip.c_str();
   ICON_LINK = g_icon_link.c_str();
 }
+
+std::string urlDecode(const std::string& str) {
+  std::string decoded = "";
+  for (size_t i = 0; i < str.length(); ++i) {
+    if (str[i] == '%' && i + 2 < str.length()) {
+      std::string hex = str.substr(i + 1, 2);
+      try {
+        char val = (char)std::stoul(hex, nullptr, 16);
+        decoded += val;
+      } catch (...) {
+        decoded += str[i];
+      }
+      i += 2;
+    } else {
+      decoded += str[i];
+    }
+  }
+  return decoded;
+}
+
+std::vector<fs::path> parsePastedPaths(const std::string& data) {
+  std::vector<fs::path> paths;
+  std::string current = "";
+  bool inQuotes = false;
+  char quoteChar = '\0';
+
+  auto addPath = [&paths](const std::string& raw) {
+    if (raw.empty()) return;
+    std::string pStr = urlDecode(raw);
+    if (pStr.rfind("file://", 0) == 0) {
+      pStr = pStr.substr(7);
+      if (pStr.rfind("localhost", 0) == 0) {
+        pStr = pStr.substr(9);
+      }
+    }
+    try {
+      fs::path p(pStr);
+      if (fs::exists(p)) {
+        paths.push_back(p);
+      }
+    } catch (...) {}
+  };
+
+  for (size_t i = 0; i < data.length(); ++i) {
+    char c = data[i];
+    if (inQuotes) {
+      if (c == quoteChar) {
+        inQuotes = false;
+      } else {
+        current += c;
+      }
+    } else {
+      if (c == '\'' || c == '"') {
+        inQuotes = true;
+        quoteChar = c;
+      } else if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+        addPath(current);
+        current = "";
+      } else {
+        current += c;
+      }
+    }
+  }
+  addPath(current);
+  return paths;
+}
+

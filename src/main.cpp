@@ -2,7 +2,7 @@
 #include "utils.h"
 #include <iostream>
 
-const std::string VERSION = "4.1.0";
+const std::string VERSION = "4.2.0";
 
 int main(int argc, char* argv[]) {
   if (argc > 1) {

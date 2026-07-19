@@ -197,14 +197,18 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   size_t bytes = str.length();
   while (bytes > 0 && cols < max_cols) {
     size_t char_len = 1;
-    while (bytes - char_len > 0) {
+    while (char_len <= bytes) {
       unsigned char c = str[bytes - char_len];
       if ((c & 0xC0) != 0x80) {
         break;
       }
       char_len++;
     }
-    bytes -= char_len;
+    if (char_len > bytes) {
+      bytes = 0;
+    } else {
+      bytes -= char_len;
+    }
     cols++;
   }
   return "..." + str.substr(bytes);

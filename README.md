@@ -526,7 +526,7 @@ flowchart TD
 | `F3`           | Toggle **Preview Pane** visibility (normal mode only) |
 | `F4`           | Toggle **Parent Pane** visibility (normal mode only) |
 | `F6`           | Toggle **Bookmarks (Pinned) Pane** visibility (normal mode only) |
-| `Ctrl+G`       | **Grow active pane width** (Dual-Pane mode only) |
+| `Ctrl+G`       | **Open Lazygit** (normal mode) or **Grow active pane width** (Dual-Pane mode) |
 | `Ctrl+B` / `Ctrl+H` | **Shrink active pane width** (Dual-Pane mode only) |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `i`            | Show **File Details** (permissions, owner, size, times) |

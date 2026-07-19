@@ -6717,8 +6717,16 @@ public:
         case 'G':
           if (!currentFiles.empty()) {
             selectedIndex = currentFiles.size() - 1;
-            if (selectedIndex > height - 5)
-              scrollOffset = selectedIndex - (height - 5);
+            int visibleHeight = height - 5;
+            if (visibleHeight > 0) {
+              if (selectedIndex > (size_t)visibleHeight) {
+                scrollOffset = selectedIndex - visibleHeight;
+              } else {
+                scrollOffset = 0;
+              }
+            } else {
+              scrollOffset = 0;
+            }
           }
           break;
         case 'P':

@@ -117,6 +117,7 @@ private:
     int w, h;
   };
   std::unordered_map<std::string, ImageCacheEntry> sessionImageCache;
+  std::vector<std::string> sessionImageCacheKeys;
   std::string cachedPath;
   std::string requestedPath;
   long long requestID = 0;
@@ -2109,6 +2110,12 @@ public:
       std::lock_guard<std::mutex> lock(previewMutex);
       auto it = sessionImageCache.find(path);
       if (it != sessionImageCache.end()) {
+        auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), path);
+        if (kit != sessionImageCacheKeys.end()) {
+          sessionImageCacheKeys.erase(kit);
+        }
+        sessionImageCacheKeys.push_back(path);
+
         cachedBase64 = it->second.b64;
         cachedImgW = it->second.w;
         cachedImgH = it->second.h;
@@ -2221,7 +2228,15 @@ public:
             cachedImgW = finalW;
             cachedImgH = finalH;
             cachedBase64 = b64;
+            if (sessionImageCache.size() >= 100) {
+              if (!sessionImageCacheKeys.empty()) {
+                std::string lruKey = sessionImageCacheKeys.front();
+                sessionImageCacheKeys.erase(sessionImageCacheKeys.begin());
+                sessionImageCache.erase(lruKey);
+              }
+            }
             sessionImageCache[job->path] = {b64, cachedImgW, cachedImgH};
+            sessionImageCacheKeys.push_back(job->path);
             cachedPath = job->path;
             imageReady = true;
           }
@@ -6163,6 +6178,7 @@ public:
       cachedTextLines.clear();
       cachedBase64 = "";
       sessionImageCache.clear();
+      sessionImageCacheKeys.clear();
     }
     reloadAll();
     setStatus("Refreshed");

@@ -77,6 +77,10 @@ private:
   bool hideParent = false;
   bool hidePinned = false;
 
+  // WARNING: The following TUI state fields (currentPath, currentFiles, parentFiles, selectedIndex)
+  // are NOT thread-safe and must ONLY be read/written by the main UI thread.
+  // Background worker threads (e.g. size/preview workers) must NEVER access these fields
+  // directly. They must instead receive deep copies of paths inside their job structs.
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;

@@ -6586,7 +6586,7 @@ public:
           if (isCommandAvailable("lazygit")) {
             const char* tmuxEnv = std::getenv("TMUX");
             if (tmuxEnv && isCommandAvailable("tmux")) {
-              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) + " -w 90% -h 90% -EE lazygit";
+              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) + " -w 85% -h 85% -EE lazygit";
               int res = std::system(runCmd.c_str());
               (void)res;
               reloadAll();

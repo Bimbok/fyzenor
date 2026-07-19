@@ -2755,13 +2755,14 @@ public:
     refresh();
 
     cancelSearch();
+    fs::path searchPath = currentPath;
 
     long long reqId = searchRequestID;
 
-    searchThread = std::thread([this, query, reqId]() {
+    searchThread = std::thread([this, query, reqId, searchPath]() {
       std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" " +
                         escapeShellArg(query) + " " +
-                        escapeShellArg(currentPath.string()) + " 2>/dev/null";
+                        escapeShellArg(searchPath.string()) + " 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
@@ -5264,11 +5265,12 @@ public:
     refresh();
 
     cancelSearch();
+    fs::path searchPath = currentPath;
 
     long long reqId = searchRequestID;
 
-    searchThread = std::thread([this, query, reqId]() {
-      std::string cmd = "find " + escapeShellArg(currentPath.string()) + " -name .git -prune -o -print 2>/dev/null";
+    searchThread = std::thread([this, query, reqId, searchPath]() {
+      std::string cmd = "find " + escapeShellArg(searchPath.string()) + " -name .git -prune -o -print 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);

@@ -1354,6 +1354,12 @@ public:
     initColors();
 
     refresh();
+
+    auto initEndTime = std::chrono::steady_clock::now();
+    double initMs = std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime).count() / 1000.0;
+    char startupBuf[64];
+    snprintf(startupBuf, sizeof(startupBuf), "⚡ Loaded in %.2fms", initMs);
+    setStatus(startupBuf);
   }
 
   void clearDirectRender() {

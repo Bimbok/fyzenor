@@ -30,6 +30,7 @@ extern double configCurrentWidth;
 extern bool configHidePreview;
 extern bool configHideParent;
 extern bool configHidePinned;
+extern std::chrono::steady_clock::time_point globalStartTime;
 void loadConfiguration();
 
 extern const char* ICON_DIR;

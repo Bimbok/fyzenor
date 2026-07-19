@@ -60,6 +60,7 @@ double configCurrentWidth = 0.32;
 bool configHidePreview = false;
 bool configHideParent = false;
 bool configHidePinned = false;
+std::chrono::steady_clock::time_point globalStartTime;
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";

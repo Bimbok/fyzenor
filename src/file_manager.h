@@ -6584,12 +6584,20 @@ public:
           needsRedraw = true;
         } else {
           if (isCommandAvailable("lazygit")) {
-            suspendTerminal();
-            std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && lazygit";
-            int res = std::system(runCmd.c_str());
-            (void)res;
-            resumeTerminal();
-            reloadAll();
+            const char* tmuxEnv = std::getenv("TMUX");
+            if (tmuxEnv && isCommandAvailable("tmux")) {
+              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) + " -w 90% -h 90% -EE lazygit";
+              int res = std::system(runCmd.c_str());
+              (void)res;
+              reloadAll();
+            } else {
+              suspendTerminal();
+              std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && lazygit";
+              int res = std::system(runCmd.c_str());
+              (void)res;
+              resumeTerminal();
+              reloadAll();
+            }
           } else {
             setStatus("Error: lazygit is not installed or not found in PATH");
           }

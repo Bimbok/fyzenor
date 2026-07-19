@@ -5405,7 +5405,7 @@ public:
     printHelpLine(19, 2, "e", "Extract / Empty Trash");
     printHelpLine(20, 2, ".", "Toggle Hidden");
     printHelpLine(21, 2, "s", "Toggle Sorting");
-    printHelpLine(22, 2, "Ctrl+G", "Grow Pane Width");
+    printHelpLine(22, 2, "Ctrl+G", "Open Lazygit / Grow Width");
     printHelpLine(23, 2, "F3", "Toggle Preview Pane");
     printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
 
@@ -6571,7 +6571,7 @@ public:
         }
         continue;
       }
-      if (ch == 7) { // Ctrl+G (Grow focused pane width)
+      if (ch == 7) { // Ctrl+G (Grow focused pane width or launch lazygit)
         if (isDualPaneMode) {
           if (focusLeftPane) {
             dualPaneSplitOffset++;
@@ -6582,6 +6582,17 @@ public:
           reloadAll();
           setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
           needsRedraw = true;
+        } else {
+          if (isCommandAvailable("lazygit")) {
+            suspendTerminal();
+            std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && lazygit";
+            int res = std::system(runCmd.c_str());
+            (void)res;
+            resumeTerminal();
+            reloadAll();
+          } else {
+            setStatus("Error: lazygit is not installed or not found in PATH");
+          }
         }
         continue;
       }

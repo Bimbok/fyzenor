@@ -819,6 +819,7 @@ private:
   }
 
   void startDeleteTask(const std::vector<fs::path>& targets) {
+    if (targets.empty()) return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
@@ -866,6 +867,7 @@ private:
   }
 
   void startTrashTask(const std::vector<fs::path>& targets) {
+    if (targets.empty()) return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);

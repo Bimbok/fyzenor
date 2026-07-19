@@ -81,6 +81,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Smart Copy Resumption**         | Resumes interrupted file copies block-by-block (`seekg`/`seekp`) by comparing file sizes and copying only the remaining bytes.                        |
 | **Task Play/Pause Controls**      | Suspend (pause) and resume background copy, move, delete, zip, and extract tasks directly from the task list.                                         |
 | **Drag & Drop Integration**       | Drop files directly into the terminal window to Copy/Move them, or press `Ctrl-D` to drag files out into GUI applications (via `ripdrag` or `dragon`). |
+| **Lazygit Integration**           | Launch `lazygit` directly in your current directory with `Ctrl+G`. Displays as a centered, bordered popup overlay when inside tmux. |
 | **Freedesktop Trash System**      | Move items to trash (`d`) and restore/empty them in-build. Integrates home trash and local partition trash folders.                                  |
 | **Undo Trash Action (`u`)**        | Undo the last move-to-trash action instantly, restoring items back to their original paths.                                                           |
 | **Dynamic Disk Space Status**     | Displays partition name, progress bar, percent used, and free space dynamically for the current drive.                                                |
@@ -256,6 +257,15 @@ Get information about your media files (`.mp4`, `.mp3`, `.mov`, `.png`, `.jpg`, 
 
 ### PDF Text Layout Previewer
 If `pdftotext` (from `poppler-utils`) is installed on your system, Fyzenor asynchronously extracts and renders the formatted text layouts of the first 3 pages of `.pdf` files directly in the preview pane.
+
+## 󰊢 Git & Lazygit Integration
+
+Fyzenor features native integration with `lazygit` to make repository staging and committing seamless:
+
+- **Launch Hotkey**: Press `Ctrl+G` in normal view mode to launch `lazygit` directly inside your currently active directory.
+- **TMUX Floating Popup Modal**: If Fyzenor is running inside a active `tmux` session, it leverages `tmux display-popup` to spawn `lazygit` as a centered, floating overlay window (taking up 85% of screen width and height). This creates a gorgeous desktop-like modal experience without leaving your TUI layout.
+- **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
+- **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
 
 ## ⚙️ External Configuration (`config.toml`)
 

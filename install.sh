@@ -169,24 +169,132 @@ EOF
         fi
     fi
 
-    # 7. Create default keys.fz macro config if not existing
+    # 7. Create default keys.toml macro config if not existing
     CONFIG_DIR="$HOME/.config/fyzenor"
-    KEYS_FILE="$CONFIG_DIR/keys.fz"
+    KEYS_FILE="$CONFIG_DIR/keys.toml"
+    THEME_FILE="$CONFIG_DIR/theme.toml"
+    CONFIG_FILE="$CONFIG_DIR/config.toml"
     mkdir -p "$CONFIG_DIR"
+
     if [ ! -f "$KEYS_FILE" ]; then
-        echo -e "${BLUE}Generating default keyboard macros config in $KEYS_FILE...${NC}"
-        cat <<EOF > "$KEYS_FILE"
+        if [ -f "keys.toml" ]; then
+            cp "keys.toml" "$KEYS_FILE"
+            echo -e "${GREEN}Default keys.toml copied to $KEYS_FILE!${NC}"
+        else
+            echo -e "${BLUE}Generating default keys.toml in $KEYS_FILE...${NC}"
+            cat <<EOF > "$KEYS_FILE"
 # Fyzenor Custom Keys Macro Configuration
-# Format: single_key=command
-# Macros:
+# Macros allow you to execute shell command shortcuts using single keystrokes.
+# Use single quotes for command strings in TOML.
+# Place them under the [macros] section.
 #   \$f - expands to the currently highlighted file's absolute path
 #   \$s - expands to space-separated paths of all selected files
-# Examples:
-#   v=nvim "\$f"
-#   g=git status
-#   l=ls -la
+
+[macros]
+v = 'nvim "\$f"'
+g = 'git status'
+l = 'ls -la'
 EOF
-        echo -e "${GREEN}Default keys.fz generated!${NC}"
+            echo -e "${GREEN}Default keys.toml generated!${NC}"
+        fi
+    fi
+
+    # 8. Create default theme.toml if not existing
+    if [ ! -f "$THEME_FILE" ]; then
+        if [ -f "theme.toml" ]; then
+            cp "theme.toml" "$THEME_FILE"
+            echo -e "${GREEN}Default theme.toml copied to $THEME_FILE!${NC}"
+        else
+            echo -e "${BLUE}Generating default theme.toml in $THEME_FILE...${NC}"
+            cat <<EOF > "$THEME_FILE"
+# Fyzenor Theme Configuration File
+# Catppuccin Mocha colors
+
+[colors]
+dir = "#89b4fa"
+file = "#cdd6f4"
+sel_bg = "#585b70"
+media = "#f9e2af"
+image = "#f5c2e7"
+border = "#b4befe"
+success = "#a6e3a1"
+error = "#f38ba8"
+multi = "#f5e0dc"
+pin_bg = "#cba6f7"
+pin_border = "#89b4fa"
+sec_sel_bg = "#313244"
+core = "#a6e3a1"
+archive = "#eba0ac"
+frontend = "#fab387"
+config = "#94e2d5"
+script = "#f9e2af"
+docs = "#f2cdcd"
+font = "#cba6f7"
+EOF
+            echo -e "${GREEN}Default theme.toml generated!${NC}"
+        fi
+    fi
+
+    # 9. Create default config.toml if not existing
+    if [ ! -f "$CONFIG_FILE" ]; then
+        if [ -f "config.toml" ]; then
+            cp "config.toml" "$CONFIG_FILE"
+            echo -e "${GREEN}Default config.toml copied to $CONFIG_FILE!${NC}"
+        else
+            echo -e "${BLUE}Generating default config.toml in $CONFIG_FILE...${NC}"
+            cat <<EOF > "$CONFIG_FILE"
+# Fyzenor Default Configuration File
+# This file is automatically copied to ~/.config/fyzenor/config.toml on launch if missing.
+
+[general]
+# Show hidden files by default
+show_hidden = false
+
+# Default sorting mode: "name", "size" (descending), or "date" (descending)
+sort_mode = "name"
+
+[layout]
+# Width percentages for the parent and current columns in normal mode (must sum to < 1.0)
+parent_width = 0.18
+current_width = 0.32
+
+# Set to true to hide the preview pane, parent directory listings, or bookmarks pane by default
+hide_preview = false
+hide_parent = false
+hide_pinned = false
+
+[icons]
+# Glyph icons used for different file categories and states (Nerd Fonts required)
+dir = " "
+video = " "
+image = " "
+core = " "
+frontend = "󰖟 "
+config = " "
+script = " "
+docs = " "
+font = " "
+file = " "
+music = " "
+pin = " "
+zip = "󰿺 "
+link = "󰌹 "
+
+[categories]
+# Associate file extensions with styling and behavior groups
+video = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"]
+image = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"]
+frontend = [".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl", ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"]
+scripts = [".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk", ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"]
+config = [".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock", ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"]
+documentation = [".md", ".markdown", ".txt", ".text", ".log", ".pdf", ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"]
+core = [".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php", ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs", ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite", ".sqlite3", ".db3", ".mdb", ".accdb", ".cmake", ".make", ".diff", ".patch", ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs", ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"]
+font = [".woff", ".woff2", ".ttf", ".eot", ".otf"]
+audio = [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"]
+archive = [".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"]
+EOF
+            echo -e "${GREEN}Default config.toml generated!${NC}"
+        fi
     fi
 else
     echo -e "${RED}Failed to move binary to $INSTALL_PATH. You may need to move it manually.${NC}"

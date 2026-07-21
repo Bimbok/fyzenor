@@ -74,7 +74,15 @@ private:
   size_t leftTabIndex = 0;
   size_t rightTabIndex = 1;
   bool focusLeftPane = true;
+  int dualPaneSplitOffset = 0;
+  bool hidePreview = false;
+  bool hideParent = false;
+  bool hidePinned = false;
 
+  // WARNING: The following TUI state fields (currentPath, currentFiles, parentFiles, selectedIndex)
+  // are NOT thread-safe and must ONLY be read/written by the main UI thread.
+  // Background worker threads (e.g. size/preview workers) must NEVER access these fields
+  // directly. They must instead receive deep copies of paths inside their job structs.
   fs::path currentPath;
   std::vector<FileEntry> currentFiles;
   std::vector<FileEntry> parentFiles;
@@ -111,6 +119,7 @@ private:
     int w, h;
   };
   std::unordered_map<std::string, ImageCacheEntry> sessionImageCache;
+  std::vector<std::string> sessionImageCacheKeys;
   std::string cachedPath;
   std::string requestedPath;
   long long requestID = 0;
@@ -813,6 +822,7 @@ private:
   }
 
   void startDeleteTask(const std::vector<fs::path>& targets) {
+    if (targets.empty()) return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
@@ -860,6 +870,7 @@ private:
   }
 
   void startTrashTask(const std::vector<fs::path>& targets) {
+    if (targets.empty()) return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
@@ -1099,181 +1110,7 @@ private:
   }
 
   void initColors() {
-    start_color();
-    use_default_colors();
-
-    std::unordered_map<std::string, std::string> colors = {
-        {"DIR", "#89b4fa"},     {"FILE", "#cdd6f4"},       {"SEL_BG", "#585b70"},
-        {"MEDIA", "#f9e2af"},   {"IMAGE", "#f5c2e7"},      {"BORDER", "#b4befe"},
-        {"SUCCESS", "#a6e3a1"}, {"ERROR", "#f38ba8"},      {"MULTI", "#f5e0dc"},
-        {"PIN_BG", "#cba6f7"},  {"PIN_BORDER", "#89b4fa"}, {"SEC_SEL_BG", "#313244"},
-        {"CORE", "#a6e3a1"},    {"ARCHIVE", "#eba0ac"},    {"FRONTEND", "#fab387"},
-        {"CONFIG", "#94e2d5"},  {"SCRIPT", "#f9e2af"},     {"DOCS", "#f2cdcd"},
-        {"FONT", "#cba6f7"}};
-
-    const char* home = getenv("HOME");
-    if (home) {
-      fs::path configDir = fs::path(home) / ".config/fyzenor";
-      if (!fs::exists(configDir))
-        fs::create_directories(configDir);
-      fs::path colorFile = configDir / "colors.fz";
-      if (fs::exists(colorFile)) {
-        std::ifstream f(colorFile);
-        std::string line;
-        while (std::getline(f, line)) {
-          if (line.empty() || line[0] == '#')
-            continue;
-          size_t pos = line.find(':');
-          if (pos != std::string::npos) {
-            std::string key = line.substr(0, pos);
-            std::string val = line.substr(pos + 1);
-            key.erase(0, key.find_first_not_of(" \t"));
-            key.erase(key.find_last_not_of(" \t") + 1);
-            val.erase(0, val.find_first_not_of(" \t"));
-            val.erase(val.find_last_not_of(" \t") + 1);
-            if (!val.empty() && val[0] == '#')
-              colors[key] = val;
-          }
-        }
-      } else {
-        std::ofstream f(colorFile);
-        f << "# Fyzenor Theme: Catppuccin Mocha (Matugen ready)\n";
-        f << "DIR: #89b4fa\n";
-        f << "FILE: #cdd6f4\n";
-        f << "SEL_BG: #585b70\n";
-        f << "MEDIA: #f9e2af\n";
-        f << "IMAGE: #f5c2e7\n";
-        f << "BORDER: #b4befe\n";
-        f << "SUCCESS: #a6e3a1\n";
-        f << "ERROR: #f38ba8\n";
-        f << "MULTI: #f5e0dc\n";
-        f << "PIN_BG: #cba6f7\n";
-        f << "PIN_BORDER: #89b4fa\n";
-        f << "SEC_SEL_BG: #313244\n";
-        f << "CORE: #a6e3a1\n";
-        f << "ARCHIVE: #eba0ac\n";
-        f << "FRONTEND: #fab387\n";
-        f << "CONFIG: #94e2d5\n";
-        f << "SCRIPT: #f9e2af\n";
-        f << "DOCS: #f2cdcd\n";
-        f << "FONT: #cba6f7\n";
-      }
-    }
-
-    auto setHex = [](short id, const std::string& hex) {
-      if (hex.length() < 7 || hex[0] != '#')
-        return;
-      int r, g, b;
-      if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
-        init_color(id, (short)(r * 1000 / 255), (short)(g * 1000 / 255), (short)(b * 1000 / 255));
-      }
-    };
-
-    if (can_change_color()) {
-      setHex(20, colors["DIR"]);
-      setHex(21, colors["FILE"]);
-      setHex(22, colors["SEL_BG"]);
-      setHex(23, colors["MEDIA"]);
-      setHex(24, colors["IMAGE"]);
-      setHex(25, colors["BORDER"]);
-      setHex(26, colors["SUCCESS"]);
-      setHex(27, colors["ERROR"]);
-      setHex(28, colors["MULTI"]);
-      setHex(29, colors["PIN_BG"]);
-      setHex(30, colors["PIN_BORDER"]);
-      setHex(31, colors["SEC_SEL_BG"]);
-      setHex(32, colors["CORE"]);
-      setHex(33, colors["ARCHIVE"]);
-      setHex(34, colors["FRONTEND"]);
-      setHex(35, colors["CONFIG"]);
-      setHex(36, colors["SCRIPT"]);
-      setHex(37, colors["DOCS"]);
-      setHex(38, colors["FONT"]);
-      init_pair(1, 20, -1);   // DIR
-      init_pair(2, 21, -1);   // FILE
-      init_pair(4, 23, -1);   // MEDIA
-      init_pair(5, 24, -1);   // IMAGE
-      init_pair(16, 32, -1);  // CORE
-      init_pair(17, 33, -1);  // ARCHIVE
-      init_pair(24, 34, -1);  // FRONTEND
-      init_pair(25, 35, -1);  // CONFIG
-      init_pair(26, 36, -1);  // SCRIPT
-      init_pair(27, 37, -1);  // DOCS
-      init_pair(28, 38, -1);  // FONT
-      init_pair(41, 20, 22);  // SEL_DIR
-      init_pair(42, 21, 22);  // SEL_FILE
-      init_pair(44, 23, 22);  // SEL_MEDIA
-      init_pair(45, 24, 22);  // SEL_IMAGE
-      init_pair(56, 32, 22);  // SEL_CORE
-      init_pair(57, 33, 22);  // SEL_ARCHIVE
-      init_pair(64, 34, 22);  // SEL_FRONTEND
-      init_pair(65, 35, 22);  // SEL_CONFIG
-      init_pair(66, 36, 22);  // SEL_SCRIPT
-      init_pair(67, 37, 22);  // SEL_DOCS
-      init_pair(68, 38, 22);  // SEL_FONT
-      init_pair(81, 20, 31);  // SEC_SEL_DIR
-      init_pair(82, 21, 31);  // SEC_SEL_FILE
-      init_pair(84, 23, 31);  // SEC_SEL_MEDIA
-      init_pair(85, 24, 31);  // SEC_SEL_IMAGE
-      init_pair(96, 32, 31);  // SEC_SEL_CORE
-      init_pair(97, 33, 31);  // SEC_SEL_ARCHIVE
-      init_pair(104, 34, 31); // SEC_SEL_FRONTEND
-      init_pair(105, 35, 31); // SEC_SEL_CONFIG
-      init_pair(106, 36, 31); // SEC_SEL_SCRIPT
-      init_pair(107, 37, 31); // SEC_SEL_DOCS
-      init_pair(108, 38, 31); // SEC_SEL_FONT
-      init_pair(6, 25, -1);   // BORDER
-      init_pair(7, 26, -1);   // SUCCESS
-      init_pair(8, 27, -1);   // ERROR
-      init_pair(9, 28, -1);   // MULTI
-      init_pair(15, 30, -1);  // PIN_BORDER
-      init_pair(10, 31, 29);  // SEL_PIN (foreground SEC_SEL_BG, background PIN_BG)
-    } else {
-      init_pair(1, COLOR_CYAN, -1);
-      init_pair(2, COLOR_WHITE, -1);
-      init_pair(3, COLOR_BLACK, COLOR_CYAN);
-      init_pair(4, COLOR_YELLOW, -1);
-      init_pair(5, COLOR_MAGENTA, -1);
-      init_pair(16, COLOR_GREEN, -1);
-      init_pair(17, COLOR_RED, -1);
-      init_pair(24, COLOR_YELLOW, -1);
-      init_pair(25, COLOR_WHITE, -1);
-      init_pair(26, COLOR_CYAN, -1);
-      init_pair(27, COLOR_RED, -1);
-      init_pair(28, COLOR_MAGENTA, -1);
-
-      short selBg = COLOR_BLUE;
-      short secSelBg = COLOR_CYAN;
-
-      std::vector<int> bases = {1, 2, 4, 5, 16, 17, 24, 25, 26, 27, 28};
-      for (int base : bases) {
-        short fg = COLOR_WHITE;
-        if (base == 1) fg = COLOR_CYAN;
-        else if (base == 4) fg = COLOR_YELLOW;
-        else if (base == 5) fg = COLOR_MAGENTA;
-        else if (base == 16) fg = COLOR_GREEN;
-        else if (base == 17) fg = COLOR_RED;
-        else if (base == 24) fg = COLOR_YELLOW;
-        else if (base == 25) fg = COLOR_WHITE;
-        else if (base == 26) fg = COLOR_CYAN;
-        else if (base == 27) fg = COLOR_RED;
-        else if (base == 28) fg = COLOR_MAGENTA;
-
-        if (base + 40 < COLOR_PAIRS)
-          init_pair(base + 40, fg, selBg);
-        if (base + 80 < COLOR_PAIRS)
-          init_pair(base + 80, fg, secSelBg);
-      }
-
-      init_pair(6, COLOR_BLUE, -1);
-      init_pair(7, COLOR_GREEN, -1);
-      init_pair(8, COLOR_RED, -1);
-      init_pair(9, COLOR_YELLOW, -1);
-      init_pair(10, COLOR_WHITE, COLOR_BLUE);
-      init_pair(11, COLOR_BLUE, -1);
-      init_pair(12, COLOR_BLACK, COLOR_WHITE);
-      init_pair(15, COLOR_BLUE, -1);
-    }
+    ::initColors();
   }
 
   int get_or_create_color_pair(short fg, short bg) {
@@ -1465,6 +1302,14 @@ public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr) {
+    showHidden = configShowHidden;
+    hidePreview = configHidePreview;
+    hideParent = configHideParent;
+    hidePinned = configHidePinned;
+    if (configSortMode == "size") sortMode = SortMode::SIZE;
+    else if (configSortMode == "date") sortMode = SortMode::DATE;
+    else sortMode = SortMode::NAME;
+
     setlocale(LC_ALL, "");
     loadPins();
     loadCustomMacros();
@@ -1503,6 +1348,7 @@ public:
     keypad(stdscr, TRUE);
     curs_set(0);
     timeout(50);
+    std::cout << "\033[?2004h" << std::flush;
 
     // Enable mouse tracking to prevent terminal text selection override and handle mouse scroll
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
@@ -1510,6 +1356,12 @@ public:
     initColors();
 
     refresh();
+
+    auto initEndTime = std::chrono::steady_clock::now();
+    double initMs = std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime).count() / 1000.0;
+    char startupBuf[64];
+    snprintf(startupBuf, sizeof(startupBuf), "󱐌 Loaded in %.2fms", initMs);
+    setStatus(startupBuf);
   }
 
   void clearDirectRender() {
@@ -1583,6 +1435,7 @@ public:
     if (winPreview)
       delwin(winPreview);
     clearDirectRender();
+    std::cout << "\033[?2004l" << std::flush;
     endwin();
   }
 
@@ -1799,7 +1652,7 @@ public:
     std::string homeDir = getenv("HOME") ? getenv("HOME") : "";
     if (homeDir.empty()) return;
 
-    std::string configPath = homeDir + "/.config/fyzenor/keys.fz";
+    std::string configPath = homeDir + "/.config/fyzenor/keys.toml";
     try {
       fs::create_directories(homeDir + "/.config/fyzenor");
     } catch (...) {}
@@ -1807,36 +1660,63 @@ public:
     if (!fs::exists(configPath)) {
       std::ofstream df(configPath);
       df << "# Fyzenor Custom Keys Macro Configuration\n"
-         << "# Format: single_key=command\n"
-         << "# Macros:\n"
+         << "# Macros allow you to execute shell command shortcuts using single keystrokes.\n"
+         << "# Use single quotes for command strings in TOML.\n"
+         << "# Place them under the [macros] section.\n"
          << "#   $f - expands to the currently highlighted file's absolute path\n"
-         << "#   $s - expands to space-separated paths of all selected files\n"
-         << "# Examples:\n"
-         << "#   v=nvim \"$f\"\n"
-         << "#   g=git status\n"
-         << "#   l=ls -la\n";
+         << "#   $s - expands to space-separated paths of all selected files\n\n"
+         << "[macros]\n"
+         << "v = 'nvim \"$f\"'\n"
+         << "g = 'git status'\n"
+         << "l = 'ls -la'\n";
     }
 
     std::ifstream f(configPath);
     if (!f.is_open()) return;
 
     std::string line;
+    std::string section = "";
     while (std::getline(f, line)) {
-      if (line.empty() || line.front() == '#') continue;
+      auto first = line.find_first_not_of(" \t\r\n");
+      if (first == std::string::npos) continue;
+      auto last = line.find_last_not_of(" \t\r\n");
+      line = line.substr(first, last - first + 1);
+
+      if (line.empty() || line[0] == '#') continue;
+
+      if (line[0] == '[' && line.back() == ']') {
+        section = line.substr(1, line.length() - 2);
+        std::transform(section.begin(), section.end(), section.begin(), ::tolower);
+        continue;
+      }
 
       size_t eq = line.find('=');
       if (eq != std::string::npos && eq > 0) {
         std::string keyPart = line.substr(0, eq);
         std::string cmdPart = line.substr(eq + 1);
-        
-        while (!keyPart.empty() && isspace(keyPart.front())) keyPart = keyPart.substr(1);
-        while (!keyPart.empty() && isspace(keyPart.back())) keyPart.pop_back();
-        while (!cmdPart.empty() && isspace(cmdPart.front())) cmdPart = cmdPart.substr(1);
-        while (!cmdPart.empty() && isspace(cmdPart.back())) cmdPart.pop_back();
 
-        if (keyPart.length() == 1 && !cmdPart.empty()) {
-          int keyChar = keyPart[0];
-          customMacros[keyChar] = cmdPart;
+        auto k_first = keyPart.find_first_not_of(" \t");
+        if (k_first != std::string::npos) {
+          auto k_last = keyPart.find_last_not_of(" \t");
+          keyPart = keyPart.substr(k_first, k_last - k_first + 1);
+        }
+        auto c_first = cmdPart.find_first_not_of(" \t");
+        if (c_first != std::string::npos) {
+          auto c_last = cmdPart.find_last_not_of(" \t");
+          cmdPart = cmdPart.substr(c_first, c_last - c_first + 1);
+        }
+
+        if (!cmdPart.empty() && cmdPart.front() == '"' && cmdPart.back() == '"') {
+          cmdPart = cmdPart.substr(1, cmdPart.length() - 2);
+        } else if (!cmdPart.empty() && cmdPart.front() == '\'' && cmdPart.back() == '\'') {
+          cmdPart = cmdPart.substr(1, cmdPart.length() - 2);
+        }
+
+        if (section == "macros") {
+          if (keyPart.length() == 1 && !cmdPart.empty()) {
+            int keyChar = keyPart[0];
+            customMacros[keyChar] = cmdPart;
+          }
         }
       }
     }
@@ -1871,8 +1751,7 @@ public:
       }
     }
 
-    def_prog_mode();
-    endwin();
+    suspendTerminal();
     
     std::system("clear");
     std::cout << "\033[1;36m[Fyzenor Macro] Running: " << cmd << "\033[0m\n\n";
@@ -1884,10 +1763,8 @@ public:
     std::cout << "\n\033[1;30mPress Enter to return to Fyzenor...\033[0m";
     std::cin.get();
     
-    reset_prog_mode();
-    refresh();
+    resumeTerminal();
     clear();
-    updateLayout();
     reloadAll();
   }
   void savePins() {
@@ -2074,9 +1951,28 @@ public:
 
   void adjustLeftPane() {
     if (isDualPaneMode) return;
+    if (hideParent && hidePinned) return;
+
+    int w1 = static_cast<int>(width * configParentWidth);
+
+    if (hidePinned) {
+      if (winParent) {
+        wresize(winParent, height - 2, w1);
+        mvwin(winParent, 1, 0);
+      }
+      return;
+    }
+
+    if (hideParent) {
+      if (winPinned) {
+        wresize(winPinned, height - 2, w1);
+        mvwin(winPinned, 1, 0);
+      }
+      return;
+    }
+
     if (!winPinned || !winParent) return;
 
-    int w1 = static_cast<int>(width * 0.18);
     int hPinned = 0;
     int hParent = 0;
 
@@ -2123,6 +2019,21 @@ public:
     adjustLeftPane();
   }
 
+  void suspendTerminal() {
+    clearDirectRender();
+    std::cout << "\033[?2004l" << std::flush;
+    def_prog_mode();
+    endwin();
+  }
+
+  void resumeTerminal() {
+    reset_prog_mode();
+    updateLayout();
+    refresh();
+    std::cout << "\033[?2004h" << std::flush;
+    timeout(50);
+  }
+
   void updateLayout() {
     endwin();
     refresh();
@@ -2130,8 +2041,18 @@ public:
     getmaxyx(stdscr, height, width);
 
     if (isDualPaneMode) {
-      int w1 = width / 2;
+      int w1 = width / 2 + dualPaneSplitOffset;
+      int minCols = 20;
+      if (w1 < minCols) {
+        w1 = minCols;
+        dualPaneSplitOffset = w1 - width / 2;
+      }
       int w2 = width - w1;
+      if (w2 < minCols) {
+        w2 = minCols;
+        w1 = width - w2;
+        dualPaneSplitOffset = w1 - width / 2;
+      }
 
       if (winPinned) { delwin(winPinned); winPinned = nullptr; }
       if (winParent) { delwin(winParent); winParent = nullptr; }
@@ -2145,35 +2066,49 @@ public:
       return;
     }
 
-    // Adjusted widths for a more modern Miller Column feel (2:3:5 ratio
-    // roughly)
-    int w1 = static_cast<int>(width * 0.18); // Pins/Parent
-    int w2 = static_cast<int>(width * 0.32); // Current Files
-    int w3 = width - w1 - w2;                // Large Preview
+    // Adjusted widths dynamically from layout configuration values and visibility states
+    int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
+    int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
+    if (w3 < 0) w3 = 0;
+    int w2 = width - w1 - w3;
 
-    if (winPinned)
-      delwin(winPinned);
-    if (winParent)
-      delwin(winParent);
-    if (winCurrent)
-      delwin(winCurrent);
-    if (winPreview)
-      delwin(winPreview);
+    if (winPinned) { delwin(winPinned); winPinned = nullptr; }
+    if (winParent) { delwin(winParent); winParent = nullptr; }
+    if (winCurrent) { delwin(winCurrent); winCurrent = nullptr; }
+    if (winPreview) { delwin(winPreview); winPreview = nullptr; }
 
     int hPinned = 0;
     int hParent = 0;
-    if (parentFiles.empty()) {
-      hPinned = height - 2;
-      hParent = 1;
-    } else {
-      hPinned = (height - 2) / 3;
-      hParent = (height - 2) - hPinned;
+    if (!hideParent || !hidePinned) {
+      if (hidePinned) {
+        hPinned = 0;
+        hParent = height - 2;
+      } else if (hideParent) {
+        hPinned = height - 2;
+        hParent = 0;
+      } else {
+        if (parentFiles.empty()) {
+          hPinned = height - 2;
+          hParent = 1;
+        } else {
+          hPinned = (height - 2) / 3;
+          hParent = (height - 2) - hPinned;
+        }
+      }
+
+      if (!hidePinned) {
+        winPinned = newwin(hPinned, w1, 1, 0);
+      }
+      if (!hideParent) {
+        winParent = newwin(hParent, w1, hidePinned ? 1 : (parentFiles.empty() ? height - 1 : 1 + hPinned), 0);
+      }
     }
 
-    winPinned = newwin(hPinned, w1, 1, 0);
-    winParent = newwin(hParent, w1, parentFiles.empty() ? height - 1 : 1 + hPinned, 0);
     winCurrent = newwin(height - 2, w2, 1, w1);
-    winPreview = newwin(height - 2, w3, 1, w1 + w2);
+
+    if (!hidePreview) {
+      winPreview = newwin(height - 2, w3, 1, w1 + w2);
+    }
 
     refresh();
   }
@@ -2189,6 +2124,12 @@ public:
       std::lock_guard<std::mutex> lock(previewMutex);
       auto it = sessionImageCache.find(path);
       if (it != sessionImageCache.end()) {
+        auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), path);
+        if (kit != sessionImageCacheKeys.end()) {
+          sessionImageCacheKeys.erase(kit);
+        }
+        sessionImageCacheKeys.push_back(path);
+
         cachedBase64 = it->second.b64;
         cachedImgW = it->second.w;
         cachedImgH = it->second.h;
@@ -2241,6 +2182,12 @@ public:
 
         if (job->reqId != requestID)
           continue;
+
+        if (cachePath == "/tmp/fm_preview_thumb.png") {
+          try {
+            fs::remove(cachePath);
+          } catch (...) {}
+        }
 
         if (!fs::exists(cachePath)) {
           std::string fileCmd = "\"" + job->path + "\"";
@@ -2295,7 +2242,15 @@ public:
             cachedImgW = finalW;
             cachedImgH = finalH;
             cachedBase64 = b64;
+            if (sessionImageCache.size() >= 100) {
+              if (!sessionImageCacheKeys.empty()) {
+                std::string lruKey = sessionImageCacheKeys.front();
+                sessionImageCacheKeys.erase(sessionImageCacheKeys.begin());
+                sessionImageCache.erase(lruKey);
+              }
+            }
             sessionImageCache[job->path] = {b64, cachedImgW, cachedImgH};
+            sessionImageCacheKeys.push_back(job->path);
             cachedPath = job->path;
             imageReady = true;
           }
@@ -2383,6 +2338,34 @@ public:
             }
           } else {
             lines.push_back("(Install 'mediainfo' or 'ffmpeg' for full metadata previews)");
+          }
+        } else if (ext == ".pdf") {
+          if (isCommandAvailable("pdftotext")) {
+            std::string pdfCmd = "pdftotext -layout -l 3 \"" + job->path + "\" - 2>/dev/null | head -n 40";
+            lines.push_back("\033[1;32mPDF Document Preview (First 3 Pages):\033[0m");
+            lines.push_back("--------------------------------");
+            FILE* pipe = popen(pdfCmd.c_str(), "r");
+            if (pipe) {
+              char buf[4096];
+              bool hasData = false;
+              while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+                if (job->reqId != requestID || stopWorker)
+                  break;
+                std::string ln(buf);
+                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                lines.push_back(ln);
+                hasData = true;
+              }
+              pclose(pipe);
+              if (!hasData) {
+                lines.push_back("(Empty or encrypted PDF document)");
+              }
+            } else {
+              lines.push_back("(Failed to read PDF document)");
+            }
+          } else {
+            lines.push_back(" \033[1;31m[PDF File - No Preview]\033[0m ");
+            lines.push_back(" (Install 'poppler-utils' / 'pdftotext' to view text preview) ");
           }
         } else if (is_binary_file(job->path)) {
           lines.push_back("\033[1;31m[Binary File]\033[0m");
@@ -2786,13 +2769,14 @@ public:
     refresh();
 
     cancelSearch();
+    fs::path searchPath = currentPath;
 
     long long reqId = searchRequestID;
 
-    searchThread = std::thread([this, query, reqId]() {
+    searchThread = std::thread([this, query, reqId, searchPath]() {
       std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" " +
                         escapeShellArg(query) + " " +
-                        escapeShellArg(currentPath.string()) + " 2>/dev/null";
+                        escapeShellArg(searchPath.string()) + " 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
@@ -3106,9 +3090,7 @@ public:
         }
       });
     } else {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
       
       std::cout << "\033[H\033[J";
       std::cout << "Executing: " << finalCmd << "\n\n";
@@ -3121,9 +3103,7 @@ public:
       std::string dummy;
       std::getline(std::cin, dummy);
       
-      reset_prog_mode();
-      updateLayout();
-      refresh();
+      resumeTerminal();
       reloadAll();
     }
   }
@@ -3154,9 +3134,7 @@ public:
       }
       out.close();
 
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
 
       const char* editor = getenv("EDITOR");
       if (!editor)
@@ -3174,9 +3152,7 @@ public:
       int res = system(cmd.c_str());
       (void)res;
 
-      reset_prog_mode();
-      refresh();
-      timeout(50);
+      resumeTerminal();
 
       std::ifstream in(tempFile);
       if (!in.is_open()) {
@@ -3381,6 +3357,104 @@ public:
     int res = system(cmd.c_str());
     (void)res;
     setStatus("Copied path");
+  }
+
+  void handleDragOut() {
+    if (currentFiles.empty())
+      return;
+
+    std::string tool = "";
+    if (isCommandAvailable("ripdrag")) {
+      tool = "ripdrag";
+    } else if (isCommandAvailable("dragon-drag-and-drop")) {
+      tool = "dragon-drag-and-drop";
+    } else if (isCommandAvailable("dragon")) {
+      tool = "dragon";
+    }
+
+    if (tool.empty()) {
+      setStatus("Error: 'ripdrag' or 'dragon' is not installed");
+      return;
+    }
+
+    std::vector<fs::path> targets;
+    if (!multiSelection.empty()) {
+      for (const auto& p : multiSelection) {
+        targets.push_back(p);
+      }
+    } else {
+      targets.push_back(currentFiles[selectedIndex].path);
+    }
+
+    std::string cmd = tool + " -x";
+    for (const auto& p : targets) {
+      cmd += " " + escapeShellArg(fs::absolute(p).string());
+    }
+    cmd += " >/dev/null 2>&1";
+
+    setStatus("Drag initiated. Drag the file from the pop-up window.");
+
+    std::thread([cmd]() {
+      int res = system(cmd.c_str());
+      (void)res;
+    }).detach();
+  }
+
+  void handlePastedData(const std::string& data) {
+    std::vector<fs::path> paths = parsePastedPaths(data);
+    if (paths.empty()) {
+      return;
+    }
+
+    int h = 7;
+    int w = 60;
+    int startY = (height - h) / 2;
+    int startX = (width - w) / 2;
+    WINDOW* promptWin = newwin(h, w, startY, startX);
+    if (!promptWin) return;
+
+    keypad(promptWin, TRUE);
+    wattron(promptWin, COLOR_PAIR(6) | A_BOLD);
+    drawRoundedBox(promptWin);
+    wattroff(promptWin, COLOR_PAIR(6) | A_BOLD);
+
+    wattron(promptWin, COLOR_PAIR(1) | A_BOLD);
+    mvwprintw(promptWin, 1, 2, "󰗘 Dropped File(s) Detected");
+    wattroff(promptWin, COLOR_PAIR(1) | A_BOLD);
+
+    std::string countStr = (paths.size() > 1) ? std::to_string(paths.size()) + " items" : paths[0].filename().string();
+    if (countStr.length() > (size_t)(w - 15)) {
+      countStr = countStr.substr(0, w - 18) + "...";
+    }
+    mvwprintw(promptWin, 3, 2, "Source: %s", countStr.c_str());
+    mvwprintw(promptWin, 5, 2, "[c] Copy here  [m] Move here  [Esc] Cancel");
+
+    wrefresh(promptWin);
+
+    int choice = 0;
+    while (true) {
+      int ch = wgetch(promptWin);
+      if (ch == 'c' || ch == 'C') {
+        choice = 'c';
+        break;
+      } else if (ch == 'm' || ch == 'M') {
+        choice = 'm';
+        break;
+      } else if (ch == 27) { // Esc
+        choice = 'e';
+        break;
+      }
+    }
+    delwin(promptWin);
+
+    if (choice == 'c' || choice == 'm') {
+      std::vector<std::pair<fs::path, fs::path>> jobs;
+      for (const auto& p : paths) {
+        jobs.push_back({p, currentPath / p.filename()});
+      }
+      startPasteTask(jobs, choice == 'm');
+    }
+    reloadAll();
   }
 
   void handleDelete() {
@@ -5214,11 +5288,12 @@ public:
     refresh();
 
     cancelSearch();
+    fs::path searchPath = currentPath;
 
     long long reqId = searchRequestID;
 
-    searchThread = std::thread([this, query, reqId]() {
-      std::string cmd = "find " + escapeShellArg(currentPath.string()) + " -name .git -prune -o -print 2>/dev/null";
+    searchThread = std::thread([this, query, reqId, searchPath]() {
+      std::string cmd = "find " + escapeShellArg(searchPath.string()) + " -name .git -prune -o -print 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
@@ -5298,12 +5373,10 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 38;
-    int w = 60;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    int h = 27;
+    int w = 82;
+    if (h > height - 2) h = height - 2;
+    if (w > width - 2) w = width - 2;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
@@ -5323,51 +5396,66 @@ public:
     mvwprintw(helpWin, 1, 2, "%s", title.c_str());
     wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
 
-    auto printHelpLine = [&](int row, const std::string& key, const std::string& desc) {
+    auto printHelpLine = [&](int row, int col, const std::string& key, const std::string& desc) {
       if (row >= h - 2) return;
       std::string lineStr = key;
       while (lineStr.length() < 13) lineStr += " ";
       lineStr += " → " + desc;
-      if ((int)lineStr.length() > w - 6) {
-        lineStr = utf8_safe_truncate(lineStr, w - 6);
+      int maxLen = (w / 2) - 4;
+      if ((int)lineStr.length() > maxLen) {
+        lineStr = utf8_safe_truncate(lineStr, maxLen);
       }
-      mvwprintw(helpWin, row, 2, "%s", lineStr.c_str());
+      mvwprintw(helpWin, row, col, "%s", lineStr.c_str());
     };
 
-    printHelpLine(3, "j / k", "Navigate");
-    printHelpLine(4, "h / l", "Back / Open");
-    printHelpLine(5, "Space / v", "Select");
-    printHelpLine(6, "a", "Select All");
-    printHelpLine(7, "Esc", "Clear Selection");
-    printHelpLine(8, "y", "Copy");
-    printHelpLine(9, "x", "Cut");
-    printHelpLine(10, "p", "Paste");
-    printHelpLine(11, "Y", "Paste as Symlink");
-    printHelpLine(12, "d / Delete", "Move to Trash");
-    printHelpLine(13, "D", "Delete Permanently");
-    printHelpLine(14, "T", "Toggle Trash Manager");
-    printHelpLine(15, "r", "Rename (Restore in Trash)");
-    printHelpLine(16, "u", "Undo Trash Action");
-    printHelpLine(17, "n / N", "New File / Folder");
-    printHelpLine(18, "z", "Zip");
-    printHelpLine(19, "e", "Extract (Empty in Trash)");
-    printHelpLine(20, ".", "Toggle Hidden");
-    printHelpLine(21, "s", "Toggle Sorting");
-    printHelpLine(22, "P", "Pin Directory");
-    printHelpLine(23, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(24, "/", "Search (ripgrep)");
-    printHelpLine(25, "f", "Fuzzy Find");
-    printHelpLine(26, "w", "Show Active Tasks");
-    printHelpLine(27, "i", "Show File Details");
-    printHelpLine(28, "t", "Create New Tab");
-    printHelpLine(29, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(30, "[ / ]", "Prev / Next Tab");
-    printHelpLine(31, "1 - 9, 0", "Switch to Tab 1-10");
-    printHelpLine(32, ":", "Execute Shell Command");
-    printHelpLine(33, "F2", "Toggle Dual-Pane Mode");
-    printHelpLine(31, "Tab", "Toggle Pinned / Switch Pane");
-    printHelpLine(32, "m", "Mounts & External Devices");
-    printHelpLine(33, "?", "Show Help");
+    // Left Column (Col 2)
+    printHelpLine(3, 2, "j / k", "Navigate");
+    printHelpLine(4, 2, "h / l", "Back / Open");
+    printHelpLine(5, 2, "Space / v", "Select");
+    printHelpLine(6, 2, "a", "Select All");
+    printHelpLine(7, 2, "Esc", "Clear Selection");
+    printHelpLine(8, 2, "y", "Copy");
+    printHelpLine(9, 2, "x", "Cut");
+    printHelpLine(10, 2, "p", "Paste");
+    printHelpLine(11, 2, "Y", "Paste as Symlink");
+    printHelpLine(12, 2, "d / Delete", "Move to Trash");
+    printHelpLine(13, 2, "D", "Delete Permanently");
+    printHelpLine(14, 2, "T", "Toggle Trash Manager");
+    printHelpLine(15, 2, "r", "Rename (Restore)");
+    printHelpLine(16, 2, "u", "Undo Trash Action");
+    printHelpLine(17, 2, "n / N", "New File / Folder");
+    printHelpLine(18, 2, "z", "Zip");
+    printHelpLine(19, 2, "e", "Extract / Empty Trash");
+    printHelpLine(20, 2, ".", "Toggle Hidden");
+    printHelpLine(21, 2, "s", "Toggle Sorting");
+    printHelpLine(22, 2, "Ctrl+G", "Open Lazygit / Grow Width");
+    printHelpLine(23, 2, "F3", "Toggle Preview Pane");
+    printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
+
+    // Right Column (Col w / 2 + 1)
+    int rCol = w / 2 + 1;
+    printHelpLine(3, rCol, "P", "Pin Directory");
+    printHelpLine(4, rCol, "F5 / Ctrl+R", "Refresh Directory");
+    printHelpLine(5, rCol, "/", "Search (ripgrep)");
+    printHelpLine(6, rCol, "f", "Fuzzy Find");
+    printHelpLine(7, rCol, "w", "Show Active Tasks");
+    printHelpLine(8, rCol, "i", "Show File Details");
+    printHelpLine(9, rCol, "I", "Edit Permissions");
+    printHelpLine(10, rCol, "Ctrl+O", "History Back");
+    printHelpLine(11, rCol, "Ctrl+P", "History Forward");
+    printHelpLine(12, rCol, "H", "History Jump List");
+    printHelpLine(13, rCol, "t", "Create New Tab");
+    printHelpLine(14, rCol, "W / Ctrl+W", "Close Current Tab");
+    printHelpLine(15, rCol, "[ / ]", "Prev / Next Tab");
+    printHelpLine(16, rCol, "1 - 9, 0", "Switch Tab 1-10");
+    printHelpLine(17, rCol, ":", "Execute Shell Cmd");
+    printHelpLine(18, rCol, "F2", "Toggle Dual-Pane");
+    printHelpLine(19, rCol, "Tab", "Switch Pane / Pin");
+    printHelpLine(20, rCol, "m", "Mounts & Devices");
+    printHelpLine(21, rCol, "?", "Show Help");
+    printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
+    printHelpLine(23, rCol, "F4", "Toggle Parent Pane");
+    printHelpLine(24, rCol, "F6", "Toggle Bookmarks Pane");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -5501,30 +5589,58 @@ public:
 
           std::string metrics = "";
           if (!task->isFinished.load()) {
-            double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
-            if (elapsed > 0.1) {
-              std::stringstream ss;
-              ss << std::fixed << std::setprecision(0) << elapsed << "s";
-              metrics = "[" + ss.str() + "]";
-              if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
-                double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
-                std::stringstream ssSpeed;
-                ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
-                metrics += " (" + ssSpeed.str() + ")";
+            if (task->totalBytes > 0 && task->bytesProcessed.load() >= task->totalBytes) {
+              metrics = "[Finalizing...]";
+            } else {
+              double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
+              if (elapsed > 0.1) {
+                std::stringstream ss;
+                ss << std::fixed << std::setprecision(0) << elapsed << "s";
+                metrics = "[" + ss.str() + "]";
+                if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
+                  double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
+                  std::stringstream ssSpeed;
+                  ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
+                  metrics += " (" + ssSpeed.str() + ")";
+
+                  if (task->totalBytes > task->bytesProcessed.load() && !task->isPaused.load()) {
+                    uint64_t remainingBytes = task->totalBytes - task->bytesProcessed.load();
+                    double speedBytesPerSec = task->bytesProcessed.load() / elapsed;
+                    if (speedBytesPerSec > 1.0) {
+                      double remainingSeconds = (double)remainingBytes / speedBytesPerSec;
+                      auto formatETA = [](double remSec) -> std::string {
+                        if (remSec < 0) return "0s";
+                        int total_secs = (int)remSec;
+                        if (total_secs < 60) return std::to_string(total_secs) + "s";
+                        int mins = total_secs / 60;
+                        int secs = total_secs % 60;
+                        if (mins < 60) return std::to_string(mins) + "m " + std::to_string(secs) + "s";
+                        int hours = mins / 60;
+                        mins = mins % 60;
+                        return std::to_string(hours) + "h " + std::to_string(mins) + "m";
+                      };
+                      metrics += " ETA: " + formatETA(remainingSeconds);
+                    }
+                  }
+                }
               }
             }
           }
 
           std::string desc = task->description;
-          if (!metrics.empty()) {
-            desc += " " + metrics;
-          }
+          int maxTotalW = w - 38;
+          int metricsW = metrics.empty() ? 0 : (metrics.length() + 1);
+          int maxDescW = maxTotalW - metricsW;
+          if (maxDescW < 10) maxDescW = 10;
 
-          int maxDescW = w - 38;
           if (desc.length() > (size_t)maxDescW) {
             int limit = maxDescW - 3;
             if (limit < 1) limit = 1;
-            desc = utf8_safe_truncate(desc, limit);
+            desc = utf8_safe_truncate(desc, limit) + "...";
+          }
+
+          if (!metrics.empty()) {
+            desc += " " + metrics;
           }
           mvwprintw(taskWin, y, 36, "%s", desc.c_str());
 
@@ -5622,6 +5738,7 @@ public:
   }
 
   void drawPreview() {
+    if (!winPreview) return;
     if (isDualPaneMode) {
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
@@ -5781,9 +5898,9 @@ public:
                       extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
     bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
                     extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
-    bool isTextPreviewable = isCode || isArchive || isAudio;
+    bool isPdf = (extLower == ".pdf");
+    bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
 
-    bool isPdf = (file.extension == ".pdf");
     bool isDoc = (file.extension == ".doc" || file.extension == ".docx");
     bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
     bool isPpt = (file.extension == ".ppt" || file.extension == ".pptx");
@@ -5855,11 +5972,9 @@ public:
         wattroff(winPreview, COLOR_PAIR(7) | A_BOLD);
       }
       wnoutrefresh(winPreview);
-    } else if (isPdf || isDoc || isXls || isPpt) {
+    } else if (isDoc || isXls || isPpt) {
       wattron(winPreview, COLOR_PAIR(8));
-      if (isPdf)
-        mvwprintw(winPreview, contentStart, 2, " [PDF File - No Preview] ");
-      else if (isDoc)
+      if (isDoc)
         mvwprintw(winPreview, contentStart, 2, " [Word Document - No Preview] ");
       else if (isXls)
         mvwprintw(winPreview, contentStart, 2, " [Excel Spreadsheet - No Preview] ");
@@ -5968,12 +6083,23 @@ public:
       std::string ext = p.extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
+      bool isKnownBinary = (ext == ".pdf" || ext == ".zip" || ext == ".7z" || ext == ".rar" || 
+                            ext == ".tar" || ext == ".gz" || ext == ".tgz" || ext == ".bz2" || 
+                            ext == ".xz" || ext == ".doc" || ext == ".docx" || ext == ".xls" || 
+                            ext == ".xlsx" || ext == ".ppt" || ext == ".pptx" || ext == ".epub" || 
+                            ext == ".odt" || ext == ".ods" || ext == ".odp" || ext == ".png" || 
+                            ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || 
+                            ext == ".bmp" || ext == ".ico" || ext == ".exe" || ext == ".dll" || 
+                            ext == ".so" || ext == ".o" || ext == ".a" || ext == ".bin");
+
       if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
         if (isCommandAvailable("mpv")) {
           mediaFiles.push_back(p);
         } else {
           otherFiles.push_back(p);
         }
+      } else if (isKnownBinary) {
+        otherFiles.push_back(p);
       } else if (isCodeFile(ext) || !is_binary_file(p.string())) {
         codeFiles.push_back(p);
       } else {
@@ -5996,9 +6122,7 @@ public:
 
     bool needsSuspension = !codeFiles.empty() || !mediaFiles.empty();
     if (needsSuspension) {
-      clearDirectRender();
-      def_prog_mode();
-      endwin();
+      suspendTerminal();
     }
 
     if (!codeFiles.empty()) {
@@ -6046,10 +6170,7 @@ public:
     }
 
     if (needsSuspension) {
-      reset_prog_mode();
-      updateLayout();
-      refresh();
-      timeout(50);
+      resumeTerminal();
     }
   }
 
@@ -6092,6 +6213,7 @@ public:
       cachedTextLines.clear();
       cachedBase64 = "";
       sessionImageCache.clear();
+      sessionImageCacheKeys.clear();
     }
     reloadAll();
     setStatus("Refreshed");
@@ -6322,6 +6444,58 @@ public:
       }
 
       int ch = getch();
+      if (ch == 27) {
+        nodelay(stdscr, TRUE);
+        int ch1 = getch();
+        int ch2 = getch();
+        int ch3 = getch();
+        int ch4 = getch();
+        int ch5 = getch();
+        nodelay(stdscr, FALSE);
+
+        if (ch1 == '[' && ch2 == '2' && ch3 == '0' && ch4 == '0' && ch5 == '~') {
+          std::string pastedData = "";
+          while (true) {
+            int c = getch();
+            if (c == ERR) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(5));
+              c = getch();
+              if (c == ERR) break;
+            }
+            if (c == 27) {
+              nodelay(stdscr, TRUE);
+              int e1 = getch();
+              int e2 = getch();
+              int e3 = getch();
+              int e4 = getch();
+              int e5 = getch();
+              nodelay(stdscr, FALSE);
+              if (e1 == '[' && e2 == '2' && e3 == '0' && e4 == '1' && e5 == '~') {
+                break;
+              } else {
+                pastedData += (char)c;
+                if (e1 != ERR) pastedData += (char)e1;
+                if (e2 != ERR) pastedData += (char)e2;
+                if (e3 != ERR) pastedData += (char)e3;
+                if (e4 != ERR) pastedData += (char)e4;
+                if (e5 != ERR) pastedData += (char)e5;
+              }
+            } else {
+              pastedData += (char)c;
+            }
+          }
+          handlePastedData(pastedData);
+          needsRedraw = true;
+          continue;
+        } else {
+          if (ch1 == ERR) {
+            clearSelection();
+          }
+          needsRedraw = true;
+          continue;
+        }
+      }
+
       if (ch == KEY_MOUSE) {
         MEVENT event;
         if (getmouse(&event) == OK) {
@@ -6413,12 +6587,92 @@ public:
         toggleDualPaneMode();
         continue;
       }
+      if (ch == KEY_F(3)) { // F3 (Toggle Preview Pane visibility)
+        if (!isDualPaneMode) {
+          hidePreview = !hidePreview;
+          updateLayout();
+          reloadAll();
+          setStatus(hidePreview ? "Preview hidden" : "Preview visible");
+          needsRedraw = true;
+        }
+        continue;
+      }
+      if (ch == KEY_F(4)) { // F4 (Toggle Parent Pane visibility)
+        if (!isDualPaneMode) {
+          hideParent = !hideParent;
+          updateLayout();
+          reloadAll();
+          setStatus(hideParent ? "Parent pane hidden" : "Parent pane visible");
+          needsRedraw = true;
+        }
+        continue;
+      }
+      if (ch == KEY_F(6)) { // F6 (Toggle Pinned Pane visibility)
+        if (!isDualPaneMode) {
+          hidePinned = !hidePinned;
+          if (hidePinned) {
+            focusPinned = false;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus(hidePinned ? "Pinned pane hidden" : "Pinned pane visible");
+          needsRedraw = true;
+        }
+        continue;
+      }
+      if (ch == 7) { // Ctrl+G (Grow focused pane width or launch lazygit)
+        if (isDualPaneMode) {
+          if (focusLeftPane) {
+            dualPaneSplitOffset++;
+          } else {
+            dualPaneSplitOffset--;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          needsRedraw = true;
+        } else {
+          if (isCommandAvailable("lazygit")) {
+            const char* tmuxEnv = std::getenv("TMUX");
+            if (tmuxEnv && isCommandAvailable("tmux")) {
+              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) + " -w 85% -h 85% -EE lazygit";
+              int res = std::system(runCmd.c_str());
+              (void)res;
+              reloadAll();
+            } else {
+              suspendTerminal();
+              std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && lazygit";
+              int res = std::system(runCmd.c_str());
+              (void)res;
+              resumeTerminal();
+              reloadAll();
+            }
+          } else {
+            setStatus("Error: lazygit is not installed or not found in PATH");
+          }
+        }
+        continue;
+      }
+      if (ch == 2 || ch == 8) { // Ctrl+B or Ctrl+H (Shrink focused pane width)
+        if (isDualPaneMode) {
+          if (focusLeftPane) {
+            dualPaneSplitOffset--;
+          } else {
+            dualPaneSplitOffset++;
+          }
+          updateLayout();
+          reloadAll();
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          needsRedraw = true;
+        }
+        continue;
+      }
       if (ch == '\t') {
         if (isDualPaneMode) {
           size_t nextTab = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
           switchTab(nextTab);
           focusLeftPane = (activeTabIndex == leftTabIndex);
-        } else {
+        } else if (!hidePinned) {
           focusPinned = !focusPinned;
         }
         continue;
@@ -6533,8 +6787,16 @@ public:
         case 'G':
           if (!currentFiles.empty()) {
             selectedIndex = currentFiles.size() - 1;
-            if (selectedIndex > height - 5)
-              scrollOffset = selectedIndex - (height - 5);
+            int visibleHeight = height - 5;
+            if (visibleHeight > 0) {
+              if (selectedIndex > (size_t)visibleHeight) {
+                scrollOffset = selectedIndex - visibleHeight;
+              } else {
+                scrollOffset = 0;
+              }
+            } else {
+              scrollOffset = 0;
+            }
           }
           break;
         case 'P':
@@ -6546,6 +6808,9 @@ public:
           break;
         case 'a':
           selectAll();
+          break;
+        case 4: // Ctrl-D (Drag Out)
+          handleDragOut();
           break;
         case 27:
           clearSelection();

@@ -14,30 +14,30 @@
 #include <sys/stat.h>
 
 // Definition of configuration constants
-const std::set<std::string> VIDEO_EXTS = {
+std::set<std::string> VIDEO_EXTS = {
     ".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"
 };
-const std::set<std::string> IMAGE_EXTS = {
+std::set<std::string> IMAGE_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"
 };
-const std::set<std::string> FRONTEND_EXTS = {
+std::set<std::string> FRONTEND_EXTS = {
     ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl",
     ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"
 };
-const std::set<std::string> SCRIPTS_EXTS = {
+std::set<std::string> SCRIPTS_EXTS = {
     ".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk",
     ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"
 };
-const std::set<std::string> CONFIG_EXTS = {
+std::set<std::string> CONFIG_EXTS = {
     ".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml",
     ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock",
     ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"
 };
-const std::set<std::string> DOCUMENTATION_EXTS = {
+std::set<std::string> DOCUMENTATION_EXTS = {
     ".md", ".markdown", ".txt", ".text", ".log", ".pdf",
     ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"
 };
-const std::set<std::string> CORE_EXTS = {
+std::set<std::string> CORE_EXTS = {
     ".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php",
     ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs",
     ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite",
@@ -45,28 +45,52 @@ const std::set<std::string> CORE_EXTS = {
     ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs",
     ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"
 };
-const std::set<std::string> FONT_EXTS = {".woff", ".woff2", ".ttf", ".eot", ".otf"};
-const std::set<std::string> AUDIO_EXTS = {
+std::set<std::string> FONT_EXTS = {".woff", ".woff2", ".ttf", ".eot", ".otf"};
+std::set<std::string> AUDIO_EXTS = {
     ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"
 };
-const std::set<std::string> ARCHIVE_EXTS = {
+std::set<std::string> ARCHIVE_EXTS = {
     ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"
 };
 
-const char* ICON_DIR = " ";
-const char* ICON_VIDEO = " ";
-const char* ICON_IMAGE = " ";
-const char* ICON_CORE = " ";
-const char* ICON_FRONTEND = "󰖟 ";
-const char* ICON_CONFIG = " ";
-const char* ICON_SCRIPT = " ";
-const char* ICON_DOCS = " ";
-const char* ICON_FONT = " ";
-const char* ICON_FILE = " ";
-const char* ICON_MUSIC = " ";
-const char* ICON_PIN = " ";
-const char* ICON_ZIP = "󰿺 ";
-const char* ICON_LINK = "󰌹 ";
+bool configShowHidden = false;
+std::string configSortMode = "name";
+double configParentWidth = 0.18;
+double configCurrentWidth = 0.32;
+bool configHidePreview = false;
+bool configHideParent = false;
+bool configHidePinned = false;
+std::chrono::steady_clock::time_point globalStartTime;
+
+std::string g_icon_dir = " ";
+std::string g_icon_video = " ";
+std::string g_icon_image = " ";
+std::string g_icon_core = " ";
+std::string g_icon_frontend = "󰖟 ";
+std::string g_icon_config = " ";
+std::string g_icon_script = " ";
+std::string g_icon_docs = " ";
+std::string g_icon_font = " ";
+std::string g_icon_file = " ";
+std::string g_icon_music = " ";
+std::string g_icon_pin = " ";
+std::string g_icon_zip = "󰿺 ";
+std::string g_icon_link = "󰌹 ";
+
+const char* ICON_DIR = g_icon_dir.c_str();
+const char* ICON_VIDEO = g_icon_video.c_str();
+const char* ICON_IMAGE = g_icon_image.c_str();
+const char* ICON_CORE = g_icon_core.c_str();
+const char* ICON_FRONTEND = g_icon_frontend.c_str();
+const char* ICON_CONFIG = g_icon_config.c_str();
+const char* ICON_SCRIPT = g_icon_script.c_str();
+const char* ICON_DOCS = g_icon_docs.c_str();
+const char* ICON_FONT = g_icon_font.c_str();
+const char* ICON_FILE = g_icon_file.c_str();
+const char* ICON_MUSIC = g_icon_music.c_str();
+const char* ICON_PIN = g_icon_pin.c_str();
+const char* ICON_ZIP = g_icon_zip.c_str();
+const char* ICON_LINK = g_icon_link.c_str();
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX;
@@ -90,8 +114,24 @@ std::string getCacheDir() {
 }
 
 std::string getCachePath(const fs::path& p, int w, int h) {
+  std::string pStr = p.string();
+  std::string cDir = getCacheDir();
+  if (!cDir.empty() && pStr.rfind(cDir, 0) == 0) {
+    return pStr;
+  }
+
+  if (pStr.find("Trash/files/") != std::string::npos || pStr.find(".Trash-") != std::string::npos) {
+    return "/tmp/fm_preview_thumb.png";
+  }
+
+  uintmax_t mtime = 0;
   try {
-    auto mtime = static_cast<long long>(fs::last_write_time(p).time_since_epoch().count());
+    mtime = fs::last_write_time(p).time_since_epoch().count();
+  } catch (...) {
+    mtime = 0;
+  }
+
+  try {
     std::string to_hash =
         p.string() + std::to_string(mtime) + std::to_string(w) + std::to_string(h);
 
@@ -158,14 +198,18 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   size_t bytes = str.length();
   while (bytes > 0 && cols < max_cols) {
     size_t char_len = 1;
-    while (bytes - char_len > 0) {
+    while (char_len <= bytes) {
       unsigned char c = str[bytes - char_len];
       if ((c & 0xC0) != 0x80) {
         break;
       }
       char_len++;
     }
-    bytes -= char_len;
+    if (char_len > bytes) {
+      bytes = 0;
+    } else {
+      bytes -= char_len;
+    }
     cols++;
   }
   return "..." + str.substr(bytes);
@@ -556,47 +600,80 @@ void initColors() {
     fs::path configDir = fs::path(home) / ".config/fyzenor";
     if (!fs::exists(configDir))
       fs::create_directories(configDir);
-    fs::path colorFile = configDir / "colors.fz";
+    fs::path colorFile = configDir / "theme.toml";
     if (fs::exists(colorFile)) {
       std::ifstream f(colorFile);
       std::string line;
+      std::string section = "";
       while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#')
+        auto first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) continue;
+        auto last = line.find_last_not_of(" \t\r\n");
+        line = line.substr(first, last - first + 1);
+
+        if (line.empty() || line[0] == '#') continue;
+
+        if (line[0] == '[' && line.back() == ']') {
+          section = line.substr(1, line.length() - 2);
+          std::transform(section.begin(), section.end(), section.begin(), ::tolower);
           continue;
-        size_t pos = line.find(':');
+        }
+
+        size_t pos = line.find('=');
         if (pos != std::string::npos) {
           std::string key = line.substr(0, pos);
           std::string val = line.substr(pos + 1);
-          key.erase(0, key.find_first_not_of(" \t"));
-          key.erase(key.find_last_not_of(" \t") + 1);
-          val.erase(0, val.find_first_not_of(" \t"));
-          val.erase(val.find_last_not_of(" \t") + 1);
-          if (!val.empty() && val[0] == '#')
-            colors[key] = val;
+
+          auto k_first = key.find_first_not_of(" \t");
+          if (k_first != std::string::npos) {
+            auto k_last = key.find_last_not_of(" \t");
+            key = key.substr(k_first, k_last - k_first + 1);
+          }
+          auto v_first = val.find_first_not_of(" \t");
+          if (v_first != std::string::npos) {
+            auto v_last = val.find_last_not_of(" \t");
+            val = val.substr(v_first, v_last - v_first + 1);
+          }
+
+          if (!val.empty() && val.front() == '"' && val.back() == '"') {
+            val = val.substr(1, val.length() - 2);
+          } else if (!val.empty() && val.front() == '\'' && val.back() == '\'') {
+            val = val.substr(1, val.length() - 2);
+          }
+
+          if (section == "colors") {
+            std::transform(key.begin(), key.end(), key.begin(), ::toupper);
+            std::replace(key.begin(), key.end(), '-', '_');
+            if (!val.empty() && val[0] == '#') {
+              colors[key] = val;
+            }
+          }
         }
       }
     } else {
       std::ofstream f(colorFile);
-      f << "# Fyzenor Theme: Catppuccin Mocha (Matugen ready)\n";
-      f << "DIR: #89b4fa\n";
-      f << "FILE: #cdd6f4\n";
-      f << "SEL_BG: #585b70\n";
-      f << "MEDIA: #f9e2af\n";
-      f << "IMAGE: #f5c2e7\n";
-      f << "BORDER: #b4befe\n";
-      f << "SUCCESS: #a6e3a1\n";
-      f << "ERROR: #f38ba8\n";
-      f << "MULTI: #f5e0dc\n";
-      f << "PIN_BG: #cba6f7\n";
-      f << "PIN_BORDER: #89b4fa\n";
-      f << "SEC_SEL_BG: #313244\n";
-      f << "CORE: #a6e3a1\n";
-      f << "ARCHIVE: #eba0ac\n";
-      f << "FRONTEND: #fab387\n";
-      f << "CONFIG: #94e2d5\n";
-      f << "SCRIPT: #f9e2af\n";
-      f << "DOCS: #f2cdcd\n";
-      f << "FONT: #cba6f7\n";
+      f << "# Fyzenor Theme Configuration File\n"
+        << "# Catppuccin Mocha colors\n\n"
+        << "[colors]\n"
+        << "dir = \"#89b4fa\"\n"
+        << "file = \"#cdd6f4\"\n"
+        << "sel_bg = \"#585b70\"\n"
+        << "media = \"#f9e2af\"\n"
+        << "image = \"#f5c2e7\"\n"
+        << "border = \"#b4befe\"\n"
+        << "success = \"#a6e3a1\"\n"
+        << "error = \"#f38ba8\"\n"
+        << "multi = \"#f5e0dc\"\n"
+        << "pin_bg = \"#cba6f7\"\n"
+        << "pin_border = \"#89b4fa\"\n"
+        << "sec_sel_bg = \"#313244\"\n"
+        << "core = \"#a6e3a1\"\n"
+        << "archive = \"#eba0ac\"\n"
+        << "frontend = \"#fab387\"\n"
+        << "config = \"#94e2d5\"\n"
+        << "script = \"#f9e2af\"\n"
+        << "docs = \"#f2cdcd\"\n"
+        << "font = \"#cba6f7\"\n";
     }
   }
 
@@ -722,3 +799,258 @@ void initColors() {
     init_pair(10, COLOR_WHITE, COLOR_BLUE);
   }
 }
+
+void loadConfiguration() {
+  const char* home = getenv("HOME");
+  if (!home) return;
+  fs::path confDir = fs::path(home) / ".config/fyzenor";
+  fs::path confPath = confDir / "config.toml";
+
+  try {
+    if (!fs::exists(confDir)) {
+      fs::create_directories(confDir);
+    }
+  } catch (...) {}
+
+  if (!fs::exists(confPath)) {
+    std::ofstream out(confPath);
+    if (out.is_open()) {
+      out << "# Fyzenor Configuration File\n\n"
+          << "[general]\n"
+          << "show_hidden = false\n"
+          << "sort_mode = \"name\" # \"name\", \"size\", or \"date\"\n\n"
+          << "[layout]\n"
+          << "parent_width = 0.18\n"
+          << "current_width = 0.32\n"
+          << "hide_preview = false\n"
+          << "hide_parent = false\n"
+          << "hide_pinned = false\n\n"
+          << "[icons]\n"
+          << "dir = \" \"\n"
+          << "video = \" \"\n"
+          << "image = \" \"\n"
+          << "core = \" \"\n"
+          << "frontend = \"󰖟 \"\n"
+          << "config = \" \"\n"
+          << "script = \" \"\n"
+          << "docs = \" \"\n"
+          << "font = \" \"\n"
+          << "file = \" \"\n"
+          << "music = \" \"\n"
+          << "pin = \" \"\n"
+          << "zip = \"󰿺 \"\n"
+          << "link = \"󰌹 \"\n\n"
+          << "[categories]\n"
+          << "video = [\".mp4\", \".mkv\", \".avi\", \".mov\", \".flv\", \".wmv\", \".webm\", \".m4v\", \".mpg\", \".mpeg\"]\n"
+          << "image = [\".png\", \".jpg\", \".jpeg\", \".gif\", \".bmp\", \".webp\", \".svg\", \".tiff\", \".ico\", \".psd\", \".ai\"]\n"
+          << "frontend = [\".js\", \".jsx\", \".ts\", \".tsx\", \".css\", \".scss\", \".sass\", \".less\", \".styl\", \".vue\", \".html\", \".svelte\", \".htm\", \".astro\", \".mjx\", \".dart\", \".swift\"]\n"
+          << "scripts = [\".sh\", \".bash\", \".zsh\", \".fish\", \".ksh\", \".command\", \".pl\", \".pm\", \".t\", \".awk\", \".ps1\", \".psm1\", \".bat\", \".cmd\", \".vbs\", \".wsf\"]\n"
+          << "config = [\".json\", \".json5\", \".jsonc\", \".xml\", \".xsd\", \".xsl\", \".gpx\", \".yaml\", \".yml\", \".toml\", \".ini\", \".conf\", \".cfg\", \".prefs\", \".properties\", \".lock\", \".env\", \".dockerfile\", \".gitignore\", \".gitconfig\", \".gitattributes\", \".gitmodules\"]\n"
+          << "documentation = [\".md\", \".markdown\", \".txt\", \".text\", \".log\", \".pdf\", \".doc\", \".docx\", \".odt\", \".rtf\", \".ppt\", \".pptx\", \".odp\", \".xls\", \".xlsx\", \".ods\", \".csv\"]\n"
+          << "core = [\".py\", \".pyw\", \".ipynb\", \".pyc\", \".pyd\", \".rb\", \".ru\", \".gemspec\", \".php\", \".cpp\", \".cxx\", \".cc\", \".hpp\", \".hxx\", \".ixx\", \".c\", \".h\", \".rs\", \".java\", \".class\", \".jar\", \".war\", \".go\", \".lua\", \".sql\", \".db\", \".sqlite\", \".sqlite3\", \".db3\", \".mdb\", \".accdb\", \".cmake\", \".make\", \".diff\", \".patch\", \".kt\", \".kts\", \".cs\", \".csx\", \".scala\", \".sc\", \".hs\", \".lhs\", \".clj\", \".cljs\", \".cljc\", \".edn\", \".r\", \".rmd\", \".jl\", \".fs\", \".fsi\", \".fsx\"]\n"
+          << "font = [\".woff\", \".woff2\", \".ttf\", \".eot\", \".otf\"]\n"
+          << "audio = [\".mp3\", \".wav\", \".flac\", \".m4a\", \".aac\", \".ogg\", \".wma\", \".opus\", \".mid\", \".midi\"]\n"
+          << "archive = [\".zip\", \".tar\", \".gz\", \".tgz\", \".7z\", \".rar\", \".xz\", \".bz2\", \".tbz2\", \".lzma\", \".cab\"]\n";
+      out.close();
+    }
+  }
+
+  std::ifstream f(confPath);
+  if (!f.is_open()) return;
+
+  std::string line;
+  std::string section = "";
+
+  auto trim = [](const std::string& s) {
+    auto first = s.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return std::string("");
+    auto last = s.find_last_not_of(" \t\r\n");
+    return s.substr(first, last - first + 1);
+  };
+
+  auto parse_string = [](const std::string& val) {
+    auto first = val.find('"');
+    auto last = val.find_last_of('"');
+    if (first != std::string::npos && last != std::string::npos && first < last) {
+      return val.substr(first + 1, last - first - 1);
+    }
+    return val;
+  };
+
+  auto parse_list = [&](const std::string& val) {
+    std::set<std::string> res;
+    auto start = val.find('[');
+    auto end = val.find(']');
+    if (start != std::string::npos && end != std::string::npos && start < end) {
+      std::string content = val.substr(start + 1, end - start - 1);
+      std::stringstream ss(content);
+      std::string item;
+      while (std::getline(ss, item, ',')) {
+        item = trim(item);
+        std::string s_val = parse_string(item);
+        if (!s_val.empty()) {
+          res.insert(s_val);
+        }
+      }
+    }
+    return res;
+  };
+
+  while (std::getline(f, line)) {
+    line = trim(line);
+    if (line.empty() || line[0] == '#') continue;
+
+    if (line[0] == '[' && line.back() == ']') {
+      section = line.substr(1, line.length() - 2);
+      std::transform(section.begin(), section.end(), section.begin(), ::tolower);
+      continue;
+    }
+
+    auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+
+    std::string key = trim(line.substr(0, eq));
+    std::string val = trim(line.substr(eq + 1));
+    auto hash = val.find('#');
+    if (hash != std::string::npos) {
+      val = trim(val.substr(0, hash));
+    }
+
+    std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+
+    if (section == "general") {
+      if (key == "show_hidden") {
+        configShowHidden = (val == "true");
+      } else if (key == "sort_mode") {
+        configSortMode = parse_string(val);
+      }
+    } else if (section == "layout") {
+      if (key == "parent_width") {
+        try { configParentWidth = std::stod(val); } catch (...) {}
+      } else if (key == "current_width") {
+        try { configCurrentWidth = std::stod(val); } catch (...) {}
+      } else if (key == "hide_preview") {
+        configHidePreview = (val == "true");
+      } else if (key == "hide_parent") {
+        configHideParent = (val == "true");
+      } else if (key == "hide_pinned") {
+        configHidePinned = (val == "true");
+      }
+    } else if (section == "icons") {
+      std::string icon_val = parse_string(val);
+      if (key == "dir") g_icon_dir = icon_val;
+      else if (key == "video") g_icon_video = icon_val;
+      else if (key == "image") g_icon_image = icon_val;
+      else if (key == "core") g_icon_core = icon_val;
+      else if (key == "frontend") g_icon_frontend = icon_val;
+      else if (key == "config") g_icon_config = icon_val;
+      else if (key == "script") g_icon_script = icon_val;
+      else if (key == "docs" || key == "file") {
+        g_icon_docs = icon_val;
+        g_icon_file = icon_val;
+      }
+      else if (key == "font") g_icon_font = icon_val;
+      else if (key == "music") g_icon_music = icon_val;
+      else if (key == "pin") g_icon_pin = icon_val;
+      else if (key == "zip") g_icon_zip = icon_val;
+      else if (key == "link") g_icon_link = icon_val;
+    } else if (section == "categories") {
+      std::set<std::string> ext_set = parse_list(val);
+      if (!ext_set.empty()) {
+        if (key == "video") VIDEO_EXTS = ext_set;
+        else if (key == "image") IMAGE_EXTS = ext_set;
+        else if (key == "frontend") FRONTEND_EXTS = ext_set;
+        else if (key == "scripts") SCRIPTS_EXTS = ext_set;
+        else if (key == "config") CONFIG_EXTS = ext_set;
+        else if (key == "documentation") DOCUMENTATION_EXTS = ext_set;
+        else if (key == "core") CORE_EXTS = ext_set;
+        else if (key == "font") FONT_EXTS = ext_set;
+        else if (key == "audio") AUDIO_EXTS = ext_set;
+        else if (key == "archive") ARCHIVE_EXTS = ext_set;
+      }
+    }
+  }
+
+  // Re-assign pointers to ensure they point to the updated std::string buffers
+  ICON_DIR = g_icon_dir.c_str();
+  ICON_VIDEO = g_icon_video.c_str();
+  ICON_IMAGE = g_icon_image.c_str();
+  ICON_CORE = g_icon_core.c_str();
+  ICON_FRONTEND = g_icon_frontend.c_str();
+  ICON_CONFIG = g_icon_config.c_str();
+  ICON_SCRIPT = g_icon_script.c_str();
+  ICON_DOCS = g_icon_docs.c_str();
+  ICON_FONT = g_icon_font.c_str();
+  ICON_FILE = g_icon_file.c_str();
+  ICON_MUSIC = g_icon_music.c_str();
+  ICON_PIN = g_icon_pin.c_str();
+  ICON_ZIP = g_icon_zip.c_str();
+  ICON_LINK = g_icon_link.c_str();
+}
+
+std::string urlDecode(const std::string& str) {
+  std::string decoded = "";
+  for (size_t i = 0; i < str.length(); ++i) {
+    if (str[i] == '%' && i + 2 < str.length()) {
+      std::string hex = str.substr(i + 1, 2);
+      try {
+        char val = (char)std::stoul(hex, nullptr, 16);
+        decoded += val;
+      } catch (...) {
+        decoded += str[i];
+      }
+      i += 2;
+    } else {
+      decoded += str[i];
+    }
+  }
+  return decoded;
+}
+
+std::vector<fs::path> parsePastedPaths(const std::string& data) {
+  std::vector<fs::path> paths;
+  std::string current = "";
+  bool inQuotes = false;
+  char quoteChar = '\0';
+
+  auto addPath = [&paths](const std::string& raw) {
+    if (raw.empty()) return;
+    std::string pStr = urlDecode(raw);
+    if (pStr.rfind("file://", 0) == 0) {
+      pStr = pStr.substr(7);
+      if (pStr.rfind("localhost", 0) == 0) {
+        pStr = pStr.substr(9);
+      }
+    }
+    try {
+      fs::path p(pStr);
+      if (fs::exists(p)) {
+        paths.push_back(p);
+      }
+    } catch (...) {}
+  };
+
+  for (size_t i = 0; i < data.length(); ++i) {
+    char c = data[i];
+    if (inQuotes) {
+      if (c == quoteChar) {
+        inQuotes = false;
+      } else {
+        current += c;
+      }
+    } else {
+      if (c == '\'' || c == '"') {
+        inQuotes = true;
+        quoteChar = c;
+      } else if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+        addPath(current);
+        current = "";
+      } else {
+        current += c;
+      }
+    }
+  }
+  addPath(current);
+  return paths;
+}
+

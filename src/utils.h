@@ -12,16 +12,26 @@
 namespace fs = std::filesystem;
 
 // Configuration extern declarations
-extern const std::set<std::string> VIDEO_EXTS;
-extern const std::set<std::string> IMAGE_EXTS;
-extern const std::set<std::string> FRONTEND_EXTS;
-extern const std::set<std::string> SCRIPTS_EXTS;
-extern const std::set<std::string> CONFIG_EXTS;
-extern const std::set<std::string> DOCUMENTATION_EXTS;
-extern const std::set<std::string> CORE_EXTS;
-extern const std::set<std::string> FONT_EXTS;
-extern const std::set<std::string> AUDIO_EXTS;
-extern const std::set<std::string> ARCHIVE_EXTS;
+extern std::set<std::string> VIDEO_EXTS;
+extern std::set<std::string> IMAGE_EXTS;
+extern std::set<std::string> FRONTEND_EXTS;
+extern std::set<std::string> SCRIPTS_EXTS;
+extern std::set<std::string> CONFIG_EXTS;
+extern std::set<std::string> DOCUMENTATION_EXTS;
+extern std::set<std::string> CORE_EXTS;
+extern std::set<std::string> FONT_EXTS;
+extern std::set<std::string> AUDIO_EXTS;
+extern std::set<std::string> ARCHIVE_EXTS;
+
+extern bool configShowHidden;
+extern std::string configSortMode;
+extern double configParentWidth;
+extern double configCurrentWidth;
+extern bool configHidePreview;
+extern bool configHideParent;
+extern bool configHidePinned;
+extern std::chrono::steady_clock::time_point globalStartTime;
+void loadConfiguration();
 
 extern const char* ICON_DIR;
 extern const char* ICON_VIDEO;
@@ -75,5 +85,7 @@ std::string escapeShellArg(const std::string& str);
 bool fuzzyMatch(const std::string& str, const std::string& query);
 void initColors();
 bool isCommandAvailable(const std::string& cmd);
+std::string urlDecode(const std::string& str);
+std::vector<fs::path> parsePastedPaths(const std::string& data);
 
 #endif // UTILS_H

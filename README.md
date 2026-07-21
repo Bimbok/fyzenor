@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.2.0-blue?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer
@@ -80,6 +80,8 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Bulk Rename via Editor**         | Select multiple files and press `r` to rename them all at once inside your default text editor (e.g. `nvim`, `nano`).                                 |
 | **Smart Copy Resumption**         | Resumes interrupted file copies block-by-block (`seekg`/`seekp`) by comparing file sizes and copying only the remaining bytes.                        |
 | **Task Play/Pause Controls**      | Suspend (pause) and resume background copy, move, delete, zip, and extract tasks directly from the task list.                                         |
+| **Drag & Drop Integration**       | Drop files directly into the terminal window to Copy/Move them, or press `Ctrl-D` to drag files out into GUI applications (via `ripdrag` or `dragon`). |
+| **Lazygit Integration**           | Launch `lazygit` directly in your current directory with `Ctrl+G`. Displays as a centered, bordered popup overlay when inside tmux. |
 | **Freedesktop Trash System**      | Move items to trash (`d`) and restore/empty them in-build. Integrates home trash and local partition trash folders.                                  |
 | **Undo Trash Action (`u`)**        | Undo the last move-to-trash action instantly, restoring items back to their original paths.                                                           |
 | **Dynamic Disk Space Status**     | Displays partition name, progress bar, percent used, and free space dynamically for the current drive.                                                |
@@ -97,10 +99,10 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Persistent Pins**                | Save frequently used directories to `~/.fm_pins` and jump back to them instantly.                                                                     |
 | **Flicker-Free Rendering**         | Optimized redraw behavior keeps the interface smooth while reducing unnecessary terminal updates.                                                     |
 | **Rich File Operations**           | Create files/folders, rename entries, zip selections, copy absolute paths, and manage content without leaving the TUI.                                |
-| **Theme Support**                  | Customize the UI through `~/.config/fyzenor/colors.fz`, with optional Matugen-powered wallpaper theming.                                              |
+| **Theme Support**                  | Customize the UI through `~/.config/fyzenor/theme.toml`, with optional Matugen-powered wallpaper theming.                                              |
 | **Archive Previewer**              | Inspect contents of `.zip`, `.tar.gz`, `.rar`, `.7z` archives directly in the TUI preview pane without extracting them.                                |
 | **Media Metadata Inspector**        | Read codec names, bitrates, dimensions, sample rates, title, and artist metadata tags for images, audio, and video tracks.                             |
-| **Custom Key Macros**              | Map single-key binds in `~/.config/fyzenor/keys.fz` to run terminal macros with path placeholders (`$f`, `$s`).                                         |
+| **Custom Key Macros**              | Map single-key binds in `~/.config/fyzenor/keys.toml` to run terminal macros with path placeholders (`$f`, `$s`).                                         |
 | **Editor Integration**             | Opens text/code files with your configured editor via `$EDITOR` or `$VISUAL`, with sensible fallbacks.                                                |
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
@@ -256,31 +258,104 @@ Get information about your media files (`.mp4`, `.mp3`, `.mov`, `.png`, `.jpg`, 
 ### PDF Text Layout Previewer
 If `pdftotext` (from `poppler-utils`) is installed on your system, Fyzenor asynchronously extracts and renders the formatted text layouts of the first 3 pages of `.pdf` files directly in the preview pane.
 
+## 󰊢 Git & Lazygit Integration
+
+Fyzenor features native integration with `lazygit` to make repository staging and committing seamless:
+
+- **Launch Hotkey**: Press `Ctrl+G` in normal view mode to launch `lazygit` directly inside your currently active directory.
+- **TMUX Floating Popup Modal**: If Fyzenor is running inside a active `tmux` session, it leverages `tmux display-popup` to spawn `lazygit` as a centered, floating overlay window (taking up 85% of screen width and height). This creates a gorgeous desktop-like modal experience without leaving your TUI layout.
+- **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
+- **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
+
+## ⚙️ External Configuration (`config.toml`)
+
+Fyzenor uses an external configuration file located at `~/.config/fyzenor/config.toml` (automatically created on first launch or during installation). It allows you to customize the program's general options, panel sizes, pane visibility rules, icon glyphs (Nerd Fonts), and file extension mappings.
+
+### Configuration Format
+
+Here is the fully documented default structure of `~/.config/fyzenor/config.toml`:
+
+```toml
+[general]
+# Show hidden files by default on startup
+show_hidden = false
+
+# Default sorting mode: "name", "size" (descending), or "date" (descending)
+sort_mode = "name"
+
+[layout]
+# Proportional width of the left parent/pinned column in normal mode (ratio between 0.0 and 1.0)
+parent_width = 0.18
+
+# Proportional width of the central files list column in normal mode
+current_width = 0.32
+
+# Set to true to hide the rightmost file preview pane by default on startup (toggleable via F3)
+hide_preview = false
+
+# Set to true to hide the parent directory pane by default on startup (toggleable via F4)
+hide_parent = false
+
+# Set to true to hide the pinned bookmarks pane by default on startup (toggleable via F6)
+hide_pinned = false
+
+[icons]
+# Custom glyphs for directory and file indicators (Nerd Fonts recommended)
+dir = " "
+video = " "
+image = " "
+core = " "
+frontend = "󰖟 "
+config = " "
+script = " "
+docs = " "
+font = " "
+file = " "
+music = " "
+pin = " "
+zip = "󰿺 "
+link = "󰌹 "
+
+[categories]
+# Map specific file extensions to styling and icon categories
+video = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"]
+image = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"]
+frontend = [".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl", ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"]
+scripts = [".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk", ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"]
+config = [".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock", ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"]
+documentation = [".md", ".markdown", ".txt", ".text", ".log", ".pdf", ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"]
+core = [".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php", ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs", ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite", ".sqlite3", ".db3", ".mdb", ".accdb", ".cmake", ".make", ".diff", ".patch", ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs", ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"]
+font = [".woff", ".woff2", ".ttf", ".eot", ".otf"]
+audio = [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"]
+archive = [".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"]
+```
+
 ---
 
 ## 🎨 Customization & Theming
 
-Fyzenor supports custom themes via `~/.config/fyzenor/colors.fz`. The default theme is **Catppuccin Mocha**.
+Fyzenor supports custom themes via `~/.config/fyzenor/theme.toml`. The default theme is **Catppuccin Mocha**.
 
 ### Configuration Format
 
-Create `~/.config/fyzenor/colors.fz` and define colors using hex codes:
+Create `~/.config/fyzenor/theme.toml` and define colors using hex codes inside the `[colors]` section:
 
-```text
-DIR: #89b4fa
-FILE: #cdd6f4
-SEL_BG: #585b70
-MEDIA: #f9e2af
-IMAGE: #f5c2e7
-BORDER: #b4befe
-SUCCESS: #a6e3a1
-ERROR: #f38ba8
-MULTI: #fab387
-PIN_BG: #cba6f7
-PIN_BORDER: #89b4fa
-SEC_SEL_BG: #313244
-CODE: #a6e3a1
-ARCHIVE: #eba0ac
+```toml
+[colors]
+dir = "#89b4fa"
+file = "#cdd6f4"
+sel_bg = "#585b70"
+media = "#f9e2af"
+image = "#f5c2e7"
+border = "#b4befe"
+success = "#a6e3a1"
+error = "#f38ba8"
+multi = "#fab387"
+pin_bg = "#cba6f7"
+pin_border = "#89b4fa"
+sec_sel_bg = "#313244"
+code = "#a6e3a1"
+archive = "#eba0ac"
 ```
 
 ### Wallpaper-Based Theming (Matugen)
@@ -291,20 +366,22 @@ Instead of manually writing colors, you can use **Matugen** to generate a theme 
 
 Create `~/.config/matugen/templates/fyzenor-colors.template`:
 
-```text
+```toml
 # Fyzenor Theme: Matugen Generated
-DIR: {{colors.primary.default.hex}}
-FILE: {{colors.on_surface.default.hex}}
-SEL_BG: {{colors.surface_variant.default.hex}}
-MEDIA: {{colors.tertiary.default.hex}}
-IMAGE: {{colors.secondary.default.hex}}
-BORDER: {{colors.outline.default.hex}}
-SUCCESS: {{colors.primary_fixed.default.hex}}
-ERROR: {{colors.error.default.hex}}
-MULTI: {{colors.tertiary_container.default.hex}}
-PIN_BG: {{colors.secondary_container.default.hex}}
-PIN_BORDER: {{colors.primary.default.hex}}
-SEC_SEL_BG: {{colors.surface_dim.default.hex}}
+
+[colors]
+dir = "{{colors.primary.default.hex}}"
+file = "{{colors.on_surface.default.hex}}"
+sel_bg = "{{colors.surface_variant.default.hex}}"
+media = "{{colors.tertiary.default.hex}}"
+image = "{{colors.secondary.default.hex}}"
+border = "{{colors.outline.default.hex}}"
+success = "{{colors.primary_fixed.default.hex}}"
+error = "{{colors.error.default.hex}}"
+multi = "{{colors.tertiary_container.default.hex}}"
+pin_bg = "{{colors.secondary_container.default.hex}}"
+pin_border = "{{colors.primary.default.hex}}"
+sec_sel_bg = "{{colors.surface_dim.default.hex}}"
 ```
 
 #### Step 2: Update your Matugen Config
@@ -314,7 +391,7 @@ Add this block to your `~/.config/matugen/config.toml`:
 ```toml
 [templates.fyzenor]
 input_path = "~/.config/matugen/templates/fyzenor-colors.template"
-output_path = "~/.config/fyzenor/colors.fz"
+output_path = "~/.config/fyzenor/theme.toml"
 ```
 
 #### Step 3: Generate the Colors
@@ -325,20 +402,19 @@ matugen image /path/to/your/wallpaper.jpg
 
 ---
 
-### 🛠️ Custom Keyboard Macros (`keys.fz`)
+### 🛠️ Custom Keyboard Macros (`keys.toml`)
 
 You can map single-key shortcuts to run shell commands on currently highlighted or selected files. 
 
-Create `~/.config/fyzenor/keys.fz` and specify key mappings:
+Create `~/.config/fyzenor/keys.toml` and specify key mappings inside the `[macros]` section:
 
-```text
-# Syntax: key_character=shell_command
+```toml
+[macros]
 # $f - Expands to highlighted file path
 # $s - Expands to space-separated selected paths (falls back to $f if none selected)
-
-v=nvim "$f"
-g=git diff
-l=ls -la
+v = 'nvim "$f"'
+g = 'git diff'
+l = 'ls -la'
 ```
 
 When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspends NCurses mode, executes the command directly inside the currently browsed directory in your interactive shell (giving you full access to standard I/O), waits for you to press Enter, and then returns to the file manager, reloading the directory.
@@ -442,6 +518,7 @@ flowchart TD
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |
+| `Ctrl-D`        | **Drag Out** selected/highlighted files using `ripdrag` or `dragon` |
 | `I`             | **Visual Permissions & Ownership Editor** (inspect/edit chmod/chown) |
 
 ### Selection, View & Pins
@@ -456,6 +533,11 @@ flowchart TD
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |
+| `F3`           | Toggle **Preview Pane** visibility (normal mode only) |
+| `F4`           | Toggle **Parent Pane** visibility (normal mode only) |
+| `F6`           | Toggle **Bookmarks (Pinned) Pane** visibility (normal mode only) |
+| `Ctrl+G`       | **Open Lazygit** (normal mode) or **Grow active pane width** (Dual-Pane mode) |
+| `Ctrl+B` / `Ctrl+H` | **Shrink active pane width** (Dual-Pane mode only) |
 | `F5` or `Ctrl+R` | **Refresh** directory layout and clear size/preview caches |
 | `i`            | Show **File Details** (permissions, owner, size, times) |
 | `m`            | Show **Devices & Mounts** overlay (detect, mount, unmount USB drives & Android phones) |

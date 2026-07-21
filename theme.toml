@@ -1,0 +1,23 @@
+# Fyzenor Theme Configuration File
+# Catppuccin Mocha colors
+
+[colors]
+dir = "#89b4fa"
+file = "#cdd6f4"
+sel_bg = "#585b70"
+media = "#f9e2af"
+image = "#f5c2e7"
+border = "#b4befe"
+success = "#a6e3a1"
+error = "#f38ba8"
+multi = "#f5e0dc"
+pin_bg = "#cba6f7"
+pin_border = "#89b4fa"
+sec_sel_bg = "#313244"
+core = "#a6e3a1"
+archive = "#eba0ac"
+frontend = "#fab387"
+config = "#94e2d5"
+script = "#f9e2af"
+docs = "#f2cdcd"
+font = "#cba6f7"

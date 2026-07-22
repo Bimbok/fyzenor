@@ -1054,3 +1054,14 @@ std::vector<fs::path> parsePastedPaths(const std::string& data) {
   return paths;
 }
 
+std::string keyToName(int ch) {
+  if (ch >= 1 && ch <= 26) {
+    char c = 'A' + ch - 1;
+    return "Ctrl+" + std::string(1, c);
+  }
+  if (ch >= 32 && ch <= 126) {
+    return std::string(1, (char)ch);
+  }
+  return "";
+}
+

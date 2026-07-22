@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "file_entry.h"
 #include "async_task.h"
+#include "plugin_manager.h"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +54,7 @@ struct SizeResult {
 };
 
 class FileManager {
+  friend class PluginManager;
 private:
   struct Tab {
     fs::path currentPath;
@@ -122,6 +124,7 @@ private:
   std::string requestedPath;
   long long requestID = 0;
   bool lastWasDirectRender = false;
+  PluginManager pluginManager;
 
   struct PreviewJob {
     std::string path;
@@ -1340,6 +1343,8 @@ public:
     loadParent();
     tabs[activeTabIndex].currentFiles = currentFiles;
 
+    pluginManager.init(this);
+
     initscr();
     cbreak();
     noecho();
@@ -2250,6 +2255,23 @@ public:
       } else if (job->type == PreviewType::TEXT) {
         std::string ext = fs::path(job->path).extension().string();
         for (auto& c : ext) c = tolower(c);
+
+        if (pluginManager.hasCustomPreviewer(ext)) {
+          std::string luaPreview = pluginManager.runCustomPreviewer(ext, job->path, job->previewWidth, job->previewHeight);
+          std::vector<std::string> lines;
+          std::stringstream ss(luaPreview);
+          std::string item;
+          while (std::getline(ss, item)) {
+            lines.push_back(item);
+          }
+          std::lock_guard<std::mutex> lock(previewMutex);
+          if (job->reqId == requestID) {
+            cachedTextLines = lines;
+            cachedPath = job->path;
+            imageReady = true;
+          }
+          continue;
+        }
 
         bool isArchive = (ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz" || 
                           ext == ".rar" || ext == ".bz2" || ext == ".xz" || ext == ".7z");
@@ -6401,6 +6423,12 @@ public:
       }
 
       int ch = getch();
+      std::string kName = keyToName(ch);
+      if (!kName.empty() && pluginManager.handleKey(kName)) {
+        needsRedraw = true;
+        continue;
+      }
+
       if (ch == 27) {
         nodelay(stdscr, TRUE);
         int ch1 = getch();

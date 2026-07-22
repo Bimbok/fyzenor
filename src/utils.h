@@ -1,7 +1,9 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#define _XOPEN_SOURCE_EXTENDED
+#ifndef _XOPEN_SOURCE_EXTENDED
+#define _XOPEN_SOURCE_EXTENDED 1
+#endif
 #include <string>
 #include <vector>
 #include <set>
@@ -32,6 +34,7 @@ extern bool configHideParent;
 extern bool configHidePinned;
 extern std::chrono::steady_clock::time_point globalStartTime;
 void loadConfiguration();
+std::string keyToName(int ch);
 
 extern const char* ICON_DIR;
 extern const char* ICON_VIDEO;

@@ -15,7 +15,7 @@
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-4.2.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.3.0--beta.1-purple?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer
@@ -204,10 +204,14 @@ You can check your compiler version using:
 g++ --version
 ```
 
-### One-Liner
+### Smart Installer (Stable vs Beta Channels)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
+# 📦 Install Stable Release (v4.2.0 - Default)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
+
+# 🧪 Install Beta Channel (v4.3.0-beta.1 - Lua Plugins & Cutting-edge features)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
 ### Manual Installation & Updates
@@ -266,6 +270,17 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 - **TMUX Floating Popup Modal**: If Fyzenor is running inside a active `tmux` session, it leverages `tmux display-popup` to spawn `lazygit` as a centered, floating overlay window (taking up 85% of screen width and height). This creates a gorgeous desktop-like modal experience without leaving your TUI layout.
 - **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
 - **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
+
+## 🧩 Lua Plugin System (Beta Feature)
+
+Fyzenor features an embedded **Lua Plugin Engine** (inspired by *Yazi* and *Neovim*), allowing you to create custom keybindings, interactive fast-jumps, status bar extensions, and custom file previewers without modifying C++ code!
+
+Plugins are loaded automatically from `~/.config/fyzenor/plugins/*/init.lua` on boot.
+
+### Included Official Plugins (Beta):
+- **Git Status & Staging** (`plugins/git/init.lua`): <kbd>Ctrl+B</kbd> (Branch status summary), <kbd>Ctrl+S</kbd> (Smart stage/unstage toggle), <kbd>Ctrl+K</kbd> (Git diff stats).
+- **Zoxide Smart Jump** (`plugins/zoxide/init.lua`): <kbd>z</kbd> / <kbd>Alt+Z</kbd> interactive modal jump prompt.
+- **JSON Custom Previewer** (`plugins/json_previewer/init.lua`): Custom formatted previewer for `.json` files.
 
 ## ⚙️ External Configuration (`config.toml`)
 

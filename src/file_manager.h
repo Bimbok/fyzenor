@@ -37,7 +37,9 @@
 #include <sys/stat.h>
 #include <pwd.h>
 #include <grp.h>
+#ifndef __APPLE__
 #include <sys/inotify.h>
+#endif
 #include <poll.h>
 #include <cerrno>
 
@@ -1439,6 +1441,7 @@ public:
 
   // --- Auto-Update (Inotify) Functions ---
   void initInotify() {
+#ifndef __APPLE__
     inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (inotifyFd < 0) {
       inotifyFd = inotify_init();
@@ -1447,9 +1450,11 @@ public:
       stopInotify = false;
       inotifyThread = std::thread(&FileManager::inotifyWorker, this);
     }
+#endif
   }
 
   void inotifyWorker() {
+#ifndef __APPLE__
     struct pollfd pfd;
     pfd.fd = inotifyFd;
     pfd.events = POLLIN;
@@ -1503,9 +1508,11 @@ public:
         }
       }
     }
+#endif
   }
 
   void updateInotifyWatches() {
+#ifndef __APPLE__
     if (inotifyFd < 0) return;
 
     std::lock_guard<std::mutex> lock(inotifyMutex);
@@ -1562,6 +1569,7 @@ public:
         }
       } catch (...) {}
     }
+#endif
   }
 
   // --- Async Size Worker Function ---
@@ -4368,6 +4376,15 @@ public:
 
     int maxLines = getmaxy(win) - 2;
     if (paneFiles.empty()) {
+      if (!paneIsSearching) {
+        int my = getmaxy(win);
+        int mx = getmaxx(win);
+        std::string emptyMsg = "󰉖 This directory is empty";
+        size_t len = utf8_length(emptyMsg);
+        wattron(win, COLOR_PAIR(7) | A_BOLD);
+        mvwprintw(win, my / 2, (mx - (int)len) / 2, "%s", emptyMsg.c_str());
+        wattroff(win, COLOR_PAIR(7) | A_BOLD);
+      }
       wnoutrefresh(win);
       return;
     }
@@ -5894,11 +5911,13 @@ public:
       wattron(winPreview, COLOR_PAIR(1) | A_BOLD);
       mvwprintw(winPreview, contentStart, 2, "󰉖 Content:");
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
+      int line = contentStart + 1;
       try {
-        int line = contentStart + 1;
+        bool hasVisibleContent = false;
         for (const auto& entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
+          hasVisibleContent = true;
           if (line >= height - 3)
             break;
           std::string subName = entry.path().filename().string();
@@ -5942,7 +5961,15 @@ public:
           mvwprintw(winPreview, line++, 4, "%s %s", s.icon, subName.c_str());
           wattroff(winPreview, COLOR_PAIR(s.pair));
         }
+        if (!hasVisibleContent) {
+          wattron(winPreview, COLOR_PAIR(7) | A_BOLD);
+          mvwprintw(winPreview, line, 4, "󰉖 This directory is empty");
+          wattroff(winPreview, COLOR_PAIR(7) | A_BOLD);
+        }
       } catch (...) {
+        wattron(winPreview, COLOR_PAIR(7) | A_BOLD);
+        mvwprintw(winPreview, line, 4, "󰉖 This directory is empty");
+        wattroff(winPreview, COLOR_PAIR(7) | A_BOLD);
       }
       wnoutrefresh(winPreview);
     } else if (isDoc || isXls || isPpt) {
@@ -6315,15 +6342,31 @@ public:
           attroff(COLOR_PAIR(9) | A_BOLD);
         }
 
+        // Compute directory statistics
+        size_t numFolders = 0;
+        size_t numFiles = 0;
+        for (const auto& f : currentFiles) {
+          if (f.is_directory) {
+            numFolders++;
+          } else {
+            numFiles++;
+          }
+        }
+        std::string statsStr = "  📁 " + std::to_string(numFolders) + " folders | 📄 " + std::to_string(numFiles) + " files";
+
         attron(A_DIM);
         std::string pathStr = isTrashMode ? "trash://" : currentPath.string();
-        int maxPathW = width - 35;
-        if (maxPathW < 10) maxPathW = 10;
+        int maxPathW = width - 35 - (int)utf8_length(statsStr);
+        if (maxPathW < 15) maxPathW = 15;
         if ((int)pathStr.length() > maxPathW) {
           pathStr = utf8_safe_truncate_left(pathStr, maxPathW - 3);
         }
         printw(" %s", pathStr.c_str());
         attroff(A_DIM);
+
+        attron(COLOR_PAIR(6));
+        printw("%s", statsStr.c_str());
+        attroff(COLOR_PAIR(6));
 
         if (!isTrashMode) {
           try {

@@ -277,6 +277,12 @@ Fyzenor features an embedded **Lua Plugin Engine** (inspired by *Yazi* and *Neov
 
 Plugins are loaded automatically from `~/.config/fyzenor/plugins/*/init.lua` on boot.
 
+### 📦 Official Plugins Repository
+Install all official plugins via single-command clone:
+```bash
+git clone https://github.com/Bimbok/fyzenor-plugins.git ~/.config/fyzenor/plugins
+```
+
 ### Included Official Plugins (Beta):
 - **Git Status & Staging** (`plugins/git/init.lua`): <kbd>Ctrl+B</kbd> (Branch status summary), <kbd>Ctrl+S</kbd> (Smart stage/unstage toggle), <kbd>Ctrl+K</kbd> (Git diff stats).
 - **Zoxide Smart Jump** (`plugins/zoxide/init.lua`): <kbd>z</kbd> / <kbd>Alt+Z</kbd> interactive modal jump prompt.

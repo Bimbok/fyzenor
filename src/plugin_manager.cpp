@@ -55,6 +55,8 @@ void PluginManager::registerLuaBindings() {
       {"read_file", lua_ReadFile},
       {"add_keymap", lua_AddKeymap},
       {"register_previewer", lua_RegisterPreviewer},
+      {"prompt", lua_Prompt},
+      {"change_directory", lua_ChangeDirectory},
       {NULL, NULL}
   };
 
@@ -386,4 +388,32 @@ std::string PluginManager::runCustomPreviewer(const std::string& ext, const std:
     lua_pop(L, 1);
   }
   return "";
+}
+
+int PluginManager::lua_Prompt(lua_State* L) {
+  PluginManager* pm = getPM(L);
+  if (!pm || !pm->fileManager) {
+    lua_pushnil(L);
+    return 1;
+  }
+
+  std::string promptStr = lua_isstring(L, 1) ? lua_tostring(L, 1) : "Query:";
+  std::string defaultVal = lua_isstring(L, 2) ? lua_tostring(L, 2) : "";
+
+  std::string result = pm->fileManager->promptInput(promptStr, defaultVal);
+  lua_pushstring(L, result.c_str());
+  return 1;
+}
+
+int PluginManager::lua_ChangeDirectory(lua_State* L) {
+  PluginManager* pm = getPM(L);
+  if (!pm || !pm->fileManager) return 0;
+
+  if (lua_isstring(L, 1)) {
+    std::string pathStr = lua_tostring(L, 1);
+    if (!pathStr.empty()) {
+      pm->fileManager->changeDirectory(fs::path(pathStr));
+    }
+  }
+  return 0;
 }

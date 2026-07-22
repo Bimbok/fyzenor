@@ -204,10 +204,14 @@ You can check your compiler version using:
 g++ --version
 ```
 
-### One-Liner
+### Smart Installer (Stable vs Beta Channels)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
+# 📦 Install Stable Release (v4.2.0 - Default)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
+
+# 🧪 Install Beta Channel (v4.3.0-beta.1 - Lua Plugins & Cutting-edge features)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
 ### Manual Installation & Updates

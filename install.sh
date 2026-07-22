@@ -17,6 +17,24 @@ echo -e "${GREEN}╩   ╩ ╚═╝╚═╝╝╚╝╚═╝╩╚═${NC}"
 echo -e "${BLUE}The Blazing Fast Modern C++ File Manager${NC}\n"
 
 REPO_URL="https://github.com/Bimbok/fyzenor.git"
+TARGET_BRANCH="main"
+
+for arg in "$@"; do
+    case $arg in
+        --beta)
+            TARGET_BRANCH="beta"
+            ;;
+        --stable)
+            TARGET_BRANCH="main"
+            ;;
+    esac
+done
+
+if [ "$TARGET_BRANCH" = "beta" ]; then
+    echo -e "${YELLOW}Installing Channel: BETA (v4.3.0-beta.1 - Cutting-edge features & Lua Plugin Engine)${NC}\n"
+else
+    echo -e "${GREEN}Installing Channel: STABLE (v4.2.0 - Tested production release)${NC}\n"
+fi
 
 # Detect Termux environment
 IS_TERMUX=false
@@ -52,7 +70,7 @@ check_dep() {
 # 1. Handle "Run from anywhere" (curl | bash)
 if [ ! -f "src/main.cpp" ]; then
     echo -e "${YELLOW}Source code not found in current directory.${NC}"
-    echo -e "${BLUE}Cloning Fyzenor from GitHub...${NC}"
+    echo -e "${BLUE}Cloning Fyzenor ($TARGET_BRANCH channel) from GitHub...${NC}"
     
     if ! check_dep "git"; then
         echo -e "${RED}Error: git is required to clone the repository.${NC}"
@@ -60,15 +78,17 @@ if [ ! -f "src/main.cpp" ]; then
     fi
 
     TEMP_DIR=$(mktemp -d)
-    git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
+    git clone --depth 1 -b "$TARGET_BRANCH" "$REPO_URL" "$TEMP_DIR"
     cd "$TEMP_DIR" || exit 1
-    echo -e "${GREEN}Repository cloned to temporary directory.${NC}"
+    echo -e "${GREEN}Repository ($TARGET_BRANCH) cloned to temporary directory.${NC}"
 fi
 
 # 2. Handle "Update" if in a git repo
 if [ -d ".git" ]; then
-    echo -e "${BLUE}Checking for updates...${NC}"
-    git pull origin main
+    echo -e "${BLUE}Checking for updates on branch '$TARGET_BRANCH'...${NC}"
+    git fetch origin
+    git checkout "$TARGET_BRANCH" 2>/dev/null || git checkout -b "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+    git pull origin "$TARGET_BRANCH"
 fi
 
 # 3. Dependencies Check

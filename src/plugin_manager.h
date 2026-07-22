@@ -33,6 +33,7 @@ public:
   static int lua_GetCurrentPath(lua_State* L);
   static int lua_SetStatus(lua_State* L);
   static int lua_Exec(lua_State* L);
+  static int lua_ShellOutput(lua_State* L);
   static int lua_Reload(lua_State* L);
   static int lua_ReadFile(lua_State* L);
   static int lua_AddKeymap(lua_State* L);

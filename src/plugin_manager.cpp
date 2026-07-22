@@ -50,6 +50,7 @@ void PluginManager::registerLuaBindings() {
       {"get_selected_files", lua_GetSelectedFiles},
       {"set_status", lua_SetStatus},
       {"exec", lua_Exec},
+      {"shell_output", lua_ShellOutput},
       {"reload", lua_Reload},
       {"read_file", lua_ReadFile},
       {"add_keymap", lua_AddKeymap},
@@ -232,6 +233,30 @@ int PluginManager::lua_Exec(lua_State* L) {
     }).detach();
   }
   return 0;
+}
+
+int PluginManager::lua_ShellOutput(lua_State* L) {
+  if (!lua_isstring(L, 1)) {
+    lua_pushnil(L);
+    return 1;
+  }
+
+  std::string cmd = lua_tostring(L, 1);
+  FILE* pipe = popen(cmd.c_str(), "r");
+  if (!pipe) {
+    lua_pushnil(L);
+    return 1;
+  }
+
+  char buf[4096];
+  std::string output = "";
+  while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+    output += buf;
+  }
+  pclose(pipe);
+
+  lua_pushstring(L, output.c_str());
+  return 1;
 }
 
 int PluginManager::lua_Reload(lua_State* L) {

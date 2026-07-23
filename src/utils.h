@@ -33,6 +33,7 @@ extern bool configHidePreview;
 extern bool configHideParent;
 extern bool configHidePinned;
 extern std::chrono::steady_clock::time_point globalStartTime;
+extern const std::string FYZENOR_VERSION;
 void loadConfiguration();
 std::string keyToName(int ch);
 

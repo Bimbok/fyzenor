@@ -2,15 +2,13 @@
 #include "utils.h"
 #include <iostream>
 
-const std::string VERSION = "4.3.0-beta.1";
-
 int main(int argc, char* argv[]) {
   globalStartTime = std::chrono::steady_clock::now();
   if (argc > 1) {
     for (int i = 1; i < argc; ++i) {
       std::string arg = argv[i];
       if (arg == "-v" || arg == "--version") {
-        std::cout << "Fyzenor version " << VERSION << std::endl;
+        std::cout << "Fyzenor version " << FYZENOR_VERSION << std::endl;
         return 0;
       } else if (arg == "-h" || arg == "--help") {
         std::cout << "Fyzenor - The Blazing Fast, Modern C++ Terminal File Manager" << std::endl;

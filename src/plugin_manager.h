@@ -40,12 +40,14 @@ public:
   static int lua_RegisterPreviewer(lua_State* L);
   static int lua_Prompt(lua_State* L);
   static int lua_ChangeDirectory(lua_State* L);
+  static int lua_GetVersion(lua_State* L);
 
 private:
   lua_State* L;
   FileManager* fileManager;
-  std::mutex luaMutex;
+  mutable std::mutex luaMutex;
 
+  std::string normalizeKey(const std::string& key);
   std::unordered_map<std::string, std::string> keymaps; // key_combo -> lua_func_name
   std::unordered_map<std::string, std::string> previewers; // file_extension -> lua_func_name
 

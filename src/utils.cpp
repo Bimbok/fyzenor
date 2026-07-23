@@ -61,6 +61,7 @@ bool configHidePreview = false;
 bool configHideParent = false;
 bool configHidePinned = false;
 std::chrono::steady_clock::time_point globalStartTime;
+extern const std::string FYZENOR_VERSION = "4.3.0-beta.1";
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";
@@ -1055,10 +1056,24 @@ std::vector<fs::path> parsePastedPaths(const std::string& data) {
 }
 
 std::string keyToName(int ch) {
-  if (ch >= 1 && ch <= 26) {
+  if (ch >= 1 && ch <= 26 && ch != 9 && ch != 10 && ch != 13) {
     char c = 'A' + ch - 1;
     return "Ctrl+" + std::string(1, c);
   }
+  if (ch == 9) return "Tab";
+  if (ch == 10 || ch == 13) return "Enter";
+  if (ch == 127 || ch == 8) return "Backspace";
+#ifdef KEY_F0
+  if (ch >= KEY_F(1) && ch <= KEY_F(12)) {
+    return "F" + std::to_string(ch - KEY_F(0));
+  }
+#endif
+#ifdef KEY_DC
+  if (ch == KEY_DC) return "Delete";
+#endif
+#ifdef KEY_BACKSPACE
+  if (ch == KEY_BACKSPACE) return "Backspace";
+#endif
   if (ch >= 32 && ch <= 126) {
     return std::string(1, (char)ch);
   }

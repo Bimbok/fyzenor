@@ -57,6 +57,7 @@ void PluginManager::registerLuaBindings() {
       {"register_previewer", lua_RegisterPreviewer},
       {"prompt", lua_Prompt},
       {"change_directory", lua_ChangeDirectory},
+      {"get_version", lua_GetVersion},
       {NULL, NULL}
   };
 
@@ -244,6 +245,11 @@ int PluginManager::lua_ShellOutput(lua_State* L) {
   }
 
   std::string cmd = lua_tostring(L, 1);
+  if (cmd.empty()) {
+    lua_pushstring(L, "");
+    return 1;
+  }
+
   FILE* pipe = popen(cmd.c_str(), "r");
   if (!pipe) {
     lua_pushnil(L);
@@ -252,8 +258,17 @@ int PluginManager::lua_ShellOutput(lua_State* L) {
 
   char buf[4096];
   std::string output = "";
+  size_t totalBytes = 0;
+  const size_t MAX_BYTES = 1024 * 1024; // 1MB output safety cap
+
   while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+    size_t len = strlen(buf);
+    if (totalBytes + len > MAX_BYTES) {
+      output.append(buf, MAX_BYTES - totalBytes);
+      break;
+    }
     output += buf;
+    totalBytes += len;
   }
   pclose(pipe);
 
@@ -279,6 +294,8 @@ int PluginManager::lua_ReadFile(lua_State* L) {
   int maxLines = 100;
   if (lua_isnumber(L, 2)) {
     maxLines = static_cast<int>(lua_tonumber(L, 2));
+    if (maxLines <= 0) maxLines = 100;
+    if (maxLines > 2000) maxLines = 2000;
   }
 
   std::ifstream in(path);
@@ -299,12 +316,30 @@ int PluginManager::lua_ReadFile(lua_State* L) {
   return 1;
 }
 
+std::string PluginManager::normalizeKey(const std::string& key) {
+  if (key.size() >= 5 && (key.rfind("ctrl+", 0) == 0 || key.rfind("CTRL+", 0) == 0 || key.rfind("Ctrl+", 0) == 0)) {
+    std::string charPart = key.substr(5);
+    if (!charPart.empty()) {
+      charPart[0] = std::toupper(charPart[0]);
+    }
+    return "Ctrl+" + charPart;
+  }
+  if (key.size() >= 4 && (key.rfind("alt+", 0) == 0 || key.rfind("ALT+", 0) == 0 || key.rfind("Alt+", 0) == 0)) {
+    std::string charPart = key.substr(4);
+    if (!charPart.empty()) {
+      charPart[0] = std::toupper(charPart[0]);
+    }
+    return "Alt+" + charPart;
+  }
+  return key;
+}
+
 int PluginManager::lua_AddKeymap(lua_State* L) {
   PluginManager* pm = getPM(L);
   if (!pm) return 0;
 
   if (lua_isstring(L, 1) && (lua_isfunction(L, 2) || lua_isstring(L, 2))) {
-    std::string key = lua_tostring(L, 1);
+    std::string key = pm->normalizeKey(lua_tostring(L, 1));
     
     // Store function in Lua registry table with key name
     lua_pushvalue(L, 2);
@@ -335,10 +370,11 @@ int PluginManager::lua_RegisterPreviewer(lua_State* L) {
   return 0;
 }
 
-bool PluginManager::handleKey(const std::string& key) {
+bool PluginManager::handleKey(const std::string& rawKey) {
   std::lock_guard<std::mutex> lock(luaMutex);
   if (!L) return false;
 
+  std::string key = normalizeKey(rawKey);
   auto it = keymaps.find(key);
   if (it == keymaps.end()) return false;
 
@@ -358,6 +394,7 @@ bool PluginManager::handleKey(const std::string& key) {
 }
 
 bool PluginManager::hasCustomPreviewer(const std::string& ext) const {
+  std::lock_guard<std::mutex> lock(luaMutex);
   return previewers.find(ext) != previewers.end();
 }
 
@@ -416,4 +453,9 @@ int PluginManager::lua_ChangeDirectory(lua_State* L) {
     }
   }
   return 0;
+}
+
+int PluginManager::lua_GetVersion(lua_State* L) {
+  lua_pushstring(L, FYZENOR_VERSION.c_str());
+  return 1;
 }

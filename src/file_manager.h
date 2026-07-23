@@ -202,6 +202,12 @@ private:
       }
     }
     currentPath = target;
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].currentPath = currentPath;
+    }
+    selectedIndex = 0;
+    scrollOffset = 0;
+    reloadAll();
   }
 
   void handleGoBack() {

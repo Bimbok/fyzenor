@@ -583,6 +583,42 @@ bool isCommandAvailable(const std::string& cmd) {
   return available;
 }
 
+short hexTo256(const std::string& hex) {
+  if (hex.length() < 7 || hex[0] != '#') return -1;
+  int r = 0, g = 0, b = 0;
+  if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) != 3) return -1;
+
+  auto snap = [](int val) -> int {
+    if (val < 48) return 0;
+    if (val < 115) return 1;
+    if (val < 155) return 2;
+    if (val < 195) return 3;
+    if (val < 235) return 4;
+    return 5;
+  };
+
+  int r6 = snap(r);
+  int g6 = snap(g);
+  int b6 = snap(b);
+  int cubeIdx = 16 + 36 * r6 + 6 * g6 + b6;
+
+  int avg = (r * 30 + g * 59 + b * 11) / 100;
+  int grayIdx = 232 + (avg >= 8 ? (avg - 8 + 5) / 10 : 0);
+  if (grayIdx > 255) grayIdx = 255;
+
+  static const int cubeSteps[6] = {0, 95, 135, 175, 215, 255};
+  int cr = cubeSteps[r6], cg = cubeSteps[g6], cb = cubeSteps[b6];
+  int distCube = (r - cr) * (r - cr) + (g - cg) * (g - cg) + (b - cb) * (b - cb);
+
+  int gr = (grayIdx - 232) * 10 + 8;
+  int distGray = (r - gr) * (r - gr) + (g - gr) * (g - gr) + (b - gr) * (b - gr);
+
+  if (distGray < distCube && (r6 == g6 && g6 == b6)) {
+    return static_cast<short>(grayIdx);
+  }
+  return static_cast<short>(cubeIdx);
+}
+
 void initColors() {
   start_color();
   use_default_colors();
@@ -651,35 +687,21 @@ void initColors() {
           }
         }
       }
-    } else {
-      std::ofstream f(colorFile);
-      f << "# Fyzenor Theme Configuration File\n"
-        << "# Catppuccin Mocha colors\n\n"
-        << "[colors]\n"
-        << "dir = \"#89b4fa\"\n"
-        << "file = \"#cdd6f4\"\n"
-        << "sel_bg = \"#585b70\"\n"
-        << "media = \"#f9e2af\"\n"
-        << "image = \"#f5c2e7\"\n"
-        << "border = \"#b4befe\"\n"
-        << "success = \"#a6e3a1\"\n"
-        << "error = \"#f38ba8\"\n"
-        << "multi = \"#f5e0dc\"\n"
-        << "pin_bg = \"#cba6f7\"\n"
-        << "pin_border = \"#89b4fa\"\n"
-        << "sec_sel_bg = \"#313244\"\n"
-        << "core = \"#a6e3a1\"\n"
-        << "archive = \"#eba0ac\"\n"
-        << "frontend = \"#fab387\"\n"
-        << "config = \"#94e2d5\"\n"
-        << "script = \"#f9e2af\"\n"
-        << "docs = \"#f2cdcd\"\n"
-        << "font = \"#cba6f7\"\n";
     }
   }
 
-  auto setHex = [](short id, const std::string& hex) {
-    if (hex.length() < 7 || hex[0] != '#')
+  auto getC = [&](const std::string& key) -> short {
+    auto it = colors.find(key);
+    if (it != colors.end()) {
+      short idx = hexTo256(it->second);
+      if (idx != -1) return idx;
+    }
+    return -1;
+  };
+
+  bool canChange = can_change_color();
+  auto setHex = [&](short id, const std::string& hex) {
+    if (!canChange || hex.length() < 7 || hex[0] != '#')
       return;
     int r, g, b;
     if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
@@ -687,7 +709,27 @@ void initColors() {
     }
   };
 
-  if (can_change_color()) {
+  short cDir = canChange ? 20 : getC("DIR");
+  short cFile = canChange ? 21 : getC("FILE");
+  short cSelBg = canChange ? 22 : getC("SEL_BG");
+  short cMedia = canChange ? 23 : getC("MEDIA");
+  short cImage = canChange ? 24 : getC("IMAGE");
+  short cBorder = canChange ? 25 : getC("BORDER");
+  short cSuccess = canChange ? 26 : getC("SUCCESS");
+  short cError = canChange ? 27 : getC("ERROR");
+  short cMulti = canChange ? 28 : getC("MULTI");
+  short cPinBg = canChange ? 29 : getC("PIN_BG");
+  short cPinBorder = canChange ? 30 : getC("PIN_BORDER");
+  short cSecSelBg = canChange ? 31 : getC("SEC_SEL_BG");
+  short cCore = canChange ? 32 : getC("CORE");
+  short cArchive = canChange ? 33 : getC("ARCHIVE");
+  short cFrontend = canChange ? 34 : getC("FRONTEND");
+  short cConfig = canChange ? 35 : getC("CONFIG");
+  short cScript = canChange ? 36 : getC("SCRIPT");
+  short cDocs = canChange ? 37 : getC("DOCS");
+  short cFont = canChange ? 38 : getC("FONT");
+
+  if (canChange) {
     setHex(20, colors["DIR"]);
     setHex(21, colors["FILE"]);
     setHex(22, colors["SEL_BG"]);
@@ -707,98 +749,71 @@ void initColors() {
     setHex(36, colors["SCRIPT"]);
     setHex(37, colors["DOCS"]);
     setHex(38, colors["FONT"]);
-    init_pair(1, 20, -1);   // DIR
-    init_pair(2, 21, -1);   // FILE
-    init_pair(4, 23, -1);   // MEDIA
-    init_pair(5, 24, -1);   // IMAGE
-    init_pair(16, 32, -1);  // CORE
-    init_pair(17, 33, -1);  // ARCHIVE
-    init_pair(24, 34, -1);  // FRONTEND
-    init_pair(25, 35, -1);  // CONFIG
-    init_pair(26, 36, -1);  // SCRIPT
-    init_pair(27, 37, -1);  // DOCS
-    init_pair(28, 38, -1);  // FONT
-    init_pair(41, 20, 22);  // SEL_DIR
-    init_pair(42, 21, 22);  // SEL_FILE
-    init_pair(44, 23, 22);  // SEL_MEDIA
-    init_pair(45, 24, 22);  // SEL_IMAGE
-    init_pair(56, 32, 22);  // SEL_CORE
-    init_pair(57, 33, 22);  // SEL_ARCHIVE
-    init_pair(64, 34, 22);  // SEL_FRONTEND
-    init_pair(65, 35, 22);  // SEL_CONFIG
-    init_pair(66, 36, 22);  // SEL_SCRIPT
-    init_pair(67, 37, 22);  // SEL_DOCS
-    init_pair(68, 38, 22);  // SEL_FONT
-    init_pair(81, 20, 31);  // SEC_SEL_DIR
-    init_pair(82, 21, 31);  // SEC_SEL_FILE
-    init_pair(84, 23, 31);  // SEC_SEL_MEDIA
-    init_pair(85, 24, 31);  // SEC_SEL_IMAGE
-    init_pair(96, 32, 31);  // SEC_SEL_CORE
-    init_pair(97, 33, 31);  // SEC_SEL_ARCHIVE
-    init_pair(104, 34, 31); // SEC_SEL_FRONTEND
-    init_pair(105, 35, 31); // SEC_SEL_CONFIG
-    init_pair(106, 36, 31); // SEC_SEL_SCRIPT
-    init_pair(107, 37, 31); // SEC_SEL_DOCS
-    init_pair(108, 38, 31); // SEC_SEL_FONT
-    init_pair(6, 25, -1);   // BORDER
-    init_pair(7, 26, -1);   // SUCCESS
-    init_pair(8, 27, -1);   // ERROR
-    init_pair(9, 28, -1);   // MULTI
-    init_pair(15, 30, -1);  // PIN_BORDER
-    init_pair(10, 31, 29);  // SEL_PIN (foreground SEC_SEL_BG, background PIN_BG)
-  } else {
-    init_pair(1, COLOR_CYAN, -1);
-    init_pair(2, COLOR_WHITE, -1);
-    init_pair(3, COLOR_BLACK, COLOR_CYAN);
-    init_pair(4, COLOR_YELLOW, -1);
-    init_pair(5, COLOR_MAGENTA, -1);
-    init_pair(16, COLOR_GREEN, -1);
-    init_pair(17, COLOR_RED, -1);
-    init_pair(24, COLOR_YELLOW, -1);
-    init_pair(25, COLOR_WHITE, -1);
-    init_pair(26, COLOR_CYAN, -1);
-    init_pair(27, COLOR_RED, -1);
-    init_pair(28, COLOR_MAGENTA, -1);
-
-    short selBg = COLOR_BLUE;
-    short secSelBg = COLOR_CYAN;
-
-    std::vector<int> bases = {1, 2, 4, 5, 16, 17, 24, 25, 26, 27, 28};
-    for (int base : bases) {
-      short fg = COLOR_WHITE;
-      if (base == 1)
-        fg = COLOR_CYAN;
-      else if (base == 4)
-        fg = COLOR_YELLOW;
-      else if (base == 5)
-        fg = COLOR_MAGENTA;
-      else if (base == 16)
-        fg = COLOR_GREEN;
-      else if (base == 17)
-        fg = COLOR_RED;
-      else if (base == 24)
-        fg = COLOR_YELLOW;
-      else if (base == 25)
-        fg = COLOR_WHITE;
-      else if (base == 26)
-        fg = COLOR_CYAN;
-      else if (base == 27)
-        fg = COLOR_RED;
-      else if (base == 28)
-        fg = COLOR_MAGENTA;
-
-      if (base + 40 < COLOR_PAIRS)
-        init_pair(base + 40, fg, selBg);
-      if (base + 80 < COLOR_PAIRS)
-        init_pair(base + 80, fg, secSelBg);
-    }
-
-    init_pair(6, COLOR_BLUE, -1);
-    init_pair(7, COLOR_GREEN, -1);
-    init_pair(8, COLOR_RED, -1);
-    init_pair(9, COLOR_YELLOW, -1);
-    init_pair(10, COLOR_WHITE, COLOR_BLUE);
   }
+
+  // Fallback to 256-color cube indices if getC returned valid index
+  if (cDir < 0) cDir = getC("DIR");
+  if (cFile < 0) cFile = getC("FILE");
+  if (cSelBg < 0) cSelBg = getC("SEL_BG");
+  if (cMedia < 0) cMedia = getC("MEDIA");
+  if (cImage < 0) cImage = getC("IMAGE");
+  if (cBorder < 0) cBorder = getC("BORDER");
+  if (cSuccess < 0) cSuccess = getC("SUCCESS");
+  if (cError < 0) cError = getC("ERROR");
+  if (cMulti < 0) cMulti = getC("MULTI");
+  if (cPinBg < 0) cPinBg = getC("PIN_BG");
+  if (cPinBorder < 0) cPinBorder = getC("PIN_BORDER");
+  if (cSecSelBg < 0) cSecSelBg = getC("SEC_SEL_BG");
+  if (cCore < 0) cCore = getC("CORE");
+  if (cArchive < 0) cArchive = getC("ARCHIVE");
+  if (cFrontend < 0) cFrontend = getC("FRONTEND");
+  if (cConfig < 0) cConfig = getC("CONFIG");
+  if (cScript < 0) cScript = getC("SCRIPT");
+  if (cDocs < 0) cDocs = getC("DOCS");
+  if (cFont < 0) cFont = getC("FONT");
+
+  init_pair(1, cDir, -1);          // DIR
+  init_pair(2, cFile, -1);         // FILE
+  init_pair(4, cMedia, -1);        // MEDIA
+  init_pair(5, cImage, -1);        // IMAGE
+  init_pair(16, cCore, -1);        // CORE
+  init_pair(17, cArchive, -1);     // ARCHIVE
+  init_pair(24, cFrontend, -1);    // FRONTEND
+  init_pair(25, cConfig, -1);      // CONFIG
+  init_pair(26, cScript, -1);      // SCRIPT
+  init_pair(27, cDocs, -1);        // DOCS
+  init_pair(28, cFont, -1);        // FONT
+
+  init_pair(41, cDir, cSelBg);     // SEL_DIR
+  init_pair(42, cFile, cSelBg);    // SEL_FILE
+  init_pair(44, cMedia, cSelBg);   // SEL_MEDIA
+  init_pair(45, cImage, cSelBg);   // SEL_IMAGE
+  init_pair(56, cCore, cSelBg);    // SEL_CORE
+  init_pair(57, cArchive, cSelBg); // SEL_ARCHIVE
+  init_pair(64, cFrontend, cSelBg);// SEL_FRONTEND
+  init_pair(65, cConfig, cSelBg);  // SEL_CONFIG
+  init_pair(66, cScript, cSelBg);  // SEL_SCRIPT
+  init_pair(67, cDocs, cSelBg);    // SEL_DOCS
+  init_pair(68, cFont, cSelBg);    // SEL_FONT
+
+  init_pair(81, cDir, cSecSelBg);     // SEC_SEL_DIR
+  init_pair(82, cFile, cSecSelBg);    // SEC_SEL_FILE
+  init_pair(84, cMedia, cSecSelBg);   // SEC_SEL_MEDIA
+  init_pair(85, cImage, cSecSelBg);   // SEC_SEL_IMAGE
+  init_pair(96, cCore, cSecSelBg);    // SEC_SEL_CORE
+  init_pair(97, cArchive, cSecSelBg); // SEC_SEL_ARCHIVE
+  init_pair(104, cFrontend, cSecSelBg);// SEC_SEL_FRONTEND
+  init_pair(105, cConfig, cSecSelBg);  // SEC_SEL_CONFIG
+  init_pair(106, cScript, cSecSelBg);  // SEC_SEL_SCRIPT
+  init_pair(107, cDocs, cSecSelBg);    // SEC_SEL_DOCS
+  init_pair(108, cFont, cSecSelBg);    // SEC_SEL_FONT
+
+  init_pair(6, cBorder, -1);       // BORDER
+  init_pair(7, cSuccess, -1);      // SUCCESS
+  init_pair(8, cError, -1);        // ERROR
+  init_pair(9, cMulti, -1);        // MULTI
+  init_pair(15, cPinBorder, -1);   // PIN_BORDER
+  init_pair(10, cSecSelBg, cPinBg); // SEL_PIN
 }
 
 void loadConfiguration() {

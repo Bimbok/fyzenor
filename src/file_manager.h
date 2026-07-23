@@ -6202,6 +6202,7 @@ public:
   }
 
   void handleRefresh() {
+    initColors();
     {
       std::lock_guard<std::mutex> lock(cacheMutex);
       dirSizeCache.clear();
@@ -6216,8 +6217,10 @@ public:
       sessionImageCache.clear();
       sessionImageCacheKeys.clear();
     }
+    clearok(curscr, TRUE);
+    redrawwin(stdscr);
     reloadAll();
-    setStatus("Refreshed");
+    setStatus("Refreshed theme & screen");
   }
 
   void run() {

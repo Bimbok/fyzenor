@@ -5880,7 +5880,7 @@ public:
     }
 
     pendingDirectRenderType = PreviewType::NONE;
-    if (lastWasDirectRender && !samePathAndImage)
+    if (!samePathAndImage)
       clearDirectRender();
     werase(winPreview);
     wattron(winPreview, COLOR_PAIR(6));
@@ -6103,12 +6103,14 @@ public:
             drawCachedTextPreview();
           else
             pendingDirectRenderType = PreviewType::IMAGE;
-        } else if (requestedPath != file.path.string()) {
+        } else {
           wattron(winPreview, A_ITALIC | A_DIM);
           mvwprintw(winPreview, contentStart, 4, "Generating preview...");
           wattroff(winPreview, A_ITALIC | A_DIM);
-          PreviewType type = isTextPreviewable ? PreviewType::TEXT : PreviewType::IMAGE;
-          startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
+          if (requestedPath != file.path.string()) {
+            PreviewType type = isTextPreviewable ? PreviewType::TEXT : PreviewType::IMAGE;
+            startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
+          }
         }
       }
     } else {
@@ -6580,6 +6582,14 @@ public:
         } else {
           if (ch1 == ERR) {
             clearSelection();
+            clearDirectRender();
+            requestedPath = "";
+            {
+              std::lock_guard<std::mutex> lock(previewMutex);
+              cachedPath = "";
+              cachedTextLines.clear();
+              cachedBase64 = "";
+            }
           }
           needsRedraw = true;
           continue;

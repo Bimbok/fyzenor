@@ -1600,21 +1600,28 @@ public:
       }
 
       uintmax_t size = 0;
-      try {
-        if (fs::exists(job.path) && fs::is_directory(job.path)) {
-          for (const auto& entry : fs::recursive_directory_iterator(
-                   job.path, fs::directory_options::skip_permission_denied)) {
-            if (job.viewId != currentViewId || stopWorker)
-              break;
-            try {
-              if (!fs::is_directory(entry.status())) {
-                size += fs::file_size(entry);
-              }
-            } catch (...) {
+      std::error_code ec;
+      if (fs::exists(job.path, ec) && fs::is_directory(job.path, ec)) {
+        fs::recursive_directory_iterator it(job.path, fs::directory_options::skip_permission_denied, ec);
+        fs::recursive_directory_iterator end;
+        while (it != end && !ec) {
+          if (job.viewId != currentViewId || stopWorker)
+            break;
+
+          std::error_code entryEc;
+          if (it->is_symlink(entryEc)) {
+            it.increment(ec);
+            continue;
+          }
+
+          if (it->is_regular_file(entryEc)) {
+            uintmax_t fsize = it->file_size(entryEc);
+            if (!entryEc) {
+              size += fsize;
             }
           }
+          it.increment(ec);
         }
-      } catch (...) {
       }
 
       if (job.viewId == currentViewId) {
@@ -1867,8 +1874,10 @@ public:
 
       // 2. Sort by Mode
       if (sortMode == SortMode::SIZE) {
-        if (a.size != b.size)
-          return a.size > b.size; // Descending
+        uintmax_t sizeA = (a.is_directory && a.size == SIZE_CALCULATING) ? 0 : a.size;
+        uintmax_t sizeB = (b.is_directory && b.size == SIZE_CALCULATING) ? 0 : b.size;
+        if (sizeA != sizeB)
+          return sizeA > sizeB; // Descending
       } else if (sortMode == SortMode::DATE) {
         if (a.modified_time != b.modified_time)
           return a.modified_time > b.modified_time; // Descending (newest first)
@@ -2595,6 +2604,26 @@ public:
     delwin(toastWin);
   }
 
+  std::string getSystemClipboardText() {
+    std::string cmd = "(wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || pbpaste 2>/dev/null)";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return "";
+    char buf[512];
+    std::string result = "";
+    while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+      result += buf;
+    }
+    pclose(pipe);
+
+    std::string clean = "";
+    for (char c : result) {
+      if (c != '\r' && c != '\n') {
+        clean += c;
+      }
+    }
+    return clean;
+  }
+
   std::string promptInput(const std::string& prompt, const std::string& defaultVal = "") {
     clearDirectRender();
     int w = std::max((int)prompt.length() + 10, 50);
@@ -2663,8 +2692,75 @@ public:
       if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
         break;
       } else if (ch == 27) {
+        nodelay(win, TRUE);
+        int ch1 = wgetch(win);
+        if (ch1 == ERR) {
+          nodelay(win, FALSE);
+          input = "";
+          break;
+        }
+        int ch2 = wgetch(win);
+        int ch3 = wgetch(win);
+        int ch4 = wgetch(win);
+        int ch5 = wgetch(win);
+        nodelay(win, FALSE);
+
+        if (ch1 == '[' && ch2 == '2' && ch3 == '0' && ch4 == '0' && ch5 == '~') {
+          std::string pastedData = "";
+          while (true) {
+            int c = wgetch(win);
+            if (c == ERR) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(2));
+              c = wgetch(win);
+              if (c == ERR) break;
+            }
+            if (c == 27) {
+              nodelay(win, TRUE);
+              int e1 = wgetch(win);
+              int e2 = wgetch(win);
+              int e3 = wgetch(win);
+              int e4 = wgetch(win);
+              int e5 = wgetch(win);
+              nodelay(win, FALSE);
+              if (e1 == '[' && e2 == '2' && e3 == '0' && e4 == '1' && e5 == '~') {
+                break;
+              } else {
+                if (c >= 32 && c <= 126) pastedData += (char)c;
+                if (e1 >= 32 && e1 <= 126) pastedData += (char)e1;
+                if (e2 >= 32 && e2 <= 126) pastedData += (char)e2;
+                if (e3 >= 32 && e3 <= 126) pastedData += (char)e3;
+                if (e4 >= 32 && e4 <= 126) pastedData += (char)e4;
+                if (e5 >= 32 && e5 <= 126) pastedData += (char)e5;
+              }
+            } else if (c >= 32 && c <= 126) {
+              pastedData += (char)c;
+            }
+          }
+          if (!pastedData.empty()) {
+            if (input.length() + pastedData.length() <= 255) {
+              input.insert(cursorIdx, pastedData);
+              cursorIdx += pastedData.length();
+            }
+          }
+        }
+      } else if (ch == 22 || ch == 25) { // Ctrl+V or Ctrl+Y -> Clipboard Paste
+        std::string pasted = getSystemClipboardText();
+        if (!pasted.empty()) {
+          if (input.length() + pasted.length() <= 255) {
+            input.insert(cursorIdx, pasted);
+            cursorIdx += pasted.length();
+          }
+        }
+      } else if (ch == 21) { // Ctrl+U -> Clear prompt
         input = "";
-        break;
+        cursorIdx = 0;
+      } else if (ch == 23) { // Ctrl+W -> Delete word backwards
+        if (cursorIdx > 0 && !input.empty()) {
+          int end = cursorIdx;
+          while (cursorIdx > 0 && input[cursorIdx - 1] == ' ') cursorIdx--;
+          while (cursorIdx > 0 && input[cursorIdx - 1] != ' ') cursorIdx--;
+          input.erase(cursorIdx, end - cursorIdx);
+        }
       } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
         if (cursorIdx > 0 && !input.empty()) {
           input.erase(cursorIdx - 1, 1);

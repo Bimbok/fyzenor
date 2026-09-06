@@ -285,9 +285,19 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 * **TMUX & Neovim Terminal Native**: Uses exact Euclidean RGB matching to map hex themes (`theme.toml`) into 256-color ANSI space. Renders identically inside `tmux`, Neovim terminal (`:terminal`), Kitty, Alacritty, and Foot without washed-out colors or crude 8-color fallbacks.
 * **Immune to Dynamic Palette Reloads**: 256-color cube indices are fixed and immune to terminal theme reloads (e.g. Matugen wallpaper changes). Press <kbd>Ctrl+R</kbd> or <kbd>F5</kbd> to re-read `theme.toml` and refresh the screen instantly.
 
-### 📋 Modal Clipboard Pasting
+### 📋 Modal Clipboard Pasting & Input Enhancements
 * **Full Clipboard Paste Support**: Supports <kbd>Ctrl+V</kbd>, <kbd>Ctrl+Shift+V</kbd>, and terminal bracketed paste (`\033[200~`) inside all modal text fields (Rename <kbd>r</kbd>, Create Item <kbd>n</kbd>, Search, and Zip).
 * **Readline Shortcuts**: Includes <kbd>Ctrl+U</kbd> (clear line) and <kbd>Ctrl+W</kbd> (delete word backwards).
+* **UTF-8 Codepoint Navigation**: Codepoint-aware multi-byte Backspace, Delete, and arrow keys preventing UTF-8 character corruption.
+* **Terminal Resize Adaptation**: Prompts automatically re-center and adapt dynamically when the terminal is resized (`KEY_RESIZE`).
+
+### ✨ Dynamic Nerd Font Type Indicator & Unified Creation (`n`)
+* **Unified Shortcut**: Press <kbd>n</kbd> to create files and directories from a single hotkey (creates a file if `name`, or a folder if `name/` ending with `/`).
+* **Real-time Type Confirmation**: As you type into the centered prompt, the bottom-right corner dynamically switches icons in real time:
+  - File icon (``) for files.
+  - Folder icon (`` / configured directory glyph) the instant `/` or `\` is appended.
+* **Active Border Accent Coloring**: Input dialog borders and active pane borders automatically adopt the theme's active accent color (`active_border` / `pin_border` in `theme.toml`).
+* **Nested Path Creation & Smart Focus**: Supports recursive paths (e.g., `nested/sub/dir/` or `sub/folder/file.txt`), automatically selecting the newly created item in the listing.
 
 ### ⚡ Robust 12GB+ Directory Size Engine
 * Non-throwing filesystem traversal engine that skips unreadable files or recursive symlink loops cleanly without cutting size calculation short on large multi-gigabyte directories.
@@ -554,7 +564,7 @@ flowchart TD
 | `T`             | **Toggle Trash Manager**                             |
 | `u`             | **Undo** last move-to-trash action                   |
 | `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
-| `n`             | **Create Item** (`name` for file, `name/` for folder) |
+| `n`             | **Create Item** (`name` for file, `name/` for folder, with dynamic Nerd Font icon) |
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |

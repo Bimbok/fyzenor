@@ -2822,14 +2822,30 @@ public:
       wattron(win, COLOR_PAIR(1));
       mvwprintw(win, inputFieldY, inputFieldX, "%s", visibleInput.c_str());
       wattroff(win, COLOR_PAIR(1));
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
+      mvwaddstr(win, 1, w - 1, "│");
+      wattroff(win, COLOR_PAIR(18) | A_BOLD);
 
       int cursorCol = inputFieldX + (cursorIdx - startIdx);
+      if (cursorCol >= w - 1) cursorCol = w - 2;
       wmove(win, inputFieldY, cursorCol);
       wrefresh(win);
 
       int ch = wgetch(win);
       if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
         break;
+      } else if (ch == KEY_RESIZE) {
+        getmaxyx(stdscr, height, width);
+        w = std::min(width - 4, std::max((int)prompt.length() + 16, 54));
+        y = (height - h) / 2;
+        x = (width - w) / 2;
+        if (x < 1) x = 1;
+        if (y < 1) y = 1;
+        wresize(win, h, w);
+        mvwin(win, y, x);
+        maxInputW = w - 2;
+        touchwin(stdscr);
+        refresh();
       } else if (ch == 27) {
         nodelay(win, TRUE);
         int ch1 = wgetch(win);
@@ -2871,7 +2887,7 @@ public:
                 if (e4 >= 32 && e4 <= 126) pastedData += (char)e4;
                 if (e5 >= 32 && e5 <= 126) pastedData += (char)e5;
               }
-            } else if (c >= 32 && c <= 126) {
+            } else if ((c >= 32 && c <= 126) || (c >= 128 && c <= 255)) {
               pastedData += (char)c;
             }
           }
@@ -2902,24 +2918,38 @@ public:
         }
       } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
         if (cursorIdx > 0 && !input.empty()) {
-          input.erase(cursorIdx - 1, 1);
-          cursorIdx--;
+          int count = 1;
+          while (cursorIdx - count > 0 && (static_cast<unsigned char>(input[cursorIdx - count]) & 0xC0) == 0x80) {
+            count++;
+          }
+          input.erase(cursorIdx - count, count);
+          cursorIdx -= count;
         }
       } else if (ch == KEY_DC) {
         if (cursorIdx < (int)input.length()) {
-          input.erase(cursorIdx, 1);
+          int count = 1;
+          while (cursorIdx + count < (int)input.length() && (static_cast<unsigned char>(input[cursorIdx + count]) & 0xC0) == 0x80) {
+            count++;
+          }
+          input.erase(cursorIdx, count);
         }
       } else if (ch == KEY_LEFT) {
-        if (cursorIdx > 0)
-          cursorIdx--;
+        if (cursorIdx > 0) {
+          do {
+            cursorIdx--;
+          } while (cursorIdx > 0 && (static_cast<unsigned char>(input[cursorIdx]) & 0xC0) == 0x80);
+        }
       } else if (ch == KEY_RIGHT) {
-        if (cursorIdx < (int)input.length())
-          cursorIdx++;
+        if (cursorIdx < (int)input.length()) {
+          do {
+            cursorIdx++;
+          } while (cursorIdx < (int)input.length() && (static_cast<unsigned char>(input[cursorIdx]) & 0xC0) == 0x80);
+        }
       } else if (ch == KEY_HOME || ch == 1) {
         cursorIdx = 0;
       } else if (ch == KEY_END || ch == 5) {
         cursorIdx = input.length();
-      } else if (ch >= 32 && ch <= 126) {
+      } else if ((ch >= 32 && ch <= 126) || (ch >= 128 && ch <= 255)) {
         if (input.length() < 255) {
           input.insert(cursorIdx, 1, (char)ch);
           cursorIdx++;
@@ -3491,12 +3521,12 @@ public:
     const auto& file = currentFiles[selectedIndex];
     std::string renameIcon = file.is_directory ? "\xee\x97\xbf" : "\xef\x85\x9b";
     std::string newName = promptInput("Rename:", file.name, false, renameIcon);
-    if (newName.empty())
+    if (newName.empty() || newName == file.name)
       return;
 
     fs::path target = currentPath / newName;
-    if (fs::exists(target)) {
-      setStatus("Error: File already exists!");
+    if (target != file.path && fs::exists(target)) {
+      setStatus(file.is_directory ? "Error: Folder already exists!" : "Error: File already exists!");
       return;
     }
 
@@ -3541,20 +3571,32 @@ public:
     try {
       if (isDir) {
         fs::create_directories(target);
+        if (!fs::exists(target)) {
+          setStatus("Error: Failed to create folder");
+          return;
+        }
         setStatus("Created folder: " + target.filename().string());
       } else {
         if (target.has_parent_path()) {
           fs::create_directories(target.parent_path());
         }
-        std::ofstream(target).close();
+        std::ofstream ofs(target);
+        if (!ofs) {
+          setStatus("Error: Permission denied or failed to create file");
+          return;
+        }
+        ofs.close();
         setStatus("Created file: " + target.filename().string());
       }
 
       reloadAll();
 
       // Automatically focus on the newly created file or directory
+      fs::path topLevel = currentPath / (*fs::path(input).begin());
       for (size_t i = 0; i < currentFiles.size(); ++i) {
-        if (currentFiles[i].path == target || currentFiles[i].name == target.filename().string()) {
+        if (currentFiles[i].path == target || currentFiles[i].path == topLevel ||
+            currentFiles[i].name == target.filename().string() ||
+            currentFiles[i].name == topLevel.filename().string()) {
           selectedIndex = i;
           int visibleH = height - 4;
           if (visibleH > 0) {
@@ -3589,19 +3631,23 @@ public:
     else
       for (const auto& p : multiSelection)
         targets.push_back(p);
-    std::string name = promptInput("Zip Name");
+    std::string name = promptInput("Zip Name:", "", false, "󰿺");
     if (name.empty())
       return;
-    fs::path targetZip = currentPath / (name + ".zip");
+    std::string zipFileName = name;
+    if (zipFileName.length() < 4 || zipFileName.substr(zipFileName.length() - 4) != ".zip") {
+      zipFileName += ".zip";
+    }
+    fs::path targetZip = currentPath / zipFileName;
     if (fs::exists(targetZip)) {
       setStatus("Error: Zip file already exists!");
       return;
     }
-    std::string cmd = "zip -r -q " + escapeShellArg(name + ".zip");
+    std::string cmd = "zip -r -q " + escapeShellArg(zipFileName);
     for (const auto& p : targets)
       cmd += " " + escapeShellArg(p.filename().string());
 
-    startZipTask(cmd, name + ".zip", currentPath);
+    startZipTask(cmd, zipFileName, currentPath);
     multiSelection.clear();
   }
 

@@ -286,7 +286,7 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 * **Immune to Dynamic Palette Reloads**: 256-color cube indices are fixed and immune to terminal theme reloads (e.g. Matugen wallpaper changes). Press <kbd>Ctrl+R</kbd> or <kbd>F5</kbd> to re-read `theme.toml` and refresh the screen instantly.
 
 ### 📋 Modal Clipboard Pasting
-* **Full Clipboard Paste Support**: Supports <kbd>Ctrl+V</kbd>, <kbd>Ctrl+Shift+V</kbd>, and terminal bracketed paste (`\033[200~`) inside all modal text fields (Rename <kbd>r</kbd>, New File <kbd>a</kbd>, New Folder <kbd>n</kbd>, Search, and Zip).
+* **Full Clipboard Paste Support**: Supports <kbd>Ctrl+V</kbd>, <kbd>Ctrl+Shift+V</kbd>, and terminal bracketed paste (`\033[200~`) inside all modal text fields (Rename <kbd>r</kbd>, Create Item <kbd>n</kbd>, Search, and Zip).
 * **Readline Shortcuts**: Includes <kbd>Ctrl+U</kbd> (clear line) and <kbd>Ctrl+W</kbd> (delete word backwards).
 
 ### ⚡ Robust 12GB+ Directory Size Engine
@@ -554,8 +554,7 @@ flowchart TD
 | `T`             | **Toggle Trash Manager**                             |
 | `u`             | **Undo** last move-to-trash action                   |
 | `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
-| `n`             | Create **New File**                                  |
-| `N`             | Create **New Folder**                                |
+| `n` or `N`     | **Create Item** (`name` for file, `name/` for folder) |
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |

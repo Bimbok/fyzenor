@@ -3456,36 +3456,74 @@ public:
       setStatus("Rename Failed");
     }
   }
-  void handleNewFile() {
-    std::string name = promptInput("New File Name");
-    if (name.empty())
+  void handleCreate() {
+    std::string input = promptInput("Create (append / for folder)");
+    if (input.empty())
       return;
-    fs::path target = currentPath / name;
-    if (fs::exists(target)) {
-      setStatus("Error: File already exists!");
+
+    auto first = input.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return;
+    auto last = input.find_last_not_of(" \t\r\n");
+    input = input.substr(first, last - first + 1);
+    if (input.empty()) return;
+
+    bool isDir = false;
+    if (input.back() == '/' || input.back() == '\\') {
+      isDir = true;
+      while (!input.empty() && (input.back() == '/' || input.back() == '\\')) {
+        input.pop_back();
+      }
+    }
+
+    if (input.empty()) {
+      setStatus("Error: Invalid name");
       return;
     }
-    std::ofstream(target).close();
-    setStatus("Created file");
-    reloadAll();
-  }
-  void handleNewFolder() {
-    std::string name = promptInput("New Folder Name");
-    if (name.empty())
-      return;
-    fs::path target = currentPath / name;
+
+    fs::path target = currentPath / input;
     if (fs::exists(target)) {
-      setStatus("Error: Folder already exists!");
+      setStatus(isDir ? "Error: Folder already exists!" : "Error: File already exists!");
       return;
     }
+
     try {
-      fs::create_directory(target);
-      setStatus("Created folder");
+      if (isDir) {
+        fs::create_directories(target);
+        setStatus("Created folder: " + target.filename().string());
+      } else {
+        if (target.has_parent_path()) {
+          fs::create_directories(target.parent_path());
+        }
+        std::ofstream(target).close();
+        setStatus("Created file: " + target.filename().string());
+      }
+
       reloadAll();
+
+      // Automatically focus on the newly created file or directory
+      for (size_t i = 0; i < currentFiles.size(); ++i) {
+        if (currentFiles[i].path == target || currentFiles[i].name == target.filename().string()) {
+          selectedIndex = i;
+          int visibleH = height - 4;
+          if (visibleH > 0) {
+            if (selectedIndex < scrollOffset) {
+              scrollOffset = selectedIndex;
+            } else if (selectedIndex >= scrollOffset + visibleH) {
+              scrollOffset = selectedIndex - visibleH + 1;
+            }
+          }
+          break;
+        }
+      }
+    } catch (const std::exception& e) {
+      setStatus(std::string("Error creating item: ") + e.what());
     } catch (...) {
-      setStatus("Error: Failed to create folder");
+      setStatus("Error: Failed to create item");
     }
   }
+
+  void handleNewFile() { handleCreate(); }
+  void handleNewFolder() { handleCreate(); }
   void handleZip() {
     if (!isCommandAvailable("zip")) {
       setStatus("Error: 'zip' utility is not installed/available");
@@ -5641,7 +5679,7 @@ public:
     printHelpLine(14, 2, "T", "Toggle Trash Manager");
     printHelpLine(15, 2, "r", "Rename (Restore)");
     printHelpLine(16, 2, "u", "Undo Trash Action");
-    printHelpLine(17, 2, "n / N", "New File / Folder");
+    printHelpLine(17, 2, "n / N", "Create (name or name/)");
     printHelpLine(18, 2, "z", "Zip");
     printHelpLine(19, 2, "e", "Extract / Empty Trash");
     printHelpLine(20, 2, ".", "Toggle Hidden");
@@ -7076,10 +7114,8 @@ public:
           drawDevicesOverlay();
           break;
         case 'n':
-          handleNewFile();
-          break;
         case 'N':
-          handleNewFolder();
+          handleCreate();
           break;
         case 'z':
           handleZip();

@@ -2712,51 +2712,124 @@ public:
     return clean;
   }
 
-  std::string promptInput(const std::string& prompt, const std::string& defaultVal = "") {
+  std::string getPromptTypeIcon(const std::string& input) {
+    std::string s = input;
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+      s.pop_back();
+    }
+    bool isDir = (!s.empty() && (s.back() == '/' || s.back() == '\\'));
+    if (isDir) {
+      if (ICON_DIR && *ICON_DIR) {
+        std::string icon = ICON_DIR;
+        while (!icon.empty() && (icon.back() == ' ' || icon.back() == '\t')) icon.pop_back();
+        if (!icon.empty() && icon != "") return icon;
+      }
+      return "\xee\x97\xbf"; //  (Nerd Font folder)
+    } else {
+      if (ICON_FILE && *ICON_FILE) {
+        std::string icon = ICON_FILE;
+        while (!icon.empty() && (icon.back() == ' ' || icon.back() == '\t')) icon.pop_back();
+        if (!icon.empty() && icon != "") return icon;
+      }
+      return "\xef\x85\x9b"; //  (Nerd Font file)
+    }
+  }
+
+  std::string promptInput(const std::string& prompt, const std::string& defaultVal = "",
+                          bool dynamicTypeIcon = false, const std::string& staticIcon = "") {
     clearDirectRender();
-    int w = std::max((int)prompt.length() + 10, 50);
-    if (w > width - 4)
-      w = width - 4;
-    int h = 5;
-    int y = (height - h) / 2;
-    int x = (width - w) / 2;
+
+    int h = 3;
+    int y = 2;
+    int x = 0;
+    int w = 0;
+
+    if (isDualPaneMode) {
+      int leftW = width / 2 + dualPaneSplitOffset;
+      int rightW = width - leftW;
+      if (activeTabIndex == leftTabIndex) {
+        x = 1;
+        w = leftW - 2;
+      } else {
+        x = leftW + 1;
+        w = rightW - 2;
+      }
+    } else {
+      int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
+      int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
+      if (w3 < 0) w3 = 0;
+      int w2 = width - w1 - w3;
+      x = w1 + 1;
+      w = w2 - 2;
+    }
+
+    int minW = std::max((int)prompt.length() + 8, 36);
+    if (w < minW || w > width - 4 || height < 6) {
+      w = std::min(width - 4, std::max(minW, 50));
+      x = (width - w) / 2;
+      y = std::max(1, (height - h) / 2);
+    }
 
     WINDOW* win = newwin(h, w, y, x);
     if (!win) return defaultVal;
     keypad(win, TRUE);
 
-    wattron(win, COLOR_PAIR(6) | A_BOLD);
-    drawRoundedBox(win);
-    wattroff(win, COLOR_PAIR(6) | A_BOLD);
-
-    wattron(win, COLOR_PAIR(1) | A_BOLD);
-    mvwprintw(win, 1, 2, "%s", prompt.c_str());
-    wattroff(win, COLOR_PAIR(1) | A_BOLD);
-
-    // Draw divider line and prompt indicator to make input field look premium
-    wattron(win, COLOR_PAIR(6) | A_DIM);
-    std::string separator = "";
-    for (int i = 0; i < w - 2; ++i) {
-      separator += "─";
-    }
-    mvwprintw(win, 2, 1, "%s", separator.c_str());
-    wattroff(win, COLOR_PAIR(6) | A_DIM);
-
-    wattron(win, COLOR_PAIR(1) | A_BOLD);
-    mvwprintw(win, 3, 2, " ❯ ");
-    wattroff(win, COLOR_PAIR(1) | A_BOLD);
-
     std::string input = defaultVal;
     int cursorIdx = defaultVal.length();
-    int inputFieldX = 5;
-    int inputFieldY = 3;
-    int maxInputW = w - 7;
+    int inputFieldX = 1;
+    int inputFieldY = 1;
+    int maxInputW = w - 2;
 
     timeout(-1);
     noecho();
     curs_set(1);
 
+    auto drawBorderAndIcon = [&](const std::string& currentInput) {
+      wattron(win, COLOR_PAIR(6) | A_BOLD);
+
+      // Top line: ╭Create:──────────────────────╮
+      mvwaddstr(win, 0, 0, "╭");
+      std::string displayPrompt = prompt;
+      if ((int)displayPrompt.length() > w - 4) {
+        displayPrompt = displayPrompt.substr(0, w - 4);
+      }
+      mvwaddstr(win, 0, 1, displayPrompt.c_str());
+      int promptLen = (int)displayPrompt.length();
+      for (int c = 1 + promptLen; c < w - 1; ++c) {
+        mvwaddstr(win, 0, c, "─");
+      }
+      mvwaddstr(win, 0, w - 1, "╮");
+
+      // Side borders
+      mvwaddstr(win, 1, 0, "│");
+      mvwaddstr(win, 1, w - 1, "│");
+
+      // Bottom line: ╰──────────────────────[icon] ╯
+      mvwaddstr(win, 2, 0, "╰");
+      for (int c = 1; c < w - 1; ++c) {
+        mvwaddstr(win, 2, c, "─");
+      }
+      mvwaddstr(win, 2, w - 1, "╯");
+
+      std::string iconToDisplay = "";
+      if (dynamicTypeIcon) {
+        iconToDisplay = getPromptTypeIcon(currentInput);
+      } else if (!staticIcon.empty()) {
+        iconToDisplay = staticIcon;
+      }
+
+      if (!iconToDisplay.empty() && w >= 8) {
+        mvwaddstr(win, 2, w - 3, iconToDisplay.c_str());
+        mvwaddstr(win, 2, w - 2, " ");
+        mvwaddstr(win, 2, w - 1, "╯");
+      }
+
+      wattroff(win, COLOR_PAIR(6) | A_BOLD);
+    };
+
     while (true) {
+      drawBorderAndIcon(input);
+
       wmove(win, inputFieldY, inputFieldX);
       for (int i = 0; i < maxInputW; ++i) {
         waddch(win, ' ');
@@ -2770,7 +2843,9 @@ public:
       if ((int)visibleInput.length() > maxInputW) {
         visibleInput = visibleInput.substr(0, maxInputW);
       }
+      wattron(win, COLOR_PAIR(1));
       mvwprintw(win, inputFieldY, inputFieldX, "%s", visibleInput.c_str());
+      wattroff(win, COLOR_PAIR(1));
 
       int cursorCol = inputFieldX + (cursorIdx - startIdx);
       wmove(win, inputFieldY, cursorCol);
@@ -3438,7 +3513,8 @@ public:
     }
 
     const auto& file = currentFiles[selectedIndex];
-    std::string newName = promptInput("Rename " + file.name + " to", file.name);
+    std::string renameIcon = file.is_directory ? "\xee\x97\xbf" : "\xef\x85\x9b";
+    std::string newName = promptInput("Rename:", file.name, false, renameIcon);
     if (newName.empty())
       return;
 
@@ -3457,7 +3533,7 @@ public:
     }
   }
   void handleCreate() {
-    std::string input = promptInput("Create (append / for folder)");
+    std::string input = promptInput("Create:", "", true);
     if (input.empty())
       return;
 

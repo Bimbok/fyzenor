@@ -728,6 +728,16 @@ void initColors() {
   short cScript = canChange ? 36 : getC("SCRIPT");
   short cDocs = canChange ? 37 : getC("DOCS");
   short cFont = canChange ? 38 : getC("FONT");
+  if (colors.find("ACTIVE_BORDER") == colors.end()) {
+    auto pIt = colors.find("PIN_BORDER");
+    if (pIt != colors.end()) {
+      colors["ACTIVE_BORDER"] = pIt->second;
+    } else {
+      auto dIt = colors.find("DIR");
+      colors["ACTIVE_BORDER"] = (dIt != colors.end()) ? dIt->second : "#e5c36c";
+    }
+  }
+  short cActiveBorder = canChange ? 39 : getC("ACTIVE_BORDER");
 
   if (canChange) {
     setHex(20, colors["DIR"]);
@@ -749,6 +759,7 @@ void initColors() {
     setHex(36, colors["SCRIPT"]);
     setHex(37, colors["DOCS"]);
     setHex(38, colors["FONT"]);
+    setHex(39, colors["ACTIVE_BORDER"]);
   }
 
   // Fallback to 256-color cube indices if getC returned valid index
@@ -771,6 +782,7 @@ void initColors() {
   if (cScript < 0) cScript = getC("SCRIPT");
   if (cDocs < 0) cDocs = getC("DOCS");
   if (cFont < 0) cFont = getC("FONT");
+  if (cActiveBorder < 0) cActiveBorder = getC("ACTIVE_BORDER");
 
   init_pair(1, cDir, -1);          // DIR
   init_pair(2, cFile, -1);         // FILE
@@ -814,6 +826,7 @@ void initColors() {
   init_pair(9, cMulti, -1);        // MULTI
   init_pair(15, cPinBorder, -1);   // PIN_BORDER
   init_pair(10, cSecSelBg, cPinBg); // SEL_PIN
+  init_pair(18, cActiveBorder, -1); // ACTIVE_BORDER
 }
 
 void loadConfiguration() {

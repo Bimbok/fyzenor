@@ -2740,35 +2740,11 @@ public:
     clearDirectRender();
 
     int h = 3;
-    int y = 2;
-    int x = 0;
-    int w = 0;
-
-    if (isDualPaneMode) {
-      int leftW = width / 2 + dualPaneSplitOffset;
-      int rightW = width - leftW;
-      if (activeTabIndex == leftTabIndex) {
-        x = 1;
-        w = leftW - 2;
-      } else {
-        x = leftW + 1;
-        w = rightW - 2;
-      }
-    } else {
-      int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
-      int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
-      if (w3 < 0) w3 = 0;
-      int w2 = width - w1 - w3;
-      x = w1 + 1;
-      w = w2 - 2;
-    }
-
-    int minW = std::max((int)prompt.length() + 8, 36);
-    if (w < minW || w > width - 4 || height < 6) {
-      w = std::min(width - 4, std::max(minW, 50));
-      x = (width - w) / 2;
-      y = std::max(1, (height - h) / 2);
-    }
+    int w = std::min(width - 4, std::max((int)prompt.length() + 16, 54));
+    int y = (height - h) / 2;
+    int x = (width - w) / 2;
+    if (x < 1) x = 1;
+    if (y < 1) y = 1;
 
     WINDOW* win = newwin(h, w, y, x);
     if (!win) return defaultVal;
@@ -2785,7 +2761,7 @@ public:
     curs_set(1);
 
     auto drawBorderAndIcon = [&](const std::string& currentInput) {
-      wattron(win, COLOR_PAIR(6) | A_BOLD);
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
 
       // Top line: ╭Create:──────────────────────╮
       mvwaddstr(win, 0, 0, "╭");
@@ -2824,7 +2800,7 @@ public:
         mvwaddstr(win, 2, w - 1, "╯");
       }
 
-      wattroff(win, COLOR_PAIR(6) | A_BOLD);
+      wattroff(win, COLOR_PAIR(18) | A_BOLD);
     };
 
     while (true) {
@@ -4326,14 +4302,12 @@ public:
     if (!winPinned) return;
     werase(winPinned);
     if (focusPinned)
-      wattron(winPinned, COLOR_PAIR(6) | A_BOLD);
+      wattron(winPinned, COLOR_PAIR(18) | A_BOLD);
     else
       wattron(winPinned, COLOR_PAIR(15));
     drawRoundedBox(winPinned);
-    if (focusPinned)
-      wattroff(winPinned, COLOR_PAIR(6) | A_BOLD);
-    else
-      wattroff(winPinned, COLOR_PAIR(15));
+    wattroff(winPinned, COLOR_PAIR(18) | A_BOLD);
+    wattroff(winPinned, COLOR_PAIR(15));
 
     wattron(winPinned, A_BOLD | COLOR_PAIR(4));
     mvwprintw(winPinned, 0, 2, " 󰐃 Pinned ");
@@ -4668,11 +4642,12 @@ public:
                 bool paneIsTrashMode, bool hasFocus) {
     werase(win);
     if (hasFocus)
-      wattron(win, COLOR_PAIR(6) | A_BOLD);
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
     else
       wattron(win, COLOR_PAIR(6));
     drawRoundedBox(win);
     wattroff(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(18));
     wattroff(win, COLOR_PAIR(6));
 
     wattron(win, A_BOLD | COLOR_PAIR(1));

@@ -554,7 +554,7 @@ flowchart TD
 | `T`             | **Toggle Trash Manager**                             |
 | `u`             | **Undo** last move-to-trash action                   |
 | `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
-| `n` or `N`     | **Create Item** (`name` for file, `name/` for folder) |
+| `n`             | **Create Item** (`name` for file, `name/` for folder) |
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |

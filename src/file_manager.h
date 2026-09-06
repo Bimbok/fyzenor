@@ -5679,7 +5679,7 @@ public:
     printHelpLine(14, 2, "T", "Toggle Trash Manager");
     printHelpLine(15, 2, "r", "Rename (Restore)");
     printHelpLine(16, 2, "u", "Undo Trash Action");
-    printHelpLine(17, 2, "n / N", "Create (name or name/)");
+    printHelpLine(17, 2, "n", "Create (name or name/)");
     printHelpLine(18, 2, "z", "Zip");
     printHelpLine(19, 2, "e", "Extract / Empty Trash");
     printHelpLine(20, 2, ".", "Toggle Hidden");
@@ -7114,7 +7114,6 @@ public:
           drawDevicesOverlay();
           break;
         case 'n':
-        case 'N':
           handleCreate();
           break;
         case 'z':

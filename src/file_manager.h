@@ -175,6 +175,88 @@ private:
   std::mutex taskMutex;
   int nextTaskId = 1;
 
+  // Directory Cursor & Selection Memory (Yazi-like cursor persistence)
+  struct DirCursorState {
+    fs::path selectedPath;
+    size_t selectedIndex = 0;
+    size_t scrollOffset = 0;
+  };
+  std::unordered_map<std::string, DirCursorState> dirCursorHistory;
+
+  void saveCurrentDirCursor() {
+    if (currentFiles.empty()) return;
+    DirCursorState state;
+    state.selectedIndex = selectedIndex;
+    state.scrollOffset = scrollOffset;
+    if (selectedIndex < currentFiles.size()) {
+      state.selectedPath = currentFiles[selectedIndex].path;
+    }
+    dirCursorHistory[currentPath.string()] = state;
+  }
+
+  void restoreDirCursor(const fs::path& preferredTarget = "") {
+    if (currentFiles.empty()) {
+      selectedIndex = 0;
+      scrollOffset = 0;
+      return;
+    }
+
+    // 1. If preferredTarget specified (e.g. came from child directory)
+    if (!preferredTarget.empty()) {
+      for (size_t i = 0; i < currentFiles.size(); ++i) {
+        if (currentFiles[i].path == preferredTarget || currentFiles[i].name == preferredTarget.filename().string()) {
+          selectedIndex = i;
+          int visibleH = height - 4;
+          if (visibleH > 0 && selectedIndex >= (size_t)visibleH) {
+            scrollOffset = (selectedIndex > 5) ? selectedIndex - 5 : 0;
+          } else {
+            scrollOffset = 0;
+          }
+          return;
+        }
+      }
+    }
+
+    // 2. Otherwise check history for currentPath
+    auto it = dirCursorHistory.find(currentPath.string());
+    if (it != dirCursorHistory.end()) {
+      const auto& state = it->second;
+      bool found = false;
+      if (!state.selectedPath.empty()) {
+        for (size_t i = 0; i < currentFiles.size(); ++i) {
+          if (currentFiles[i].path == state.selectedPath) {
+            selectedIndex = i;
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        if (state.selectedIndex < currentFiles.size()) {
+          selectedIndex = state.selectedIndex;
+        } else {
+          selectedIndex = currentFiles.size() - 1;
+        }
+      }
+
+      int visibleH = height - 4;
+      if (visibleH > 0) {
+        if (selectedIndex < state.scrollOffset || selectedIndex >= state.scrollOffset + visibleH) {
+          scrollOffset = (selectedIndex > 5) ? selectedIndex - 5 : 0;
+        } else {
+          scrollOffset = state.scrollOffset;
+        }
+      } else {
+        scrollOffset = 0;
+      }
+      return;
+    }
+
+    // 3. Default fallback
+    selectedIndex = 0;
+    scrollOffset = 0;
+  }
+
   uint64_t getDirectorySize(const fs::path& dir) {
     uint64_t size = 0;
     try {
@@ -187,8 +269,9 @@ private:
     return size;
   }
 
-  void changeDirectory(const fs::path& target, bool recordHistory = true) {
+  void changeDirectory(const fs::path& target, bool recordHistory = true, const fs::path& preferredSelect = "") {
     if (currentPath == target) return;
+    saveCurrentDirCursor();
     if (recordHistory) {
       if (activeTabIndex < tabs.size()) {
         auto& tab = tabs[activeTabIndex];
@@ -205,9 +288,8 @@ private:
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
     }
-    selectedIndex = 0;
-    scrollOffset = 0;
     reloadAll();
+    restoreDirCursor(preferredSelect);
   }
 
   void handleGoBack() {
@@ -217,6 +299,7 @@ private:
       setStatus("No back history");
       return;
     }
+    saveCurrentDirCursor();
     tab.forwardHistory.push_back(currentPath);
     if (tab.forwardHistory.size() > 100) {
       tab.forwardHistory.erase(tab.forwardHistory.begin());
@@ -226,9 +309,11 @@ private:
     tab.backHistory.pop_back();
     
     currentPath = target;
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].currentPath = currentPath;
+    }
     reloadAll();
-    selectedIndex = 0;
-    scrollOffset = 0;
+    restoreDirCursor();
     setStatus("Navigated back");
   }
 
@@ -239,6 +324,7 @@ private:
       setStatus("No forward history");
       return;
     }
+    saveCurrentDirCursor();
     tab.backHistory.push_back(currentPath);
     if (tab.backHistory.size() > 100) {
       tab.backHistory.erase(tab.backHistory.begin());
@@ -248,9 +334,11 @@ private:
     tab.forwardHistory.pop_back();
     
     currentPath = target;
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].currentPath = currentPath;
+    }
     reloadAll();
-    selectedIndex = 0;
-    scrollOffset = 0;
+    restoreDirCursor();
     setStatus("Navigated forward");
   }
 
@@ -2825,6 +2913,11 @@ public:
   }
 
   void toggleSort() {
+    fs::path targetPath;
+    if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+      targetPath = currentFiles[selectedIndex].path;
+    }
+
     if (sortMode == SortMode::NAME) {
       sortMode = SortMode::SIZE;
       setStatus("Sorted by Size (Desc)");
@@ -2837,6 +2930,24 @@ public:
       sortMode = SortMode::NAME;
       setStatus("Sorted by Name");
       sortList(currentFiles);
+    }
+
+    // Keep hover selection on the exact same item
+    if (!targetPath.empty()) {
+      for (size_t i = 0; i < currentFiles.size(); ++i) {
+        if (currentFiles[i].path == targetPath) {
+          selectedIndex = i;
+          break;
+        }
+      }
+      int visibleH = height - 4;
+      if (visibleH > 0) {
+        if (selectedIndex < scrollOffset) {
+          scrollOffset = selectedIndex;
+        } else if (selectedIndex >= scrollOffset + visibleH) {
+          scrollOffset = selectedIndex - visibleH + 1;
+        }
+      }
     }
   }
 
@@ -6165,11 +6276,8 @@ public:
 
     if (pathsToOpen.size() == 1 && fs::is_directory(pathsToOpen[0])) {
       clearDirectRender();
-      currentPath = pathsToOpen[0];
-      selectedIndex = 0;
-      scrollOffset = 0;
       isSearching = false;
-      reloadAll();
+      changeDirectory(pathsToOpen[0], true);
       return;
     }
 
@@ -6285,17 +6393,8 @@ public:
     }
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       clearDirectRender();
-      std::string oldDirName = currentPath.filename().string();
-      changeDirectory(currentPath.parent_path(), true);
-      reloadAll();
-      selectedIndex = 0;
-      for (size_t i = 0; i < currentFiles.size(); ++i) {
-        if (currentFiles[i].name == oldDirName) {
-          selectedIndex = i;
-          break;
-        }
-      }
-      scrollOffset = (selectedIndex > 10) ? selectedIndex - 10 : 0;
+      fs::path oldDir = currentPath;
+      changeDirectory(currentPath.parent_path(), true, oldDir);
     }
   }
 
@@ -6355,8 +6454,21 @@ public:
             }
           }
           if (updated) {
-            if (sortMode == SortMode::SIZE)
+            if (sortMode == SortMode::SIZE) {
+              fs::path prevPath;
+              if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+                prevPath = currentFiles[selectedIndex].path;
+              }
               sortList(currentFiles); // Re-sort if sorting by size
+              if (!prevPath.empty()) {
+                for (size_t i = 0; i < currentFiles.size(); ++i) {
+                  if (currentFiles[i].path == prevPath) {
+                    selectedIndex = i;
+                    break;
+                  }
+                }
+              }
+            }
             needsRedraw = true;
           }
         }

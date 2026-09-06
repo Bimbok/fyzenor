@@ -61,7 +61,7 @@ bool configHidePreview = false;
 bool configHideParent = false;
 bool configHidePinned = false;
 std::chrono::steady_clock::time_point globalStartTime;
-extern const std::string FYZENOR_VERSION = "4.3.0-beta.1";
+extern const std::string FYZENOR_VERSION = "4.3.0-beta.2";
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";

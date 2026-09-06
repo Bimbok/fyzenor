@@ -210,7 +210,7 @@ g++ --version
 # 📦 Install Stable Release (v4.2.0 - Default)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
 
-# 🧪 Install Beta Channel (v4.3.0-beta.1 - Lua Plugins & Cutting-edge features)
+# 🧪 Install Beta Channel (v4.3.0-beta.2 - Cursor Memory, Universal 256-Color & Lua Plugins)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
@@ -271,19 +271,39 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 - **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
 - **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
 
-## 🧩 Lua Plugin System (Beta Feature)
+## 🧩 Cutting-Edge Beta Features (v4.3.0-beta.2)
 
+### 🎯 Yazi-like Cursor Tracking Across Sorting (`s`)
+* **Locked-in Item Tracking**: When you hover over a file or folder and press <kbd>s</kbd> to change sort modes (Alphabetical ➔ Size ➔ Date), the file list is rearranged, but your cursor **automatically tracks and stays locked onto that exact file or folder**, adjusting scroll offsets smoothly without jumping to the top.
+* **Stable Background Size Computation**: As directory sizes compute asynchronously in the background, your active selection never flutters or switches items when the list re-orders.
+
+### 🧭 Per-Directory Cursor Memory (`dirCursorHistory`)
+* **Folder Entry & Exit Memory**: When you enter a subfolder and return back to the parent directory (<kbd>h</kbd> / <kbd>Left</kbd> / <kbd>Backspace</kbd>), Fyzenor remembers and focuses the directory you just came from.
+* **Deep Directory State Memory**: Every visited directory retains its last active cursor position and scroll offset. Navigating back and forward across history (<kbd>Ctrl+O</kbd> / <kbd>Ctrl+P</kbd>) restores your cursor directly to the file you were inspecting.
+
+### 🎨 Universal 256-Color Engine (`hexTo256`)
+* **TMUX & Neovim Terminal Native**: Uses exact Euclidean RGB matching to map hex themes (`theme.toml`) into 256-color ANSI space. Renders identically inside `tmux`, Neovim terminal (`:terminal`), Kitty, Alacritty, and Foot without washed-out colors or crude 8-color fallbacks.
+* **Immune to Dynamic Palette Reloads**: 256-color cube indices are fixed and immune to terminal theme reloads (e.g. Matugen wallpaper changes). Press <kbd>Ctrl+R</kbd> or <kbd>F5</kbd> to re-read `theme.toml` and refresh the screen instantly.
+
+### 📋 Modal Clipboard Pasting
+* **Full Clipboard Paste Support**: Supports <kbd>Ctrl+V</kbd>, <kbd>Ctrl+Shift+V</kbd>, and terminal bracketed paste (`\033[200~`) inside all modal text fields (Rename <kbd>r</kbd>, New File <kbd>a</kbd>, New Folder <kbd>n</kbd>, Search, and Zip).
+* **Readline Shortcuts**: Includes <kbd>Ctrl+U</kbd> (clear line) and <kbd>Ctrl+W</kbd> (delete word backwards).
+
+### ⚡ Robust 12GB+ Directory Size Engine
+* Non-throwing filesystem traversal engine that skips unreadable files or recursive symlink loops cleanly without cutting size calculation short on large multi-gigabyte directories.
+
+### 🧩 Embedded Lua Plugin Engine
 Fyzenor features an embedded **Lua Plugin Engine** (inspired by *Yazi* and *Neovim*), allowing you to create custom keybindings, interactive fast-jumps, status bar extensions, and custom file previewers without modifying C++ code!
 
 Plugins are loaded automatically from `~/.config/fyzenor/plugins/*/init.lua` on boot.
 
-### 📦 Official Plugins Repository
+#### 📦 Official Plugins Repository
 Install all official plugins via single-command clone:
 ```bash
 git clone https://github.com/Bimbok/fyzenor-plugins.git ~/.config/fyzenor/plugins
 ```
 
-### Included Official Plugins (Beta):
+#### Included Official Plugins:
 - **Git Status & Staging** (`plugins/git/init.lua`): <kbd>Ctrl+B</kbd> (Branch status summary), <kbd>Ctrl+S</kbd> (Smart stage/unstage toggle), <kbd>Ctrl+K</kbd> (Git diff stats).
 - **Zoxide Smart Jump** (`plugins/zoxide/init.lua`): <kbd>z</kbd> / <kbd>Alt+Z</kbd> interactive modal jump prompt.
 - **JSON Custom Previewer** (`plugins/json_previewer/init.lua`): Custom formatted previewer for `.json` files.

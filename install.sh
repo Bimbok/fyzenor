@@ -31,7 +31,7 @@ for arg in "$@"; do
 done
 
 if [ "$TARGET_BRANCH" = "beta" ]; then
-    echo -e "${YELLOW}Installing Channel: BETA (v4.3.0-beta.1 - Cutting-edge features & Lua Plugin Engine)${NC}\n"
+    echo -e "${YELLOW}Installing Channel: BETA (v4.3.0-beta.2 - Cutting-edge features & Lua Plugin Engine)${NC}\n"
 else
     echo -e "${GREEN}Installing Channel: STABLE (v4.2.0 - Tested production release)${NC}\n"
 fi

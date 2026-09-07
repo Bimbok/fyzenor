@@ -107,6 +107,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
 | **Dual-Pane Mode**                 | Toggle (`F2`) side-by-side active file listings for drag-free copying, with easy tab focus switching (`Tab`).                                         |
+| **Visual Disk Usage Mode (`U`)**   | Interactive **ncdu / gdu-style** disk usage visualizer with dynamic proportional bar meters (`[████████░░] 74.2%`), folder percentage, and auto-sorting. |
 | **Context-Aware Mouse Scrolling** | Hover and scroll your mouse wheel over any pane: middle pane scrolls files, preview pane scrolls long code/text/archives/directories with live indicators (`[1-40/350]`), and pinned pane scrolls bookmarks. |
 | **Device Detection & Mounts**      | Detect, mount, unmount, and navigate connected USB block drives and mobile phones (Android MTP) natively without needing Nautilus.                     |
 | **Live Auto-Updates (inotify)**    | Automatically detects filesystem changes (creations, deletions, renames) in the current directory and refreshes the TUI instantly.                    |
@@ -584,6 +585,7 @@ flowchart TD
 | `Esc`          | **Clear** all active selections             |
 | `.`            | Toggle hidden files                         |
 | `s`            | Cycle sorting (**Name** $\rightarrow$ **Size** $\rightarrow$ **Date Modified**) |
+| `U` or `Space+u` | Toggle **Visual Disk Usage & Bar Graph Mode** (ncdu / gdu view with live proportional meters) |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |

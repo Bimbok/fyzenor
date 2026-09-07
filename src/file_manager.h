@@ -62,6 +62,7 @@ private:
     size_t scrollOffset = 0;
     bool isSearching = false;
     bool isTrashMode = false;
+    bool isDiskUsageMode = false;
     std::set<fs::path> multiSelection;
     std::vector<FileEntry> currentFiles;
     std::vector<fs::path> backHistory;
@@ -104,6 +105,8 @@ private:
   SortMode sortMode = SortMode::NAME;
   bool isSearching = false;
   bool isTrashMode = false;
+  bool isDiskUsageMode = false;
+  SortMode savedSortModeBeforeDiskUsage = SortMode::NAME;
   fs::path preTrashPath;
   std::vector<fs::path> lastTrashedFiles;
 
@@ -1434,6 +1437,7 @@ public:
     defTab.scrollOffset = 0;
     defTab.isSearching = false;
     defTab.isTrashMode = false;
+    defTab.isDiskUsageMode = false;
     defTab.multiSelection = {};
     tabs.push_back(defTab);
     activeTabIndex = 0;
@@ -1960,6 +1964,16 @@ public:
   // Unified Sorting Logic: Folders Top -> Size/Date/Name
   void sortList(std::vector<FileEntry>& list) {
     std::sort(list.begin(), list.end(), [this](const FileEntry& a, const FileEntry& b) {
+      if (isDiskUsageMode) {
+        uintmax_t sizeA = (a.is_directory && a.size == SIZE_CALCULATING) ? 0 : a.size;
+        uintmax_t sizeB = (b.is_directory && b.size == SIZE_CALCULATING) ? 0 : b.size;
+        if (sizeA != sizeB)
+          return sizeA > sizeB; // Descending by size across all items
+        if (a.is_directory != b.is_directory)
+          return a.is_directory > b.is_directory;
+        return a.name < b.name;
+      }
+
       // 1. Always keep directories on top
       if (a.is_directory != b.is_directory) {
         return a.is_directory > b.is_directory;
@@ -2039,9 +2053,11 @@ public:
           if (it != dirSizeCache.end()) {
             entry.size = it->second;
           } else {
-            entry.size = 0;
-            if (sortMode == SortMode::SIZE) {
+            if (sortMode == SortMode::SIZE || isDiskUsageMode) {
+              entry.size = SIZE_CALCULATING;
               sizeQueue.push_back({entry.path, currentViewId.load()});
+            } else {
+              entry.size = 0;
             }
           }
         }
@@ -3054,6 +3070,10 @@ public:
   }
 
   void toggleSort() {
+    if (isDiskUsageMode) {
+      isDiskUsageMode = false;
+    }
+
     fs::path targetPath;
     if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
       targetPath = currentFiles[selectedIndex].path;
@@ -3089,6 +3109,47 @@ public:
           scrollOffset = selectedIndex - visibleH + 1;
         }
       }
+    }
+  }
+
+  void toggleDiskUsageMode() {
+    isDiskUsageMode = !isDiskUsageMode;
+    if (isDiskUsageMode) {
+      savedSortModeBeforeDiskUsage = sortMode;
+      sortMode = SortMode::SIZE;
+
+      // Queue any directory sizes not yet in cache
+      {
+        std::lock_guard<std::mutex> qLock(queueMutex);
+        std::lock_guard<std::mutex> cLock(cacheMutex);
+        for (auto& entry : currentFiles) {
+          if (entry.is_directory) {
+            if (entry.path.string().find("/gvfs/") != std::string::npos) {
+              entry.size = 0;
+              continue;
+            }
+            auto it = dirSizeCache.find(entry.path.string());
+            if (it != dirSizeCache.end()) {
+              entry.size = it->second;
+            } else {
+              entry.size = SIZE_CALCULATING;
+              sizeQueue.push_back({entry.path, currentViewId.load()});
+            }
+          }
+        }
+      }
+      queueCv.notify_one();
+
+      sortList(currentFiles);
+      selectedIndex = 0;
+      scrollOffset = 0;
+      setStatus("󰈐 Disk Usage Mode: ON (ncdu/gdu bar graphs)");
+    } else {
+      sortMode = savedSortModeBeforeDiskUsage;
+      sortList(currentFiles);
+      selectedIndex = 0;
+      scrollOffset = 0;
+      setStatus("Disk Usage Mode: OFF");
     }
   }
 
@@ -4365,6 +4426,7 @@ public:
         newTab.scrollOffset = 0;
         newTab.isSearching = false;
         newTab.isTrashMode = false;
+        newTab.isDiskUsageMode = false;
         newTab.multiSelection = {};
         newTab.currentFiles = {};
         tabs.push_back(newTab);
@@ -4622,6 +4684,7 @@ public:
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].isTrashMode = isTrashMode;
+    tabs[activeTabIndex].isDiskUsageMode = isDiskUsageMode;
     tabs[activeTabIndex].multiSelection = multiSelection;
     tabs[activeTabIndex].currentFiles = currentFiles;
 
@@ -4631,6 +4694,7 @@ public:
     newTab.scrollOffset = scrollOffset;
     newTab.isSearching = false;
     newTab.isTrashMode = false;
+    newTab.isDiskUsageMode = false;
     newTab.multiSelection = {};
     newTab.currentFiles = {};
 
@@ -4691,6 +4755,7 @@ public:
     tabs[activeTabIndex].scrollOffset = scrollOffset;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].isTrashMode = isTrashMode;
+    tabs[activeTabIndex].isDiskUsageMode = isDiskUsageMode;
     tabs[activeTabIndex].multiSelection = multiSelection;
     tabs[activeTabIndex].currentFiles = currentFiles;
 
@@ -4700,6 +4765,7 @@ public:
     scrollOffset = tabs[activeTabIndex].scrollOffset;
     isSearching = tabs[activeTabIndex].isSearching;
     isTrashMode = tabs[activeTabIndex].isTrashMode;
+    isDiskUsageMode = tabs[activeTabIndex].isDiskUsageMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
 
     auto savedSelection = tabs[activeTabIndex].multiSelection;
@@ -4745,7 +4811,7 @@ public:
   void drawPane(WINDOW* win, const fs::path& panePath, const std::vector<FileEntry>& paneFiles,
                 size_t paneSelectedIndex, size_t& paneScrollOffset,
                 const std::set<fs::path>& paneMultiSelection, bool paneIsSearching,
-                bool paneIsTrashMode, bool hasFocus) {
+                bool paneIsTrashMode, bool hasFocus, bool paneIsDiskUsageMode = false) {
     werase(win);
     if (hasFocus)
       wattron(win, COLOR_PAIR(18) | A_BOLD);
@@ -4756,11 +4822,52 @@ public:
     wattroff(win, COLOR_PAIR(18));
     wattroff(win, COLOR_PAIR(6));
 
+    uintmax_t maxItemSize = 1;
+    uintmax_t totalDirSize = 0;
+    int pendingDirSizes = 0;
+    if (paneIsDiskUsageMode) {
+      for (const auto& f : paneFiles) {
+        uintmax_t s = f.size;
+        if (f.is_directory) {
+          if (s == SIZE_CALCULATING) {
+            std::lock_guard<std::mutex> cLock(cacheMutex);
+            auto it = dirSizeCache.find(f.path.string());
+            if (it != dirSizeCache.end()) {
+              s = it->second;
+            } else {
+              pendingDirSizes++;
+              s = 0;
+            }
+          }
+        }
+        totalDirSize += s;
+        if (s > maxItemSize) {
+          maxItemSize = s;
+        }
+      }
+      if (totalDirSize == 0) totalDirSize = 1;
+    }
+
     wattron(win, A_BOLD | COLOR_PAIR(1));
     if (paneIsSearching) {
       mvwprintw(win, 0, 2, "  Search Results ");
     } else if (paneIsTrashMode) {
       mvwprintw(win, 0, 2, " 󰩹 Trash ");
+    } else if (paneIsDiskUsageMode) {
+      std::string usageTitle = " 󰈐 Disk Usage: " + formatSize(totalDirSize);
+      if (pendingDirSizes > 0) {
+        usageTitle += " [scanning " + std::to_string(pendingDirSizes) + "...] ";
+      } else {
+        usageTitle += " (" + std::to_string(paneFiles.size()) + " items) ";
+      }
+      int maxTitleW = getmaxx(win) - 4;
+      if (maxTitleW < 5) maxTitleW = 5;
+      if ((int)usageTitle.length() > maxTitleW) {
+        usageTitle = utf8_safe_truncate(usageTitle, maxTitleW - 3) + "... ";
+      }
+      wattron(win, A_BOLD | COLOR_PAIR(3));
+      mvwprintw(win, 0, 2, "%s", usageTitle.c_str());
+      wattroff(win, A_BOLD | COLOR_PAIR(3));
     } else {
       std::string title = " 󰉖 " + panePath.filename().string() + " ";
       int maxTitleW = getmaxx(win) - 4;
@@ -4867,17 +4974,74 @@ public:
       }
 
       std::string sz;
-      if (sortMode == SortMode::SIZE) {
-        if (file.is_directory && file.path.string().find("/gvfs/") != std::string::npos) {
+      uintmax_t curSize = file.size;
+      bool isCalc = false;
+      if (file.is_directory) {
+        if (file.path.string().find("/gvfs/") != std::string::npos) {
           sz = "DIR";
+          curSize = 0;
+        } else if (curSize == SIZE_CALCULATING) {
+          std::lock_guard<std::mutex> cLock(cacheMutex);
+          auto it = dirSizeCache.find(file.path.string());
+          if (it != dirSizeCache.end()) {
+            curSize = it->second;
+            sz = formatSize(curSize);
+          } else {
+            sz = "[calc...]";
+            isCalc = true;
+            curSize = 0;
+          }
         } else {
-          sz = formatSize(file.size);
+          sz = formatSize(curSize);
         }
+      } else if (paneIsDiskUsageMode || sortMode == SortMode::SIZE) {
+        sz = formatSize(curSize);
       } else {
         sz = file.modified_time_str;
       }
 
-      int availWidth = getmaxx(win) - sz.length() - 11;
+      int rightBlockWidth = 0;
+      int barWidth = 0;
+      int filledBlocks = 0;
+      double pct = 0.0;
+      std::string pctStr = "";
+
+      if (paneIsDiskUsageMode) {
+        int winW = getmaxx(win);
+        if (winW >= 68) barWidth = 12;
+        else if (winW >= 54) barWidth = 8;
+        else if (winW >= 44) barWidth = 5;
+        else barWidth = 0;
+
+        if (totalDirSize > 0 && curSize > 0 && !isCalc) {
+          pct = ((double)curSize / (double)totalDirSize) * 100.0;
+        }
+        char pctBuf[16];
+        if (isCalc) {
+          snprintf(pctBuf, sizeof(pctBuf), "  ... ");
+        } else {
+          snprintf(pctBuf, sizeof(pctBuf), "%5.1f%%", pct);
+        }
+        pctStr = pctBuf;
+
+        if (barWidth > 0) {
+          if (maxItemSize > 0 && curSize > 0 && !isCalc) {
+            double ratio = (double)curSize / (double)maxItemSize;
+            filledBlocks = (int)(ratio * barWidth + 0.5);
+            if (filledBlocks > barWidth) filledBlocks = barWidth;
+            if (filledBlocks == 0 && curSize > 0) filledBlocks = 1;
+          } else {
+            filledBlocks = 0;
+          }
+          rightBlockWidth = (barWidth + 2) + 1 + 6 + 1 + std::max((int)sz.length(), 8);
+        } else {
+          rightBlockWidth = 6 + 1 + std::max((int)sz.length(), 8);
+        }
+      } else {
+        rightBlockWidth = (int)sz.length();
+      }
+
+      int availWidth = getmaxx(win) - rightBlockWidth - 11;
       if (availWidth < 10) availWidth = 10;
 
       std::string fullDisplay = dirPart + filePart;
@@ -4960,13 +5124,64 @@ public:
       }
 
       // Explicitly clear the gap between filename/symlink and the date/size string
-      int dateStart = getmaxx(win) - sz.length() - 2;
+      int dateStart = getmaxx(win) - rightBlockWidth - 2;
       int curY, curX;
       getyx(win, curY, curX);
       for (int k = curX; k < dateStart; ++k) {
         waddch(win, ' ');
       }
-      wprintw(win, "%s", sz.c_str());
+      wmove(win, curY, dateStart);
+
+      if (paneIsDiskUsageMode) {
+        if (barWidth > 0) {
+          if (!isSelected) wattron(win, A_DIM);
+          waddstr(win, "[");
+          if (!isSelected) wattroff(win, A_DIM);
+
+          int barPair = 6;
+          if (pct >= 50.0) barPair = 3;
+          else if (pct >= 20.0) barPair = 18;
+          else if (pct >= 5.0) barPair = 6;
+
+          if (!isSelected) {
+            wattron(win, COLOR_PAIR(barPair) | (pct >= 20.0 ? A_BOLD : A_NORMAL));
+          }
+          for (int b = 0; b < filledBlocks; ++b) {
+            waddstr(win, "█");
+          }
+          if (!isSelected) {
+            wattroff(win, COLOR_PAIR(barPair) | (pct >= 20.0 ? A_BOLD : A_NORMAL));
+          }
+
+          if (!isSelected) wattron(win, A_DIM);
+          for (int b = filledBlocks; b < barWidth; ++b) {
+            waddstr(win, "░");
+          }
+          waddstr(win, "] ");
+          if (!isSelected) wattroff(win, A_DIM);
+        }
+
+        if (!isSelected) {
+          int pctPair = (pct >= 50.0) ? 3 : (pct >= 20.0 ? 18 : 6);
+          wattron(win, COLOR_PAIR(pctPair) | (pct >= 20.0 ? A_BOLD : A_NORMAL));
+        }
+        wprintw(win, "%s ", pctStr.c_str());
+        if (!isSelected) {
+          wattroff(win, COLOR_PAIR(3) | COLOR_PAIR(18) | COLOR_PAIR(6) | A_BOLD);
+        }
+
+        int pad = 8 - (int)sz.length();
+        for (int p = 0; p < pad; ++p) waddch(win, ' ');
+        if (!isSelected && isCalc) {
+          wattron(win, A_DIM);
+        }
+        wprintw(win, "%s", sz.c_str());
+        if (!isSelected && isCalc) {
+          wattroff(win, A_DIM);
+        }
+      } else {
+        wprintw(win, "%s", sz.c_str());
+      }
 
       if (isDimmed) {
         wattron(win, A_DIM);
@@ -4998,17 +5213,17 @@ public:
     if (isDualPaneMode) {
       size_t leftIdx = leftTabIndex;
       if (activeTabIndex == leftIdx) {
-        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true);
+        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true, isDiskUsageMode);
       } else {
         loadInactiveTabDirectoryIfNeeded(leftIdx);
         drawPane(winCurrent, tabs[leftIdx].currentPath, tabs[leftIdx].currentFiles,
                  tabs[leftIdx].selectedIndex, tabs[leftIdx].scrollOffset,
-                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode, false);
+                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode, false, tabs[leftIdx].isDiskUsageMode);
       }
       return;
     }
 
-    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, !focusPinned);
+    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, !focusPinned, isDiskUsageMode);
   }
 
   struct DeviceInfo {
@@ -5786,7 +6001,7 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 27;
+    int h = 28;
     int w = 82;
     if (h > height - 2) h = height - 2;
     if (w > width - 2) w = width - 2;
@@ -5845,6 +6060,7 @@ public:
     printHelpLine(23, 2, "F3", "Toggle Preview Pane");
     printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
     printHelpLine(25, 2, "Ctrl+E / Y", "Scroll Preview Down / Up");
+    printHelpLine(26, 2, "U / Space+u", "Disk Usage (ncdu mode)");
 
     // Right Column (Col w / 2 + 1)
     int rCol = (w / 2) + 2;
@@ -6157,12 +6373,12 @@ public:
     if (isDualPaneMode) {
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
-        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true);
+        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true, isDiskUsageMode);
       } else {
         loadInactiveTabDirectoryIfNeeded(rightIdx);
         drawPane(winPreview, tabs[rightIdx].currentPath, tabs[rightIdx].currentFiles,
                  tabs[rightIdx].selectedIndex, tabs[rightIdx].scrollOffset,
-                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, tabs[rightIdx].isTrashMode, false);
+                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, tabs[rightIdx].isTrashMode, false, tabs[rightIdx].isDiskUsageMode);
       }
       return;
     }
@@ -6177,10 +6393,13 @@ public:
       bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
                       extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
       bool isCode = isCodeFile(nextFile.extension);
-      bool isTextPreviewable = isCode || isArchive || isAudio;
-      
-      bool isVid = VIDEO_EXTS.count(nextFile.extension);
-      bool isImg = IMAGE_EXTS.count(nextFile.extension);
+      bool isPdf = (extLower == ".pdf");
+      bool isDoc = (extLower == ".docx" || extLower == ".doc");
+      bool isXls = (extLower == ".xlsx" || extLower == ".xls");
+      bool isPpt = (extLower == ".pptx" || extLower == ".ppt");
+      bool isVid = VIDEO_EXTS.count(extLower);
+      bool isImg = IMAGE_EXTS.count(extLower);
+      bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
       
       if (nextFile.path.string() == cachedPath && !isTextPreviewable && (isVid || isImg)) {
         samePathAndImage = true;
@@ -6196,7 +6415,11 @@ public:
     wattroff(winPreview, COLOR_PAIR(6));
 
     wattron(winPreview, A_BOLD | COLOR_PAIR(5));
-    mvwprintw(winPreview, 0, 2, " 󰮫 Preview ");
+    if (isDiskUsageMode) {
+      mvwprintw(winPreview, 0, 2, " 󰈐 Disk Usage Preview ");
+    } else {
+      mvwprintw(winPreview, 0, 2, " 󰮫 Preview ");
+    }
     wattroff(winPreview, A_BOLD | COLOR_PAIR(5));
 
     if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
@@ -6264,7 +6487,28 @@ public:
     } else {
       previewSizeStr = formatSize(file.size);
     }
-    mvwprintw(winPreview, 2, 2, " Size: %s", previewSizeStr.c_str());
+    if (isDiskUsageMode) {
+      uintmax_t totalDir = 0;
+      for (const auto& f : currentFiles) {
+        if (f.is_directory) {
+          std::lock_guard<std::mutex> cLock(cacheMutex);
+          auto it = dirSizeCache.find(f.path.string());
+          if (it != dirSizeCache.end()) totalDir += it->second;
+        } else {
+          totalDir += f.size;
+        }
+      }
+      uintmax_t itemSz = file.size;
+      if (file.is_directory) {
+        std::lock_guard<std::mutex> cLock(cacheMutex);
+        auto it = dirSizeCache.find(file.path.string());
+        if (it != dirSizeCache.end()) itemSz = it->second;
+      }
+      double pct = (totalDir > 0 && itemSz > 0) ? ((double)itemSz / (double)totalDir * 100.0) : 0.0;
+      mvwprintw(winPreview, 2, 2, " Size: %s (%.1f%% of folder)", previewSizeStr.c_str(), pct);
+    } else {
+      mvwprintw(winPreview, 2, 2, " Size: %s", previewSizeStr.c_str());
+    }
 
     std::string typeStr;
     if (file.is_symlink) {
@@ -6800,6 +7044,12 @@ public:
         attron(COLOR_PAIR(6) | A_BOLD);
         printw(" Fyzenor ");
         attroff(COLOR_PAIR(6) | A_BOLD);
+
+        if (isDiskUsageMode) {
+          attron(COLOR_PAIR(3) | A_BOLD);
+          printw(" [󰈐 DISK USAGE] ");
+          attroff(COLOR_PAIR(3) | A_BOLD);
+        }
 
         if (!multiSelection.empty()) {
           attron(COLOR_PAIR(9) | A_BOLD);
@@ -7389,7 +7639,23 @@ public:
         case 'P':
           handlePin();
           break;
-        case ' ':
+        case 'U':
+          toggleDiskUsageMode();
+          break;
+        case ' ': {
+          timeout(100);
+          int nextCh = getch();
+          timeout(50);
+          if (nextCh == 'u' || nextCh == 'U') {
+            toggleDiskUsageMode();
+            break;
+          }
+          if (nextCh != ERR) {
+            ungetch(nextCh);
+          }
+          toggleSelection();
+          break;
+        }
         case 'v':
           toggleSelection();
           break;

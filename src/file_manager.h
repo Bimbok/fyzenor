@@ -6001,107 +6001,319 @@ public:
 
   void drawHelpOverlay() {
     clearDirectRender();
-    int h = 28;
-    int w = 82;
+
+    struct HelpItem {
+      std::string key;
+      std::string desc;
+    };
+
+    std::vector<HelpItem> leftItems = {
+      {"j / k , ↓ / ↑", "Navigate files / items up & down"},
+      {"h / l , ← / →", "Parent directory / Open item"},
+      {"Enter", "Open file or enter directory"},
+      {"g / G", "Jump to top / bottom of list"},
+      {"Ctrl+O / P", "Directory history back / forward"},
+      {"H", "Directory history jump list"},
+      {"Space / v", "Toggle select current item"},
+      {"a", "Select all items in directory"},
+      {"Esc", "Clear all selected items"},
+      {"y", "Copy selected (or hovered) items"},
+      {"x", "Cut selected (or hovered) items"},
+      {"p", "Paste copied or cut items"},
+      {"Y", "Paste as symbolic link"},
+      {"c", "Copy full file path to clipboard"},
+      {"d / Delete", "Move item to trash"},
+      {"D", "Delete permanently (bypass trash)"},
+      {"T", "Toggle trash manager mode"},
+      {"u", "Undo last trash action (restore)"},
+      {"r", "Rename item (or restore in trash)"},
+      {"e", "Extract archive / Empty trash"},
+      {"n", "Create file (name) or dir (name/)"},
+      {"z", "Compress to zip archive"},
+      {"Ctrl+D", "Drag & drop out files (ripdrag)"},
+      {"U / Space+u", "Visual disk usage (ncdu mode)"},
+      {".", "Toggle hidden (dot) files"}
+    };
+
+    std::vector<HelpItem> rightItems = {
+      {"s", "Cycle sorting (name/size/time/ext)"},
+      {"/", "Live text search in files (ripgrep)"},
+      {"f", "Fuzzy file finder (fzf)"},
+      {"w", "Background tasks manager"},
+      {"i", "File information & metadata"},
+      {"I", "Edit file permissions (chmod)"},
+      {"m", "Mounts & storage devices"},
+      {":", "Execute shell command (:!cmd)"},
+      {"P", "Pin / bookmark current directory"},
+      {"Tab", "Switch pane / bookmarks focus"},
+      {"F2", "Toggle dual-pane mode"},
+      {"F3", "Toggle preview pane visibility"},
+      {"F4", "Toggle parent pane visibility"},
+      {"F6", "Toggle bookmarks / pinned pane"},
+      {"Ctrl+G", "Open lazygit / Grow pane width"},
+      {"Ctrl+B / H", "Shrink focused pane width"},
+      {"Ctrl+E / Y", "Scroll preview pane down / up"},
+      {"Mouse Wheel", "Scroll hovered pane (preview/list)"},
+      {"t", "Create new tab"},
+      {"W / Ctrl+W", "Close current tab"},
+      {"[ / ]", "Previous / next tab"},
+      {"1 - 9, 0", "Jump directly to tab 1 - 10"},
+      {"F5 / Ctrl+R", "Refresh directory & reload icons"},
+      {"?", "Toggle this keybindings help"},
+      {"q", "Quit Fyzenor"}
+    };
+
+    int h = std::min(height - 4, 32);
+    if (h < 20) h = std::max(16, height - 2);
     if (h > height - 2) h = height - 2;
+
+    int w = std::min(width - 4, 116);
+    if (w < 80) w = std::max(48, width - 2);
     if (w > width - 2) w = width - 2;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
+    if (startY < 0) startY = 0;
+    if (startX < 0) startX = 0;
 
     WINDOW* helpWin = newwin(h, w, startY, startX);
     if (!helpWin) return;
 
-    wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
-    drawRoundedBox(helpWin);
-    wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
+    keypad(helpWin, TRUE);
+    wtimeout(helpWin, -1);
 
-    wattron(helpWin, COLOR_PAIR(1) | A_BOLD);
-    std::string title = "󰘳 Fyzenor Keybindings";
-    if ((int)title.length() > w - 6) {
-      title = utf8_safe_truncate(title, w - 6);
+    bool twoCol = (w >= 80);
+    int midCol = w / 2;
+
+    std::vector<HelpItem> allItems;
+    if (!twoCol) {
+      allItems = leftItems;
+      allItems.insert(allItems.end(), rightItems.begin(), rightItems.end());
     }
-    mvwprintw(helpWin, 1, 2, "%s", title.c_str());
-    wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
+    size_t totalItems = twoCol ? std::max(leftItems.size(), rightItems.size()) : allItems.size();
 
-    auto printHelpLine = [&](int row, int col, const std::string& key, const std::string& desc) {
-      if (row >= h - 2) return;
-      std::string lineStr = key;
-      while (lineStr.length() < 13) lineStr += " ";
-      lineStr += " → " + desc;
-      int maxLen = (w / 2) - 4;
-      if ((int)lineStr.length() > maxLen) {
-        lineStr = utf8_safe_truncate(lineStr, maxLen);
+    int displayRows = (h >= 32) ? ((h - 3) - 4) : ((h - 2) - 4);
+    if (displayRows < 1) displayRows = 1;
+    int maxScroll = (totalItems > (size_t)displayRows) ? (int)(totalItems - displayRows) : 0;
+    int scrollOffset = 0;
+
+    auto printKeyLine = [&](int row, int colX, int colW, const HelpItem& item) {
+      if (row < 4 || row >= h - 2) return;
+
+      int keyFieldW = 14;
+      if (colW < 42) keyFieldW = 11;
+
+      size_t keyLen = utf8_length(item.key);
+      std::string keyStr = item.key;
+      if (keyLen < (size_t)keyFieldW) {
+        keyStr.append(keyFieldW - keyLen, ' ');
+      } else if (keyLen > (size_t)keyFieldW) {
+        keyStr = utf8_safe_truncate(keyStr, keyFieldW);
       }
-      mvwprintw(helpWin, row, col, "%s", lineStr.c_str());
+
+      wattron(helpWin, COLOR_PAIR(18) | A_BOLD);
+      mvwprintw(helpWin, row, colX, "%s", keyStr.c_str());
+      wattroff(helpWin, COLOR_PAIR(18) | A_BOLD);
+
+      wattron(helpWin, A_DIM);
+      mvwaddstr(helpWin, row, colX + keyFieldW, " → ");
+      wattroff(helpWin, A_DIM);
+
+      int descStartX = colX + keyFieldW + 3;
+      int maxDescW = colW - (keyFieldW + 3);
+      if (maxDescW > 0) {
+        std::string descStr = item.desc;
+        if ((int)utf8_length(descStr) > maxDescW) {
+          descStr = utf8_safe_truncate(descStr, maxDescW);
+        }
+        wattron(helpWin, COLOR_PAIR(2));
+        mvwprintw(helpWin, row, descStartX, "%-*s", maxDescW, descStr.c_str());
+        wattroff(helpWin, COLOR_PAIR(2));
+      }
     };
 
-    // Left Column (Col 2)
-    printHelpLine(3, 2, "j / k", "Navigate");
-    printHelpLine(4, 2, "h / l", "Back / Open");
-    printHelpLine(5, 2, "Space / v", "Select");
-    printHelpLine(6, 2, "a", "Select All");
-    printHelpLine(7, 2, "Esc", "Clear Selection");
-    printHelpLine(8, 2, "y", "Copy");
-    printHelpLine(9, 2, "x", "Cut");
-    printHelpLine(10, 2, "p", "Paste");
-    printHelpLine(11, 2, "Y", "Paste as Symlink");
-    printHelpLine(12, 2, "d / Delete", "Move to Trash");
-    printHelpLine(13, 2, "D", "Delete Permanently");
-    printHelpLine(14, 2, "T", "Toggle Trash Manager");
-    printHelpLine(15, 2, "r", "Rename (Restore)");
-    printHelpLine(16, 2, "u", "Undo Trash Action");
-    printHelpLine(17, 2, "n", "Create (name or name/)");
-    printHelpLine(18, 2, "z", "Zip");
-    printHelpLine(19, 2, "e", "Extract / Empty Trash");
-    printHelpLine(20, 2, ".", "Toggle Hidden");
-    printHelpLine(21, 2, "s", "Toggle Sorting");
-    printHelpLine(22, 2, "Ctrl+G", "Open Lazygit / Grow Width");
-    printHelpLine(23, 2, "F3", "Toggle Preview Pane");
-    printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
-    printHelpLine(25, 2, "Ctrl+E / Y", "Scroll Preview Down / Up");
-    printHelpLine(26, 2, "U / Space+u", "Disk Usage (ncdu mode)");
+    while (true) {
+      werase(helpWin);
 
-    // Right Column (Col w / 2 + 1)
-    int rCol = (w / 2) + 2;
-    printHelpLine(3, rCol, "P", "Pin Directory");
-    printHelpLine(4, rCol, "F5 / Ctrl+R", "Refresh Directory");
-    printHelpLine(5, rCol, "/", "Search (ripgrep)");
-    printHelpLine(6, rCol, "f", "Fuzzy Find");
-    printHelpLine(7, rCol, "w", "Show Active Tasks");
-    printHelpLine(8, rCol, "i", "Show File Details");
-    printHelpLine(9, rCol, "I", "Edit Permissions");
-    printHelpLine(10, rCol, "Ctrl+O", "History Back");
-    printHelpLine(11, rCol, "Ctrl+P", "History Forward");
-    printHelpLine(12, rCol, "H", "History Jump List");
-    printHelpLine(13, rCol, "t", "Create New Tab");
-    printHelpLine(14, rCol, "W / Ctrl+W", "Close Current Tab");
-    printHelpLine(15, rCol, "[ / ]", "Prev / Next Tab");
-    printHelpLine(16, rCol, "1 - 9, 0", "Switch Tab 1-10");
-    printHelpLine(17, rCol, ":", "Execute Shell Cmd");
-    printHelpLine(18, rCol, "F2", "Toggle Dual-Pane");
-    printHelpLine(19, rCol, "Tab", "Switch Pane / Pin");
-    printHelpLine(20, rCol, "m", "Mounts & Devices");
-    printHelpLine(21, rCol, "?", "Show Help");
-    printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
-    printHelpLine(23, rCol, "F4", "Toggle Parent Pane");
-    printHelpLine(24, rCol, "F6", "Toggle Bookmarks Pane");
-    printHelpLine(25, rCol, "Mouse Wheel", "Scroll Hovered Pane");
+      // Outer border
+      wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
+      drawRoundedBox(helpWin);
+      wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
 
-    std::string closeMsg = "Press any key to close...";
-    if ((int)closeMsg.length() > w - 4) {
-      closeMsg = "Press key to close";
+      // Title & Badge
+      wattron(helpWin, COLOR_PAIR(1) | A_BOLD);
+      std::string title = "󰘳 Fyzenor Keybindings";
+      if ((int)utf8_length(title) > w - 4) {
+        title = utf8_safe_truncate(title, w - 4);
+      }
+      mvwprintw(helpWin, 1, 2, "%s", title.c_str());
+      wattroff(helpWin, COLOR_PAIR(1) | A_BOLD);
+
+      std::string badge = "[ 50 Shortcuts ]";
+      if (w > (int)utf8_length(title) + (int)badge.length() + 8) {
+        wattron(helpWin, COLOR_PAIR(24) | A_BOLD);
+        mvwprintw(helpWin, 1, w - 2 - (int)badge.length(), "%s", badge.c_str());
+        wattroff(helpWin, COLOR_PAIR(24) | A_BOLD);
+      }
+
+      if (twoCol) {
+        // Column Headers
+        wattron(helpWin, COLOR_PAIR(18) | A_BOLD);
+        std::string leftHeader = "Navigation & File Operations";
+        if ((int)utf8_length(leftHeader) > midCol - 5) {
+          leftHeader = utf8_safe_truncate(leftHeader, midCol - 5);
+        }
+        mvwprintw(helpWin, 2, 3, "%s", leftHeader.c_str());
+
+        std::string rightHeader = "Views, Panes, Tabs & System";
+        int rightSpace = (w - 2) - (midCol + 2);
+        if ((int)utf8_length(rightHeader) > rightSpace) {
+          rightHeader = utf8_safe_truncate(rightHeader, rightSpace);
+        }
+        mvwprintw(helpWin, 2, midCol + 2, "%s", rightHeader.c_str());
+        wattroff(helpWin, COLOR_PAIR(18) | A_BOLD);
+
+        // Header Divider (row 3) and Column Separators
+        wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
+        mvwaddstr(helpWin, 0, midCol, "┬");
+        mvwaddstr(helpWin, 2, midCol, "│");
+
+        mvwaddstr(helpWin, 3, 0, "├");
+        for (int c = 1; c < w - 1; ++c) {
+          if (c == midCol) {
+            mvwaddstr(helpWin, 3, c, "┼");
+          } else {
+            mvwaddstr(helpWin, 3, c, "─");
+          }
+        }
+        mvwaddstr(helpWin, 3, w - 1, "┤");
+
+        int maxContentRow = (h >= 32) ? (h - 4) : (h - 3);
+        for (int r = 4; r <= maxContentRow; ++r) {
+          mvwaddstr(helpWin, r, midCol, "│");
+        }
+
+        if (h >= 32) {
+          mvwaddstr(helpWin, h - 3, 0, "├");
+          for (int c = 1; c < w - 1; ++c) {
+            if (c == midCol) {
+              mvwaddstr(helpWin, h - 3, c, "┴");
+            } else {
+              mvwaddstr(helpWin, h - 3, c, "─");
+            }
+          }
+          mvwaddstr(helpWin, h - 3, w - 1, "┤");
+        }
+        wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
+
+        // Render Two Columns
+        int leftColW = midCol - 3;
+        int rightColW = (w - 1) - (midCol + 2);
+
+        for (int i = 0; i < displayRows; ++i) {
+          size_t idx = scrollOffset + i;
+          int row = 4 + i;
+          if (idx < leftItems.size()) {
+            printKeyLine(row, 2, leftColW, leftItems[idx]);
+          }
+          if (idx < rightItems.size()) {
+            printKeyLine(row, midCol + 2, rightColW, rightItems[idx]);
+          }
+        }
+      } else {
+        // Single column layout
+        wattron(helpWin, COLOR_PAIR(18) | A_BOLD);
+        mvwprintw(helpWin, 2, 3, "Commands & Shortcuts");
+        wattroff(helpWin, COLOR_PAIR(18) | A_BOLD);
+
+        wattron(helpWin, COLOR_PAIR(6) | A_BOLD);
+        mvwaddstr(helpWin, 3, 0, "├");
+        for (int c = 1; c < w - 1; ++c) {
+          mvwaddstr(helpWin, 3, c, "─");
+        }
+        mvwaddstr(helpWin, 3, w - 1, "┤");
+
+        if (h >= 32) {
+          mvwaddstr(helpWin, h - 3, 0, "├");
+          for (int c = 1; c < w - 1; ++c) {
+            mvwaddstr(helpWin, h - 3, c, "─");
+          }
+          mvwaddstr(helpWin, h - 3, w - 1, "┤");
+        }
+        wattroff(helpWin, COLOR_PAIR(6) | A_BOLD);
+
+        for (int i = 0; i < displayRows; ++i) {
+          size_t idx = scrollOffset + i;
+          int row = 4 + i;
+          if (idx < allItems.size()) {
+            printKeyLine(row, 2, w - 4, allItems[idx]);
+          }
+        }
+      }
+
+      // Footer
+      std::string closeHint = "[q / Esc / ? / Enter] Close";
+      if (maxScroll > 0) {
+        std::string scrollInfo = "[↑/↓/j/k] Scroll (" + std::to_string(scrollOffset + 1) + "-" +
+                                 std::to_string(std::min(totalItems, (size_t)(scrollOffset + displayRows))) +
+                                 " of " + std::to_string(totalItems) + ")";
+        wattron(helpWin, COLOR_PAIR(24) | A_BOLD);
+        mvwprintw(helpWin, h - 2, 2, "%s", scrollInfo.c_str());
+        wattroff(helpWin, COLOR_PAIR(24) | A_BOLD);
+
+        wattron(helpWin, A_DIM);
+        if (w > (int)scrollInfo.length() + (int)closeHint.length() + 6) {
+          mvwprintw(helpWin, h - 2, w - 2 - (int)closeHint.length(), "%s", closeHint.c_str());
+        }
+        wattroff(helpWin, A_DIM);
+      } else {
+        wattron(helpWin, A_DIM);
+        mvwprintw(helpWin, h - 2, 2, "%s", closeHint.c_str());
+        wattroff(helpWin, A_DIM);
+      }
+
+      wrefresh(helpWin);
+
+      int ch = wgetch(helpWin);
+      if (ch == 'q' || ch == 27 || ch == 10 || ch == ' ' || ch == '?') {
+        break;
+      } else if (ch == 'j' || ch == KEY_DOWN) {
+        if (scrollOffset < maxScroll) scrollOffset++;
+      } else if (ch == 'k' || ch == KEY_UP) {
+        if (scrollOffset > 0) scrollOffset--;
+      } else if (ch == KEY_NPAGE) {
+        scrollOffset = std::min(maxScroll, scrollOffset + 5);
+      } else if (ch == KEY_PPAGE) {
+        scrollOffset = std::max(0, scrollOffset - 5);
+      } else if (ch == 'g' || ch == KEY_HOME) {
+        scrollOffset = 0;
+      } else if (ch == 'G' || ch == KEY_END) {
+        scrollOffset = maxScroll;
+      } else if (ch == KEY_MOUSE) {
+        MEVENT mevent;
+        if (getmouse(&mevent) == OK) {
+#if NCURSES_MOUSE_VERSION > 1
+          if (mevent.bstate & BUTTON4_PRESSED) {
+            if (scrollOffset > 0) scrollOffset = std::max(0, scrollOffset - 2);
+          } else if (mevent.bstate & BUTTON5_PRESSED) {
+            if (scrollOffset < maxScroll) scrollOffset = std::min(maxScroll, scrollOffset + 2);
+          } else if (mevent.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED | BUTTON3_CLICKED | BUTTON3_PRESSED)) {
+            break;
+          }
+#else
+          if (mevent.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED)) {
+            break;
+          }
+#endif
+        }
+      } else if (ch == KEY_RESIZE) {
+        break;
+      } else {
+        break;
+      }
     }
-    wattron(helpWin, A_DIM);
-    mvwprintw(helpWin, h - 2, 2, "%s", closeMsg.c_str());
-    wattroff(helpWin, A_DIM);
 
-    wrefresh(helpWin);
-
-    timeout(-1);
-    getch();
     timeout(50);
-
     delwin(helpWin);
   }
 

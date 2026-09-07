@@ -598,6 +598,7 @@ flowchart TD
 | `i`            | Show **File Details** (permissions, owner, size, times) |
 | `m`            | Show **Devices & Mounts** overlay (detect, mount, unmount USB drives & Android phones) |
 | `:`            | **Execute Shell Command** (suspend TUI / background `&`) |
+| `?`            | Show **Interactive Keybindings Modal** (spacious scrollable 2-column shortcut overlay) |
 | `q`            | Quit Fyzenor                                |
 
 ### Tab Controls

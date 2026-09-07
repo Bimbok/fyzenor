@@ -297,7 +297,7 @@ Fyzenor features native integration with `lazygit` to make repository staging an
   - **Dynamic File Extensions**: Generic file icon (``) dynamically switches to specific language glyphs as you type extensions (e.g. `hello.c` ➔ `` C icon, `hello.cc`/`.cpp` ➔ `` C++ icon, `hello.py` ➔ `` Python icon, `hello.rs` ➔ `` Rust icon, `hello.go` ➔ `` Go icon, `hello.zig` ➔ `` Zig icon, `hello.json` ➔ ``, `hello.sh` ➔ ``, `hello.md` ➔ ``, `hello.zip` ➔ ``, etc.).
   - **Special Files & Configs**: Recognizes files like `Makefile` (``), `Dockerfile` (`󰡨`), `.gitignore` (``), `.bashrc`/`.zshrc` (``), etc.
   - **Dynamic Folder Indicator**: Switches instantly to folder icon (`` / configured directory glyph) the moment `/` or `\` is appended.
-* **Active Accent Coloring**: Input dialog borders adopt the active accent color (`active_border` / `pin_border` in `theme.toml`), while dynamic type icons reflect their theme syntax colors (Core, Frontend, Config, Script, Docs).
+* **Active Accent Coloring**: Input dialog borders, headers, and dynamic type icons are uniformly styled with the active theme accent color (`active_border` / `pin_border` in `theme.toml`).
 * **Nested Path Creation & Smart Focus**: Supports recursive paths (e.g., `nested/sub/dir/` or `sub/folder/file.txt`), automatically selecting the newly created item in the listing.
 
 ### ⚡ Robust 12GB+ Directory Size Engine

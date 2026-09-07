@@ -2817,25 +2817,17 @@ public:
       mvwaddstr(win, 2, w - 1, "╯");
 
       std::string iconToDisplay = "";
-      int iconColor = 18;
       if (dynamicTypeIcon) {
-        auto [ic, col] = getPromptTypeIconAndColor(currentInput);
-        iconToDisplay = ic;
-        iconColor = col;
+        iconToDisplay = getPromptTypeIcon(currentInput);
       } else if (!staticIcon.empty()) {
         iconToDisplay = staticIcon;
         while (!iconToDisplay.empty() && (iconToDisplay.back() == ' ' || iconToDisplay.back() == '\t')) {
           iconToDisplay.pop_back();
         }
-        iconColor = 18;
       }
 
       if (!iconToDisplay.empty() && w >= 8) {
-        wattroff(win, COLOR_PAIR(18) | A_BOLD);
-        wattron(win, COLOR_PAIR(iconColor) | A_BOLD);
         mvwaddstr(win, 2, w - 3, iconToDisplay.c_str());
-        wattroff(win, COLOR_PAIR(iconColor) | A_BOLD);
-        wattron(win, COLOR_PAIR(18) | A_BOLD);
         mvwaddstr(win, 2, w - 2, " ");
         mvwaddstr(win, 2, w - 1, "╯");
       }

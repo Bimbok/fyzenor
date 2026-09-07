@@ -212,7 +212,7 @@ g++ --version
 # 📦 Install Stable Release (v4.2.0 - Default)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
 
-# 🧪 Install Beta Channel (v4.3.0-beta.2 - Cursor Memory, Universal 256-Color & Lua Plugins)
+# 🧪 Install Beta Channel (v4.3.0-beta.2 - Disk Usage, Keybindings Modal, Universal 256-Color & Lua Plugins)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
@@ -225,16 +225,34 @@ git clone https://github.com/Bimbok/fyzenor.git
 # 2. Enter the repository
 cd fyzenor
 
-# 3. Run the installer
+# 3. Run the installer (supports --beta, --stable, --uninstall, --purge)
 ./install.sh
+```
+
+### 🗑️ Uninstallation
+
+To uninstall Fyzenor cleanly at any time:
+
+```bash
+# Standard uninstallation (removes binary, 'fm' symlink, desktop entry, and icon)
+./uninstall.sh
+# Or via curl:
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/uninstall.sh | bash
+
+# Complete purge (also removes ~/.config/fyzenor and ~/.fm_pins)
+./uninstall.sh --purge
+# Or using the universal installer:
+./install.sh --uninstall --purge
 ```
 
 The installer:
 
-1. Compiles the C++ source into an optimized binary.
-2. Installs `fyzenor` into `/usr/local/bin/`.
-3. Creates an `fm` symlink for faster access.
-4. Installs the desktop application shortcut and branding icon globally.
+1. Checks required build tools (compiler, CMake, Ncurses, Lua) and runtime dependencies.
+2. Compiles the C++ source using all available CPU cores in parallel (`-j$(nproc)`).
+3. Installs `fyzenor` into `/usr/local/bin/` (or Termux `$PREFIX/bin`).
+4. Creates an `fm` symlink for rapid terminal access.
+5. Installs the desktop application shortcut and branding icon globally.
+6. Initializes default configuration files in `~/.config/fyzenor/` if missing.
 
 ---
 
@@ -496,9 +514,10 @@ Fyzenor is structured as a compact terminal application with asynchronous jobs h
 
 ```text
 fyzenor/
-├── file_manager.cpp   # Core application logic, UI rendering, preview pipeline
-├── install.sh         # Installer and shell integration bootstrap
-├── fyzenor.png        # Branding asset used in the README
+├── src/               # Core C++ source files (file_manager, utils, plugins)
+├── install.sh         # Universal installer, updater, and manager
+├── uninstall.sh       # Standalone uninstaller script
+├── fyzenor.png        # Branding asset used in desktop entry and README
 └── Sample/            # Showcase screenshots
 ```
 

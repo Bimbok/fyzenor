@@ -107,6 +107,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
 | **Dual-Pane Mode**                 | Toggle (`F2`) side-by-side active file listings for drag-free copying, with easy tab focus switching (`Tab`).                                         |
+| **Context-Aware Mouse Scrolling** | Hover and scroll your mouse wheel over any pane: middle pane scrolls files, preview pane scrolls long code/text/archives/directories with live indicators (`[1-40/350]`), and pinned pane scrolls bookmarks. |
 | **Device Detection & Mounts**      | Detect, mount, unmount, and navigate connected USB block drives and mobile phones (Android MTP) natively without needing Nautilus.                     |
 | **Live Auto-Updates (inotify)**    | Automatically detects filesystem changes (creations, deletions, renames) in the current directory and refreshes the TUI instantly.                    |
 
@@ -549,6 +550,8 @@ flowchart TD
 | `Ctrl+O`              | Go back in directory navigation history |
 | `Ctrl+P`              | Go forward in directory navigation history |
 | `H`                   | **History Overlay** (jump to recently visited directories) |
+| `Ctrl+E` / `Ctrl+Y`   | **Scroll Preview Pane** down / up without changing file selection |
+| `Mouse Wheel`         | **Hover-Aware Pane Scrolling** (hover middle pane to scroll files, hover preview to scroll content, hover pins to scroll bookmarks) |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 

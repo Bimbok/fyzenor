@@ -124,6 +124,10 @@ private:
   std::string requestedPath;
   long long requestID = 0;
   bool lastWasDirectRender = false;
+  int previewScrollOffset = 0;
+  int previewDirTotalEntries = 0;
+  int previewTotalLines = 0;
+  std::string lastPreviewScrolledPath = "";
   PluginManager pluginManager;
 
   struct PreviewJob {
@@ -1396,7 +1400,8 @@ private:
 public:
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
-        winCurrent(nullptr), winPreview(nullptr) {
+        winCurrent(nullptr), winPreview(nullptr), previewScrollOffset(0), previewDirTotalEntries(0),
+        previewTotalLines(0), lastPreviewScrolledPath("") {
     showHidden = configShowHidden;
     hidePreview = configHidePreview;
     hideParent = configHideParent;
@@ -2385,19 +2390,19 @@ public:
         if (isArchive) {
           std::string archiveCmd;
           if (ext == ".zip") {
-            archiveCmd = "unzip -l \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "unzip -l \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".7z") {
-            archiveCmd = "7z l \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "7z l \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".rar") {
-            archiveCmd = "unrar l \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "unrar l \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".tar") {
-            archiveCmd = "tar -tf \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "tar -tf \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".gz" || ext == ".tgz") {
-            archiveCmd = "tar -ztf \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "tar -ztf \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".bz2") {
-            archiveCmd = "tar -jtf \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "tar -jtf \"" + job->path + "\" 2>/dev/null | head -n 300";
           } else if (ext == ".xz") {
-            archiveCmd = "tar -Jtf \"" + job->path + "\" 2>/dev/null | head -n 40";
+            archiveCmd = "tar -Jtf \"" + job->path + "\" 2>/dev/null | head -n 300";
           }
 
           lines.push_back("\033[1;36mArchive Contents:\033[0m");
@@ -2492,14 +2497,15 @@ public:
 
           bool gotOutput = false;
           std::string cmd;
+          int maxPreviewLines = std::max(job->previewHeight * 40, 3000);
           if (isCommandAvailable("bat")) {
             cmd = "bat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
-                  std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
+                  std::to_string(maxPreviewLines) + " \"" + job->path + "\" 2>/dev/null";
           } else if (isCommandAvailable("batcat")) {
             cmd = "batcat --color=always --style=plain --paging=never "
                   "--wrap=character --line-range=:" +
-                  std::to_string(job->previewHeight * 2) + " \"" + job->path + "\" 2>/dev/null";
+                  std::to_string(maxPreviewLines) + " \"" + job->path + "\" 2>/dev/null";
           }
 
           if (!cmd.empty()) {
@@ -2528,7 +2534,7 @@ public:
             if (f.is_open()) {
               std::string lineStr;
               int count = 0;
-              while (std::getline(f, lineStr) && count < job->previewHeight) {
+              while (std::getline(f, lineStr) && count < maxPreviewLines) {
                 if (job->reqId != requestID || stopWorker)
                   break;
                 std::string clean;
@@ -2629,10 +2635,32 @@ public:
     int maxW = getmaxx(winPreview) - 4;
     int startLine = getPreviewContentStartLine();
     int limit = getmaxy(winPreview) - startLine - 2;
-    int lineLimit = std::min((int)cachedTextLines.size(), limit);
+    int totalLines = (int)cachedTextLines.size();
+    previewTotalLines = totalLines;
+
+    if (previewScrollOffset >= totalLines) {
+      previewScrollOffset = std::max(0, totalLines - limit);
+    }
+    if (previewScrollOffset < 0) {
+      previewScrollOffset = 0;
+    }
+
+    int lineLimit = std::min(totalLines - previewScrollOffset, limit);
 
     for (int i = 0; i < lineLimit; ++i) {
-      wprintw_ansi(winPreview, startLine + i, 2, cachedTextLines[i], maxW);
+      wprintw_ansi(winPreview, startLine + i, 2, cachedTextLines[previewScrollOffset + i], maxW);
+    }
+
+    if (totalLines > limit) {
+      wattron(winPreview, COLOR_PAIR(6) | A_DIM);
+      int previewW = getmaxx(winPreview);
+      std::string indicator = "[" + std::to_string(previewScrollOffset + 1) + "-" +
+                              std::to_string(std::min(previewScrollOffset + limit, totalLines)) +
+                              "/" + std::to_string(totalLines) + "]";
+      if (previewW > (int)indicator.length() + 16) {
+        mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s", indicator.c_str());
+      }
+      wattroff(winPreview, COLOR_PAIR(6) | A_DIM);
     }
   }
   // ----------------------------
@@ -5816,9 +5844,10 @@ public:
     printHelpLine(22, 2, "Ctrl+G", "Open Lazygit / Grow Width");
     printHelpLine(23, 2, "F3", "Toggle Preview Pane");
     printHelpLine(24, 2, "Ctrl+D", "Drag Out Files");
+    printHelpLine(25, 2, "Ctrl+E / Y", "Scroll Preview Down / Up");
 
     // Right Column (Col w / 2 + 1)
-    int rCol = w / 2 + 1;
+    int rCol = (w / 2) + 2;
     printHelpLine(3, rCol, "P", "Pin Directory");
     printHelpLine(4, rCol, "F5 / Ctrl+R", "Refresh Directory");
     printHelpLine(5, rCol, "/", "Search (ripgrep)");
@@ -5841,6 +5870,7 @@ public:
     printHelpLine(22, rCol, "Ctrl+B / H", "Shrink Pane Width");
     printHelpLine(23, rCol, "F4", "Toggle Parent Pane");
     printHelpLine(24, rCol, "F6", "Toggle Bookmarks Pane");
+    printHelpLine(25, rCol, "Mouse Wheel", "Scroll Hovered Pane");
 
     std::string closeMsg = "Press any key to close...";
     if ((int)closeMsg.length() > w - 4) {
@@ -6170,10 +6200,17 @@ public:
     wattroff(winPreview, A_BOLD | COLOR_PAIR(5));
 
     if (currentFiles.empty() || selectedIndex >= currentFiles.size()) {
+      previewScrollOffset = 0;
+      previewTotalLines = 0;
+      lastPreviewScrolledPath = "";
       wnoutrefresh(winPreview);
       return;
     }
     const auto& file = currentFiles[selectedIndex];
+    if (file.path.string() != lastPreviewScrolledPath) {
+      previewScrollOffset = 0;
+      lastPreviewScrolledPath = file.path.string();
+    }
     int maxW = getmaxx(winPreview) - 4;
     int maxH = getmaxy(winPreview) - 2;
 
@@ -6297,19 +6334,34 @@ public:
       mvwprintw(winPreview, contentStart, 2, "󰉖 Content:");
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
-        int line = contentStart + 1;
+        std::vector<fs::directory_entry> subEntries;
         for (const auto& entry : fs::directory_iterator(file.path)) {
           if (!showHidden && entry.path().filename().string().front() == '.')
             continue;
-          if (line >= height - 3)
-            break;
+          subEntries.push_back(entry);
+        }
+        std::sort(subEntries.begin(), subEntries.end(), [](const auto& a, const auto& b) {
+          return a.path().filename().string() < b.path().filename().string();
+        });
+
+        previewDirTotalEntries = (int)subEntries.size();
+        previewTotalLines = previewDirTotalEntries;
+        int limit = height - 3 - (contentStart + 1);
+        if (previewScrollOffset >= previewDirTotalEntries) {
+          previewScrollOffset = std::max(0, previewDirTotalEntries - limit);
+        }
+        if (previewScrollOffset < 0) previewScrollOffset = 0;
+
+        int line = contentStart + 1;
+        for (size_t i = previewScrollOffset; i < subEntries.size() && line < height - 3; ++i) {
+          const auto& entry = subEntries[i];
           std::string subName = entry.path().filename().string();
           int maxSubW = getmaxx(winPreview) - 8;
           if (maxSubW < 5) maxSubW = 5;
           if ((int)subName.length() > maxSubW) {
-            int limit = maxSubW - 3;
-            if (limit < 1) limit = 1;
-            subName = utf8_safe_truncate(subName, limit);
+            int limitW = maxSubW - 3;
+            if (limitW < 1) limitW = 1;
+            subName = utf8_safe_truncate(subName, limitW);
           }
 
           std::string ext = entry.path().extension().string();
@@ -6343,6 +6395,18 @@ public:
           wattron(winPreview, COLOR_PAIR(s.pair));
           mvwprintw(winPreview, line++, 4, "%s %s", s.icon, subName.c_str());
           wattroff(winPreview, COLOR_PAIR(s.pair));
+        }
+
+        if (previewDirTotalEntries > limit) {
+          wattron(winPreview, COLOR_PAIR(6) | A_DIM);
+          int previewW = getmaxx(winPreview);
+          std::string indicator = "[" + std::to_string(previewScrollOffset + 1) + "-" +
+                                  std::to_string(std::min(previewScrollOffset + limit, previewDirTotalEntries)) +
+                                  "/" + std::to_string(previewDirTotalEntries) + "]";
+          if (previewW > (int)indicator.length() + 16) {
+            mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s", indicator.c_str());
+          }
+          wattroff(winPreview, COLOR_PAIR(6) | A_DIM);
         }
       } catch (...) {
       }
@@ -6399,15 +6463,35 @@ public:
       } else {
         std::ifstream f(file.path);
         if (f.is_open()) {
+          std::vector<std::string> rawLines;
           std::string lineStr;
-          int line = contentStart;
-          while (std::getline(f, lineStr) && line < height - 3) {
+          while (std::getline(f, lineStr) && rawLines.size() < 3000) {
             std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
             for (size_t i = 0; i < lineStr.length(); i += maxW) {
-              if (line >= height - 3)
-                break;
-              mvwprintw(winPreview, line++, 2, "%s", lineStr.substr(i, maxW).c_str());
+              rawLines.push_back(lineStr.substr(i, maxW));
             }
+          }
+          int total = (int)rawLines.size();
+          previewTotalLines = total;
+          int limit = height - 3 - contentStart;
+          if (previewScrollOffset >= total) {
+            previewScrollOffset = std::max(0, total - limit);
+          }
+          if (previewScrollOffset < 0) previewScrollOffset = 0;
+          int line = contentStart;
+          for (int i = previewScrollOffset; i < total && line < height - 3; ++i) {
+            mvwprintw(winPreview, line++, 2, "%s", rawLines[i].c_str());
+          }
+          if (total > limit) {
+            wattron(winPreview, COLOR_PAIR(6) | A_DIM);
+            int previewW = getmaxx(winPreview);
+            std::string indicator = "[" + std::to_string(previewScrollOffset + 1) + "-" +
+                                    std::to_string(std::min(previewScrollOffset + limit, total)) +
+                                    "/" + std::to_string(total) + "]";
+            if (previewW > (int)indicator.length() + 16) {
+              mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s", indicator.c_str());
+            }
+            wattroff(winPreview, COLOR_PAIR(6) | A_DIM);
           }
         }
       }
@@ -6881,23 +6965,127 @@ public:
           #ifndef BUTTON4_PRESSED
           #define BUTTON4_PRESSED 0x10000
           #endif
+          #ifndef BUTTON4_CLICKED
+          #define BUTTON4_CLICKED 0x4000
+          #endif
           #ifndef BUTTON5_PRESSED
           #define BUTTON5_PRESSED 0x200000
           #endif
-          if (event.bstate & BUTTON4_PRESSED) {
-            if (focusPinned) {
-              if (pinnedIndex > 0) pinnedIndex--;
-            } else {
-              if (selectedIndex > 0) selectedIndex--;
+          #ifndef BUTTON5_CLICKED
+          #define BUTTON5_CLICKED 0x80000
+          #endif
+          bool isScrollUp = (event.bstate & (BUTTON4_PRESSED | BUTTON4_CLICKED));
+          bool isScrollDown = (event.bstate & (BUTTON5_PRESSED | BUTTON5_CLICKED));
+
+          if (isScrollUp || isScrollDown) {
+            bool inPreview = false;
+            if (winPreview) {
+              int pY = 0, pX = 0, pH = 0, pW = 0;
+              getbegyx(winPreview, pY, pX);
+              getmaxyx(winPreview, pH, pW);
+              if (event.x >= pX && event.x < pX + pW && event.y >= pY && event.y < pY + pH) {
+                inPreview = true;
+              }
             }
-            needsRedraw = true;
-          } else if (event.bstate & BUTTON5_PRESSED) {
-            if (focusPinned) {
-              if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
-            } else {
-              if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+
+            bool inPinned = false;
+            if (winPinned) {
+              int piY = 0, piX = 0, piH = 0, piW = 0;
+              getbegyx(winPinned, piY, piX);
+              getmaxyx(winPinned, piH, piW);
+              if (event.x >= piX && event.x < piX + piW && event.y >= piY && event.y < piY + piH) {
+                inPinned = true;
+              }
             }
-            needsRedraw = true;
+
+            bool inCurrent = false;
+            if (winCurrent) {
+              int cY = 0, cX = 0, cH = 0, cW = 0;
+              getbegyx(winCurrent, cY, cX);
+              getmaxyx(winCurrent, cH, cW);
+              if (event.x >= cX && event.x < cX + cW && event.y >= cY && event.y < cY + cH) {
+                inCurrent = true;
+              }
+            }
+
+            if (inPreview) {
+              if (isDualPaneMode) {
+                size_t rightIdx = rightTabIndex;
+                if (activeTabIndex == rightIdx) {
+                  if (isScrollUp) {
+                    if (selectedIndex > 0) selectedIndex--;
+                  } else {
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                  }
+                } else {
+                  if (isScrollUp) {
+                    if (tabs[rightIdx].selectedIndex > 0) tabs[rightIdx].selectedIndex--;
+                  } else {
+                    if (!tabs[rightIdx].currentFiles.empty() && tabs[rightIdx].selectedIndex < tabs[rightIdx].currentFiles.size() - 1)
+                      tabs[rightIdx].selectedIndex++;
+                  }
+                }
+              } else {
+                int startLine = getPreviewContentStartLine();
+                int limit = (winPreview ? getmaxy(winPreview) : height) - startLine - 2;
+                int maxScroll = std::max(0, previewTotalLines - limit);
+
+                if (isScrollUp) {
+                  previewScrollOffset = std::max(0, previewScrollOffset - 3);
+                } else {
+                  previewScrollOffset = std::min(maxScroll, previewScrollOffset + 3);
+                }
+              }
+              needsRedraw = true;
+            } else if (inPinned) {
+              if (isScrollUp) {
+                if (pinnedIndex > 0) pinnedIndex--;
+              } else {
+                if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
+              }
+              needsRedraw = true;
+            } else if (inCurrent) {
+              if (isDualPaneMode) {
+                size_t leftIdx = leftTabIndex;
+                if (activeTabIndex == leftIdx) {
+                  if (isScrollUp) {
+                    if (selectedIndex > 0) selectedIndex--;
+                  } else {
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                  }
+                } else {
+                  if (isScrollUp) {
+                    if (tabs[leftIdx].selectedIndex > 0) tabs[leftIdx].selectedIndex--;
+                  } else {
+                    if (!tabs[leftIdx].currentFiles.empty() && tabs[leftIdx].selectedIndex < tabs[leftIdx].currentFiles.size() - 1)
+                      tabs[leftIdx].selectedIndex++;
+                  }
+                }
+              } else {
+                if (isScrollUp) {
+                  if (selectedIndex > 0) selectedIndex--;
+                } else {
+                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                }
+              }
+              needsRedraw = true;
+            } else {
+              // Fallback scroll based on focus
+              if (focusPinned) {
+                if (isScrollUp) {
+                  if (pinnedIndex > 0) pinnedIndex--;
+                } else {
+                  if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
+                }
+              } else {
+                if (isScrollUp) {
+                  if (selectedIndex > 0) selectedIndex--;
+                } else {
+                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                }
+              }
+              needsRedraw = true;
+            }
           }
         }
         continue;
@@ -6960,6 +7148,26 @@ public:
       }
       if (ch == 18 || ch == KEY_F(5)) { // Ctrl+R or F5
         handleRefresh();
+        continue;
+      }
+      if (ch == 5) { // Ctrl+E -> Scroll preview pane down
+        if (!isDualPaneMode && !hidePreview) {
+          int limit = (winPreview ? getmaxy(winPreview) : height) - getPreviewContentStartLine() - 2;
+          int maxScroll = std::max(0, previewTotalLines - limit);
+          if (previewScrollOffset < maxScroll) {
+            previewScrollOffset = std::min(maxScroll, previewScrollOffset + 3);
+            needsRedraw = true;
+          }
+        }
+        continue;
+      }
+      if (ch == 25) { // Ctrl+Y -> Scroll preview pane up
+        if (!isDualPaneMode && !hidePreview) {
+          if (previewScrollOffset > 0) {
+            previewScrollOffset = std::max(0, previewScrollOffset - 3);
+            needsRedraw = true;
+          }
+        }
         continue;
       }
       if (ch == KEY_F(2)) {

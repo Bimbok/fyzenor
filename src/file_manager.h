@@ -4978,24 +4978,31 @@ public:
       bool isCalc = false;
       if (file.is_directory) {
         if (file.path.string().find("/gvfs/") != std::string::npos) {
-          sz = "DIR";
           curSize = 0;
         } else if (curSize == SIZE_CALCULATING) {
           std::lock_guard<std::mutex> cLock(cacheMutex);
           auto it = dirSizeCache.find(file.path.string());
           if (it != dirSizeCache.end()) {
             curSize = it->second;
-            sz = formatSize(curSize);
           } else {
-            sz = "[calc...]";
             isCalc = true;
             curSize = 0;
+          }
+        }
+      }
+
+      if (paneIsDiskUsageMode || sortMode == SortMode::SIZE) {
+        if (file.is_directory) {
+          if (file.path.string().find("/gvfs/") != std::string::npos) {
+            sz = "DIR";
+          } else if (isCalc) {
+            sz = "[calc...]";
+          } else {
+            sz = formatSize(curSize);
           }
         } else {
           sz = formatSize(curSize);
         }
-      } else if (paneIsDiskUsageMode || sortMode == SortMode::SIZE) {
-        sz = formatSize(curSize);
       } else {
         sz = file.modified_time_str;
       }

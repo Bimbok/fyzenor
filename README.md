@@ -291,12 +291,13 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 * **UTF-8 Codepoint Navigation**: Codepoint-aware multi-byte Backspace, Delete, and arrow keys preventing UTF-8 character corruption.
 * **Terminal Resize Adaptation**: Prompts automatically re-center and adapt dynamically when the terminal is resized (`KEY_RESIZE`).
 
-### ✨ Dynamic Nerd Font Type Indicator & Unified Creation (`n`)
+### ✨ Dynamic Nerd Font Type & Extension Indicator (`n` & `r`)
 * **Unified Shortcut**: Press <kbd>n</kbd> to create files and directories from a single hotkey (creates a file if `name`, or a folder if `name/` ending with `/`).
-* **Real-time Type Confirmation**: As you type into the centered prompt, the bottom-right corner dynamically switches icons in real time:
-  - File icon (``) for files.
-  - Folder icon (`` / configured directory glyph) the instant `/` or `\` is appended.
-* **Active Border Accent Coloring**: Input dialog borders and active pane borders automatically adopt the theme's active accent color (`active_border` / `pin_border` in `theme.toml`).
+* **Real-time Extension & Type Confirmation**: As you type into the centered prompt, the bottom-right corner dynamically switches both glyph and syntax accent color in real time:
+  - **Dynamic File Extensions**: Generic file icon (``) dynamically switches to specific language glyphs as you type extensions (e.g. `hello.c` ➔ `` C icon, `hello.cc`/`.cpp` ➔ `` C++ icon, `hello.py` ➔ `` Python icon, `hello.rs` ➔ `` Rust icon, `hello.go` ➔ `` Go icon, `hello.zig` ➔ `` Zig icon, `hello.json` ➔ ``, `hello.sh` ➔ ``, `hello.md` ➔ ``, `hello.zip` ➔ ``, etc.).
+  - **Special Files & Configs**: Recognizes files like `Makefile` (``), `Dockerfile` (`󰡨`), `.gitignore` (``), `.bashrc`/`.zshrc` (``), etc.
+  - **Dynamic Folder Indicator**: Switches instantly to folder icon (`` / configured directory glyph) the moment `/` or `\` is appended.
+* **Active Accent Coloring**: Input dialog borders adopt the active accent color (`active_border` / `pin_border` in `theme.toml`), while dynamic type icons reflect their theme syntax colors (Core, Frontend, Config, Script, Docs).
 * **Nested Path Creation & Smart Focus**: Supports recursive paths (e.g., `nested/sub/dir/` or `sub/folder/file.txt`), automatically selecting the newly created item in the listing.
 
 ### ⚡ Robust 12GB+ Directory Size Engine
@@ -564,7 +565,7 @@ flowchart TD
 | `T`             | **Toggle Trash Manager**                             |
 | `u`             | **Undo** last move-to-trash action                   |
 | `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
-| `n`             | **Create Item** (`name` for file, `name/` for folder, with dynamic Nerd Font icon) |
+| `n`             | **Create Item** (`name` for file, `name/` for folder, with dynamic extension/type Nerd Font icon) |
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |

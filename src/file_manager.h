@@ -2712,27 +2712,56 @@ public:
     return clean;
   }
 
-  std::string getPromptTypeIcon(const std::string& input) {
+  FileStyle getPromptFileStyle(const std::string& input) {
     std::string s = input;
     while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
       s.pop_back();
     }
-    bool isDir = (!s.empty() && (s.back() == '/' || s.back() == '\\'));
-    if (isDir) {
-      if (ICON_DIR && *ICON_DIR) {
-        std::string icon = ICON_DIR;
-        while (!icon.empty() && (icon.back() == ' ' || icon.back() == '\t')) icon.pop_back();
-        if (!icon.empty() && icon != "") return icon;
-      }
-      return "\xee\x97\xbf"; //  (Nerd Font folder)
-    } else {
-      if (ICON_FILE && *ICON_FILE) {
-        std::string icon = ICON_FILE;
-        while (!icon.empty() && (icon.back() == ' ' || icon.back() == '\t')) icon.pop_back();
-        if (!icon.empty() && icon != "") return icon;
-      }
-      return "\xef\x85\x9b"; //  (Nerd Font file)
+    if (s.empty()) {
+      return {2, "\xef\x85\x9b"};
     }
+
+    bool isDir = (s.back() == '/' || s.back() == '\\');
+    if (isDir) {
+      while (!s.empty() && (s.back() == '/' || s.back() == '\\')) {
+        s.pop_back();
+      }
+      size_t slashPos = s.find_last_of("/\\");
+      std::string dirName = (slashPos != std::string::npos) ? s.substr(slashPos + 1) : s;
+      FileStyle fsStyle = getFileStyle(dirName, "", true, false);
+      return fsStyle;
+    } else {
+      size_t slashPos = s.find_last_of("/\\");
+      std::string filename = (slashPos != std::string::npos) ? s.substr(slashPos + 1) : s;
+      if (filename.empty()) {
+        return {2, "\xef\x85\x9b"};
+      }
+      fs::path p(filename);
+      std::string ext = p.extension().string();
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+      FileStyle fsStyle = getFileStyle(filename, ext, false, false);
+      return fsStyle;
+    }
+  }
+
+  std::pair<std::string, int> getPromptTypeIconAndColor(const std::string& input) {
+    FileStyle style = getPromptFileStyle(input);
+    std::string icon = style.icon ? style.icon : "";
+    while (!icon.empty() && (icon.back() == ' ' || icon.back() == '\t')) {
+      icon.pop_back();
+    }
+    if (icon.empty() || icon == "") {
+      icon = "\xef\x85\x9b"; // 
+    } else if (icon == "" || icon == "") {
+      icon = "\xee\x97\xbf"; // 
+    }
+
+    int colorPair = (style.pair > 0 && style.pair != 2) ? style.pair : 18;
+    return {icon, colorPair};
+  }
+
+  std::string getPromptTypeIcon(const std::string& input) {
+    return getPromptTypeIconAndColor(input).first;
   }
 
   std::string promptInput(const std::string& prompt, const std::string& defaultVal = "",
@@ -2788,14 +2817,25 @@ public:
       mvwaddstr(win, 2, w - 1, "╯");
 
       std::string iconToDisplay = "";
+      int iconColor = 18;
       if (dynamicTypeIcon) {
-        iconToDisplay = getPromptTypeIcon(currentInput);
+        auto [ic, col] = getPromptTypeIconAndColor(currentInput);
+        iconToDisplay = ic;
+        iconColor = col;
       } else if (!staticIcon.empty()) {
         iconToDisplay = staticIcon;
+        while (!iconToDisplay.empty() && (iconToDisplay.back() == ' ' || iconToDisplay.back() == '\t')) {
+          iconToDisplay.pop_back();
+        }
+        iconColor = 18;
       }
 
       if (!iconToDisplay.empty() && w >= 8) {
+        wattroff(win, COLOR_PAIR(18) | A_BOLD);
+        wattron(win, COLOR_PAIR(iconColor) | A_BOLD);
         mvwaddstr(win, 2, w - 3, iconToDisplay.c_str());
+        wattroff(win, COLOR_PAIR(iconColor) | A_BOLD);
+        wattron(win, COLOR_PAIR(18) | A_BOLD);
         mvwaddstr(win, 2, w - 2, " ");
         mvwaddstr(win, 2, w - 1, "╯");
       }
@@ -3520,7 +3560,7 @@ public:
 
     const auto& file = currentFiles[selectedIndex];
     std::string renameIcon = file.is_directory ? "\xee\x97\xbf" : "\xef\x85\x9b";
-    std::string newName = promptInput("Rename:", file.name, false, renameIcon);
+    std::string newName = promptInput("Rename:", file.name, !file.is_directory, renameIcon);
     if (newName.empty() || newName == file.name)
       return;
 

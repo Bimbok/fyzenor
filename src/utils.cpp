@@ -325,6 +325,11 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
   if (lowerName == "eslint.config.js" || lowerName == ".eslintrc" || lowerName == ".eslintrc.js" ||
       lowerName == ".eslintrc.json" || lowerName == ".eslintignore")
     return {25, " "};
+  if (lowerName == ".bashrc" || lowerName == ".bash_profile" || lowerName == ".bash_logout" ||
+      lowerName == ".zshrc" || lowerName == ".zshenv" || lowerName == ".zprofile")
+    return {26, " "};
+  if (lowerName == ".vimrc" || lowerName == ".nvimrc" || lowerName == "init.vim")
+    return {25, " "};
 
   if (ext == ".py" || ext == ".pyw" || ext == ".ipynb" || ext == ".pyc" || ext == ".pyd")
     return {16, " "};
@@ -332,10 +337,22 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     return {16, " "};
   if (ext == ".go")
     return {16, " "};
-  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx" || ext == ".ixx")
+  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx" || ext == ".ixx" || ext == ".c++" || ext == ".h++")
     return {16, " "};
   if (ext == ".c" || ext == ".h")
     return {16, " "};
+  if (ext == ".zig")
+    return {16, " "};
+  if (ext == ".cmake")
+    return {16, " "};
+  if (ext == ".nim")
+    return {16, " "};
+  if (ext == ".ex" || ext == ".exs")
+    return {16, " "};
+  if (ext == ".erl" || ext == ".hrl")
+    return {16, " "};
+  if (ext == ".ml" || ext == ".mli")
+    return {16, " "};
   if (ext == ".java" || ext == ".class" || ext == ".jar" || ext == ".war")
     return {16, " "};
   if (ext == ".js" || ext == ".mjs" || ext == ".cjs")

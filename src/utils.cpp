@@ -584,6 +584,7 @@ bool fuzzyMatch(const std::string& str, const std::string& query) {
 }
 
 bool isCommandAvailable(const std::string& cmd) {
+  if (cmd.empty()) return false;
   static std::unordered_map<std::string, bool> cache;
   static std::mutex cacheMutex;
 
@@ -593,9 +594,27 @@ bool isCommandAvailable(const std::string& cmd) {
     return it->second;
   }
 
-  std::string checkCmd = "which " + cmd + " > /dev/null 2>&1";
-  int res = std::system(checkCmd.c_str());
-  bool available = (res == 0);
+  bool available = false;
+  if (cmd.find('/') != std::string::npos) {
+    available = (access(cmd.c_str(), X_OK) == 0);
+  } else {
+    const char* pathEnv = getenv("PATH");
+    if (pathEnv) {
+      std::string pStr(pathEnv);
+      std::stringstream ss(pStr);
+      std::string dir;
+      while (std::getline(ss, dir, ':')) {
+        if (dir.empty()) dir = ".";
+        std::error_code ec;
+        fs::path fullPath = fs::path(dir) / cmd;
+        if (access(fullPath.c_str(), X_OK) == 0) {
+          available = true;
+          break;
+        }
+      }
+    }
+  }
+
   cache[cmd] = available;
   return available;
 }

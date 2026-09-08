@@ -231,6 +231,10 @@ int PluginManager::lua_Exec(lua_State* L) {
   if (lua_isstring(L, 1)) {
     std::string cmd = lua_tostring(L, 1);
     std::thread([cmd]() {
+      char cwdBuf[512];
+      if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
+        ::chdir("/tmp");
+      }
       int res = system(cmd.c_str());
       (void)res;
     }).detach();
@@ -248,6 +252,11 @@ int PluginManager::lua_ShellOutput(lua_State* L) {
   if (cmd.empty()) {
     lua_pushstring(L, "");
     return 1;
+  }
+
+  char cwdBuf[512];
+  if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
+    ::chdir("/tmp");
   }
 
   FILE* pipe = popen(cmd.c_str(), "r");

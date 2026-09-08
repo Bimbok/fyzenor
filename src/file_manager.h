@@ -295,6 +295,7 @@ private:
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
     }
+    syncProcessWorkingDir(currentPath);
     reloadAll();
     restoreDirCursor(preferredSelect);
   }
@@ -319,6 +320,7 @@ private:
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
     }
+    syncProcessWorkingDir(currentPath);
     reloadAll();
     restoreDirCursor();
     setStatus("Navigated back");
@@ -344,6 +346,7 @@ private:
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
     }
+    syncProcessWorkingDir(currentPath);
     reloadAll();
     restoreDirCursor();
     setStatus("Navigated forward");
@@ -1442,6 +1445,7 @@ public:
     tabs.push_back(defTab);
     activeTabIndex = 0;
 
+    syncProcessWorkingDir(currentPath);
     loadDirectory(currentPath, currentFiles);
     loadParent();
     tabs[activeTabIndex].currentFiles = currentFiles;
@@ -1548,34 +1552,31 @@ public:
   // --- Auto-Update (Inotify) Functions ---
   void initInotify() {
     inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (inotifyFd < 0) {
-      inotifyFd = inotify_init();
-    }
-    if (inotifyFd >= 0) {
-      stopInotify = false;
-      inotifyThread = std::thread(&FileManager::inotifyWorker, this);
-    }
+    inotifyFd = inotify_init1(IN_NONBLOCK);
+    if (inotifyFd < 0) return;
+    inotifyThread = std::thread(&FileManager::inotifyWorker, this);
   }
 
   void inotifyWorker() {
-    struct pollfd pfd;
-    pfd.fd = inotifyFd;
-    pfd.events = POLLIN;
-
-    char buffer[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
+    char buffer[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
 
     while (!stopInotify) {
-      int numEvents = poll(&pfd, 1, 200);
-      if (numEvents < 0) {
-        if (errno == EINTR) continue;
-        break;
-      }
-      if (numEvents == 0) continue;
+      fd_set rfds;
+      FD_ZERO(&rfds);
+      FD_SET(inotifyFd, &rfds);
 
-      if (pfd.revents & POLLIN) {
+      struct timeval tv;
+      tv.tv_sec = 0;
+      tv.tv_usec = 200000; // 200ms check for responsiveness
+
+      int ret = select(inotifyFd + 1, &rfds, nullptr, nullptr, &tv);
+      if (ret > 0 && FD_ISSET(inotifyFd, &rfds)) {
         ssize_t len = read(inotifyFd, buffer, sizeof(buffer));
-        if (len < 0 && errno != EAGAIN) {
-          break;
+        if (len <= 0) {
+          if (len < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // No data ready
+          }
+          continue;
         }
 
         bool gotFsChange = false;
@@ -1583,7 +1584,7 @@ public:
         const struct inotify_event* event;
         for (char* ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len) {
           event = reinterpret_cast<const struct inotify_event*>(ptr);
-          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB)) {
+          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) {
             bool isDevicePath = false;
             {
               std::lock_guard<std::mutex> lock(inotifyMutex);
@@ -1663,7 +1664,7 @@ public:
       try {
         if (fs::exists(path) && fs::is_directory(path)) {
           int wd = inotify_add_watch(inotifyFd, path.string().c_str(),
-                                     IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB);
+                                     IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
           if (wd >= 0) {
             watchDescriptors[wd] = path;
           }
@@ -2284,6 +2285,15 @@ public:
       if (job->reqId != requestID)
         continue;
 
+      std::error_code jobEc;
+      if (!fs::exists(job->path, jobEc))
+        continue;
+
+      char testCwdBuf[512];
+      if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
+        ::chdir("/tmp");
+      }
+
       std::string b64;
       std::vector<std::string> lines;
 
@@ -2737,6 +2747,10 @@ public:
   }
 
   std::string getSystemClipboardText() {
+    char testCwdBuf[512];
+    if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
+      ::chdir("/tmp");
+    }
     std::string cmd = "(wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || pbpaste 2>/dev/null)";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return "";
@@ -3203,6 +3217,13 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
+      char testCwdBuf[512];
+      if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
+        ::chdir("/tmp");
+      }
+      std::error_code spEc;
+      if (!fs::exists(searchPath, spEc)) return;
+
       std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" " +
                         escapeShellArg(query) + " " +
                         escapeShellArg(searchPath.string()) + " 2>/dev/null";
@@ -4398,7 +4419,122 @@ public:
     }
   }
 
+  void syncProcessWorkingDir(const fs::path& p) {
+    if (p.empty() || isTrashMode || p.string().find("trash://") == 0) {
+      const char* home = std::getenv("HOME");
+      std::error_code ec;
+      fs::path fallback = (home && fs::exists(home, ec)) ? fs::path(home) : fs::path("/");
+      ::chdir(fallback.c_str());
+      fs::current_path(fallback, ec);
+      return;
+    }
+    std::error_code ec;
+    if (fs::exists(p, ec) && fs::is_directory(p, ec)) {
+      ::chdir(p.c_str());
+      fs::current_path(p, ec);
+    } else {
+      ensureValidCurrentPath();
+    }
+  }
+
+  bool ensureValidCurrentPath() {
+    std::error_code ec;
+    bool pathChanged = false;
+
+    // 1. Recover OS process working directory immediately if it has been deleted / unlinked
+    char cwdBuf[4096];
+    if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
+      const char* home = std::getenv("HOME");
+      fs::path safeDir = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+      ::chdir(safeDir.c_str());
+      fs::current_path(safeDir, ec);
+    }
+
+    // 2. Validate all tabs to ensure their paths still exist on disk
+    for (size_t i = 0; i < tabs.size(); ++i) {
+      if (tabs[i].isTrashMode) continue;
+      if (!fs::exists(tabs[i].currentPath, ec) || !fs::is_directory(tabs[i].currentPath, ec)) {
+        fs::path validPath = tabs[i].currentPath.parent_path();
+        while (!validPath.empty() && (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) && validPath != validPath.parent_path()) {
+          validPath = validPath.parent_path();
+        }
+        if (validPath.empty() || !fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) {
+          const char* home = std::getenv("HOME");
+          validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+        }
+        tabs[i].currentPath = validPath;
+        tabs[i].selectedIndex = 0;
+        tabs[i].scrollOffset = 0;
+        tabs[i].currentFiles.clear();
+        if (i == activeTabIndex) {
+          pathChanged = true;
+        }
+      }
+    }
+
+    // 3. Validate active currentPath
+    if (!isTrashMode && (!fs::exists(currentPath, ec) || !fs::is_directory(currentPath, ec))) {
+      fs::path validPath = currentPath.parent_path();
+      while (!validPath.empty() && (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) && validPath != validPath.parent_path()) {
+        validPath = validPath.parent_path();
+      }
+      if (validPath.empty() || !fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) {
+        const char* home = std::getenv("HOME");
+        validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+      }
+      currentPath = validPath;
+      if (activeTabIndex < tabs.size()) {
+        tabs[activeTabIndex].currentPath = currentPath;
+        tabs[activeTabIndex].selectedIndex = 0;
+        tabs[activeTabIndex].scrollOffset = 0;
+      }
+      pathChanged = true;
+    }
+
+    // 4. Sync OS process current working directory
+    if (!isTrashMode && fs::exists(currentPath, ec) && fs::is_directory(currentPath, ec)) {
+      ::chdir(currentPath.c_str());
+      fs::current_path(currentPath, ec);
+    }
+
+    if (pathChanged) {
+      selectedIndex = 0;
+      scrollOffset = 0;
+      multiSelection.clear();
+
+      clearDirectRender();
+      requestID++;
+      requestedPath = "";
+      {
+        std::lock_guard<std::mutex> lock(previewMutex);
+        nextPreviewJob = nullptr;
+        cachedPath = "";
+        cachedBase64 = "";
+        cachedTextLines.clear();
+        imageReady = false;
+      }
+
+      loadDirectory(currentPath, currentFiles);
+      loadParent();
+      tabs[activeTabIndex].currentFiles = currentFiles;
+      if (isDualPaneMode) {
+        size_t inactiveIdx = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
+        if (inactiveIdx < tabs.size()) {
+          tabs[inactiveIdx].currentFiles.clear();
+        }
+      }
+      updateInotifyWatches();
+      setStatus("Current directory was removed; navigated up to " + currentPath.string());
+      clearok(curscr, TRUE);
+      redrawwin(stdscr);
+      return true;
+    }
+
+    return false;
+  }
+
   void reloadAll() {
+    if (ensureValidCurrentPath()) return;
     loadDirectory(currentPath, currentFiles);
     loadParent();
     tabs[activeTabIndex].currentFiles = currentFiles;
@@ -5288,6 +5424,10 @@ public:
 
   std::vector<DeviceInfo> detectDevices() {
     std::vector<DeviceInfo> devices;
+    char testCwdBuf[512];
+    if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
+      ::chdir("/tmp");
+    }
     FILE* pipe = popen("gio mount -li 2>/dev/null", "r");
     if (!pipe) return devices;
 
@@ -5397,6 +5537,10 @@ public:
       return;
     }
     setStatus("Mounting " + dev.name + "...");
+    char testCwdBuf1[512];
+    if (getcwd(testCwdBuf1, sizeof(testCwdBuf1)) == nullptr) {
+      ::chdir("/tmp");
+    }
     FILE* p = popen(cmd.c_str(), "r");
     if (p) {
       char buf[256];
@@ -5426,6 +5570,10 @@ public:
     }
     std::string cmd = "gio mount -u \"" + target + "\" 2>&1";
     setStatus("Unmounting " + dev.name + "...");
+    char testCwdBuf2[512];
+    if (getcwd(testCwdBuf2, sizeof(testCwdBuf2)) == nullptr) {
+      ::chdir("/tmp");
+    }
     FILE* p = popen(cmd.c_str(), "r");
     if (p) {
       char buf[256];
@@ -5928,6 +6076,13 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
+      char testCwdBuf[512];
+      if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
+        ::chdir("/tmp");
+      }
+      std::error_code spEc;
+      if (!fs::exists(searchPath, spEc)) return;
+
       std::string cmd = "find " + escapeShellArg(searchPath.string()) + " -name .git -prune -o -print 2>/dev/null";
       FILE* pipe = nullptr;
       {
@@ -7141,13 +7296,27 @@ public:
     while (true) {
       if (inotifyTriggered) {
         inotifyTriggered = false;
-        reloadAll();
+        if (!ensureValidCurrentPath()) {
+          reloadAll();
+        }
         needsRedraw = true;
       }
       if (devicesTriggered) {
         devicesTriggered = false;
-        reloadAll();
+        if (!ensureValidCurrentPath()) {
+          reloadAll();
+        }
         needsRedraw = true;
+      }
+
+      // Proactively verify current directory and process cwd existence
+      std::error_code cwdCheckEc;
+      char cwdTestBuf[512];
+      if ((!isTrashMode && (!fs::exists(currentPath, cwdCheckEc) || !fs::is_directory(currentPath, cwdCheckEc))) ||
+          (getcwd(cwdTestBuf, sizeof(cwdTestBuf)) == nullptr)) {
+        if (ensureValidCurrentPath()) {
+          needsRedraw = true;
+        }
       }
       // Check for async size updates
       {

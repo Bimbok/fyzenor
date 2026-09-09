@@ -295,6 +295,10 @@ private:
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
     }
+    multiSelection.clear();
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection.clear();
+    }
     syncProcessWorkingDir(currentPath);
     reloadAll();
     restoreDirCursor(preferredSelect);
@@ -319,6 +323,10 @@ private:
     currentPath = target;
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
+    }
+    multiSelection.clear();
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection.clear();
     }
     syncProcessWorkingDir(currentPath);
     reloadAll();
@@ -345,6 +353,10 @@ private:
     currentPath = target;
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
+    }
+    multiSelection.clear();
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection.clear();
     }
     syncProcessWorkingDir(currentPath);
     reloadAll();
@@ -2000,7 +2012,17 @@ public:
     cancelSearch();
     isSearching = false;
     target.clear();
-    multiSelection.clear();
+    for (auto it = multiSelection.begin(); it != multiSelection.end(); ) {
+      std::error_code ec;
+      if (!fs::exists(*it, ec)) {
+        it = multiSelection.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection = multiSelection;
+    }
     currentViewId++;
 
     {
@@ -3055,25 +3077,53 @@ public:
     return input;
   }
 
-  void toggleSelection() {
+  void toggleSelection(bool advance = true) {
     if (currentFiles.empty())
       return;
+    if (selectedIndex >= currentFiles.size())
+      selectedIndex = currentFiles.size() - 1;
+
     fs::path p = currentFiles[selectedIndex].path;
-    if (multiSelection.count(p))
+    bool isNowSelected = false;
+    if (multiSelection.count(p)) {
       multiSelection.erase(p);
-    else
+      isNowSelected = false;
+    } else {
       multiSelection.insert(p);
-    if (selectedIndex < currentFiles.size() - 1)
+      isNowSelected = true;
+    }
+
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection = multiSelection;
+    }
+
+    std::string actionName = isNowSelected ? "Selected" : "Deselected";
+    std::string countStr = " (" + std::to_string(multiSelection.size()) + " selected)";
+    setStatus(actionName + " " + p.filename().string() + countStr);
+
+    if (advance && selectedIndex < currentFiles.size() - 1) {
       selectedIndex++;
+      if (activeTabIndex < tabs.size()) {
+        tabs[activeTabIndex].selectedIndex = selectedIndex;
+      }
+    }
   }
+
   void selectAll() {
     for (const auto& f : currentFiles)
       multiSelection.insert(f.path);
-    setStatus("Selected all");
+    if (activeTabIndex < tabs.size()) {
+      tabs[activeTabIndex].multiSelection = multiSelection;
+    }
+    setStatus("Selected all (" + std::to_string(multiSelection.size()) + " items)");
   }
+
   void clearSelection() {
     if (!multiSelection.empty()) {
       multiSelection.clear();
+      if (activeTabIndex < tabs.size()) {
+        tabs[activeTabIndex].multiSelection.clear();
+      }
       setStatus("Cleared selection");
     } else if (!clipboard.paths.empty()) {
       clipboard.paths.clear();
@@ -5236,23 +5286,52 @@ public:
         waddstr(win, "┃");
         wattroff(win, COLOR_PAIR(6) | A_BOLD);
 
-        wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-        wprintw(win, "%s%s ", marker.c_str(), style.icon);
+        if (isMultiSelected) {
+          wattron(win, COLOR_PAIR(9) | A_BOLD);
+          wprintw(win, "%s", marker.c_str());
+          wattroff(win, COLOR_PAIR(9));
+          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+          wprintw(win, "%s ", style.icon);
+        } else {
+          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+          wprintw(win, "%s%s ", marker.c_str(), style.icon);
+        }
       } else {
-        wprintw(win, " %s%s ", marker.c_str(), style.icon);
+        if (isMultiSelected) {
+          wattron(win, COLOR_PAIR(9) | A_BOLD);
+          wprintw(win, " %s", marker.c_str());
+          wattroff(win, COLOR_PAIR(9));
+          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+          wprintw(win, "%s ", style.icon);
+        } else {
+          wprintw(win, " %s%s ", marker.c_str(), style.icon);
+        }
       }
 
       if (paneIsSearching && !dirPart.empty()) {
         if (isSelected) {
+          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s%s", dirPart.c_str(), filePart.c_str());
+          if (isMultiSelected) {
+            wattroff(win, COLOR_PAIR(9));
+            wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+          }
         } else {
           wattron(win, A_DIM);
           wprintw(win, "%s", dirPart.c_str());
           wattroff(win, A_DIM);
+          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s", filePart.c_str());
         }
       } else {
+        if (isSelected && isMultiSelected) {
+          wattron(win, COLOR_PAIR(9) | A_BOLD);
+        }
         wprintw(win, "%s", filePart.c_str());
+        if (isSelected && isMultiSelected) {
+          wattroff(win, COLOR_PAIR(9));
+          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+        }
       }
 
       if (!symDisplay.empty()) {
@@ -6176,7 +6255,7 @@ public:
       {"g / G", "Jump to top / bottom of list"},
       {"Ctrl+O / P", "Directory history back / forward"},
       {"H", "Directory history jump list"},
-      {"Space / v", "Toggle select current item"},
+      {"Space / v", "Toggle select (Space: next, v: stay)"},
       {"a", "Select all items in directory"},
       {"Esc", "Clear all selected items"},
       {"y", "Copy selected (or hovered) items"},
@@ -6193,7 +6272,7 @@ public:
       {"n", "Create file (name) or dir (name/)"},
       {"z", "Compress to zip archive"},
       {"Ctrl+D", "Drag & drop out files (ripdrag)"},
-      {"U / Space+u", "Visual disk usage (ncdu mode)"},
+      {"U", "Visual disk usage (ncdu mode)"},
       {".", "Toggle hidden (dot) files"}
     };
 
@@ -8030,22 +8109,11 @@ public:
         case 'U':
           toggleDiskUsageMode();
           break;
-        case ' ': {
-          timeout(100);
-          int nextCh = getch();
-          timeout(50);
-          if (nextCh == 'u' || nextCh == 'U') {
-            toggleDiskUsageMode();
-            break;
-          }
-          if (nextCh != ERR) {
-            ungetch(nextCh);
-          }
-          toggleSelection();
+        case ' ':
+          toggleSelection(true);
           break;
-        }
         case 'v':
-          toggleSelection();
+          toggleSelection(false);
           break;
         case 'a':
           selectAll();

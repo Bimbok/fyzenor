@@ -599,12 +599,12 @@ flowchart TD
 
 | Key            | Action                                      |
 | :------------- | :------------------------------------------ |
-| `Space` or `v` | Toggle selection of current file            |
+| `Space` / `v`  | Toggle selection (`Space` advances to next item, `v` stays on current) |
 | `a`            | Select **All** files in current directory   |
 | `Esc`          | **Clear** all active selections             |
 | `.`            | Toggle hidden files                         |
 | `s`            | Cycle sorting (**Name** $\rightarrow$ **Size** $\rightarrow$ **Date Modified**) |
-| `U` or `Space+u` | Toggle **Visual Disk Usage & Bar Graph Mode** (ncdu / gdu view with live proportional meters) |
+| `U`            | Toggle **Visual Disk Usage & Bar Graph Mode** (ncdu / gdu view with live proportional meters) |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |

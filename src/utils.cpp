@@ -77,6 +77,7 @@ std::string g_icon_music = " ";
 std::string g_icon_pin = " ";
 std::string g_icon_zip = "󰿺 ";
 std::string g_icon_link = "󰌹 ";
+std::string g_icon_selected = "✓";
 
 const char* ICON_DIR = g_icon_dir.c_str();
 const char* ICON_VIDEO = g_icon_video.c_str();
@@ -92,6 +93,7 @@ const char* ICON_MUSIC = g_icon_music.c_str();
 const char* ICON_PIN = g_icon_pin.c_str();
 const char* ICON_ZIP = g_icon_zip.c_str();
 const char* ICON_LINK = g_icon_link.c_str();
+const char* ICON_SELECTED = g_icon_selected.c_str();
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX;
@@ -726,6 +728,28 @@ void initColors() {
     }
   }
 
+  // Ensure MULTI selection foreground has sufficient luminance and contrast
+  if (colors.count("MULTI")) {
+    std::string multiHex = colors["MULTI"];
+    if (multiHex.length() >= 7 && multiHex[0] == '#') {
+      int r = 0, g = 0, b = 0;
+      if (sscanf(multiHex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        if (lum < 165.0 && lum > 0) {
+          double factor = 175.0 / lum;
+          r = std::min(255, (int)(r * factor + 0.5));
+          g = std::min(255, (int)(g * factor + 0.5));
+          b = std::min(255, (int)(b * factor + 0.5));
+          char buf[16];
+          snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
+          colors["MULTI"] = std::string(buf);
+        } else if (lum <= 0) {
+          colors["MULTI"] = "#f5e0dc";
+        }
+      }
+    }
+  }
+
   auto getC = [&](const std::string& key) -> short {
     auto it = colors.find(key);
     if (it != colors.end()) {
@@ -1019,6 +1043,7 @@ void loadConfiguration() {
       else if (key == "pin") g_icon_pin = icon_val;
       else if (key == "zip") g_icon_zip = icon_val;
       else if (key == "link") g_icon_link = icon_val;
+      else if (key == "selected") g_icon_selected = icon_val;
     } else if (section == "categories") {
       std::set<std::string> ext_set = parse_list(val);
       if (!ext_set.empty()) {
@@ -1051,6 +1076,7 @@ void loadConfiguration() {
   ICON_PIN = g_icon_pin.c_str();
   ICON_ZIP = g_icon_zip.c_str();
   ICON_LINK = g_icon_link.c_str();
+  ICON_SELECTED = g_icon_selected.c_str();
 }
 
 std::string urlDecode(const std::string& str) {

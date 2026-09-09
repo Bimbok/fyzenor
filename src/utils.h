@@ -51,6 +51,7 @@ extern const char* ICON_MUSIC;
 extern const char* ICON_PIN;
 extern const char* ICON_ZIP;
 extern const char* ICON_LINK;
+extern const char* ICON_SELECTED;
 
 extern const std::string PREVIEW_TEMP;
 extern const uintmax_t SIZE_CALCULATING;

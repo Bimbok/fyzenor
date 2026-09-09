@@ -5276,7 +5276,7 @@ public:
 
       std::string marker = " ";
       if (isMultiSelected) {
-        marker = "*";
+        marker = (ICON_SELECTED && strlen(ICON_SELECTED) > 0) ? ICON_SELECTED : "✓";
       } else if (inClipboard) {
         marker = clipboard.isCut ? "󰆐" : "󰆏";
       }
@@ -5288,49 +5288,57 @@ public:
 
         if (isMultiSelected) {
           wattron(win, COLOR_PAIR(9) | A_BOLD);
-          wprintw(win, "%s", marker.c_str());
-          wattroff(win, COLOR_PAIR(9));
-          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-          wprintw(win, "%s ", style.icon);
+          wprintw(win, "%s ", marker.c_str());
+          wattroff(win, COLOR_PAIR(9) | A_BOLD);
+        } else if (inClipboard) {
+          int clipPair = clipboard.isCut ? 8 : 28;
+          wattron(win, COLOR_PAIR(clipPair) | A_BOLD);
+          wprintw(win, "%s ", marker.c_str());
+          wattroff(win, COLOR_PAIR(clipPair) | A_BOLD);
         } else {
-          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-          wprintw(win, "%s%s ", marker.c_str(), style.icon);
+          waddstr(win, "  ");
         }
+
+        wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+        wprintw(win, "%s ", style.icon);
       } else {
         if (isMultiSelected) {
           wattron(win, COLOR_PAIR(9) | A_BOLD);
-          wprintw(win, " %s", marker.c_str());
-          wattroff(win, COLOR_PAIR(9));
-          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-          wprintw(win, "%s ", style.icon);
+          wprintw(win, " %s ", marker.c_str());
+          wattroff(win, COLOR_PAIR(9) | A_BOLD);
+        } else if (inClipboard) {
+          int clipPair = clipboard.isCut ? 8 : 28;
+          wattron(win, COLOR_PAIR(clipPair) | A_BOLD);
+          wprintw(win, " %s ", marker.c_str());
+          wattroff(win, COLOR_PAIR(clipPair) | A_BOLD);
         } else {
-          wprintw(win, " %s%s ", marker.c_str(), style.icon);
+          waddstr(win, "   ");
         }
+
+        int iconPair = isMultiSelected ? 9 : style.pair;
+        wattron(win, COLOR_PAIR(iconPair) | (isMultiSelected ? A_BOLD : A_NORMAL));
+        wprintw(win, "%s ", style.icon);
+        wattroff(win, COLOR_PAIR(iconPair) | (isMultiSelected ? A_BOLD : A_NORMAL));
       }
 
       if (paneIsSearching && !dirPart.empty()) {
         if (isSelected) {
-          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s%s", dirPart.c_str(), filePart.c_str());
-          if (isMultiSelected) {
-            wattroff(win, COLOR_PAIR(9));
-            wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
-          }
         } else {
           wattron(win, A_DIM);
           wprintw(win, "%s", dirPart.c_str());
           wattroff(win, A_DIM);
           if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s", filePart.c_str());
+          if (isMultiSelected) wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
       } else {
-        if (isSelected && isMultiSelected) {
-          wattron(win, COLOR_PAIR(9) | A_BOLD);
-        }
-        wprintw(win, "%s", filePart.c_str());
-        if (isSelected && isMultiSelected) {
-          wattroff(win, COLOR_PAIR(9));
-          wattron(win, COLOR_PAIR(finalPair) | A_BOLD);
+        if (isSelected) {
+          wprintw(win, "%s", filePart.c_str());
+        } else {
+          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
+          wprintw(win, "%s", filePart.c_str());
+          if (isMultiSelected) wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
       }
 

@@ -1069,18 +1069,18 @@ private:
 
     setStatus("Zip task started in background");
 
-    std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
-    std::string wrappedCmd = "cd " + escapeShellArg(zipDir.string()) + " && (" + zipCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
+    std::string pidFile = getSecureTaskPidPath(task->id, "zip");
+    task->pidFile = pidFile;
+    std::string wrappedCmd = "cd " + escapeShellArg(zipDir.string()) + " && (" + zipCmd + " & echo $! > " + escapeShellArg(pidFile) + "; wait $!) > /dev/null 2>&1";
 
     std::weak_ptr<AsyncTask> weakTask = task;
-    task->workerThread = std::thread([this, weakTask, wrappedCmd]() {
+    task->workerThread = std::thread([this, weakTask, wrappedCmd, pidFile]() {
       auto task = weakTask.lock();
       if (!task) return;
 
       int res = system(wrappedCmd.c_str());
       (void)res;
 
-      std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
       try { fs::remove(pidFile); } catch(...) {}
 
       task->progress = 100;
@@ -1111,18 +1111,18 @@ private:
 
     setStatus("Extraction task started in background");
 
-    std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
-    std::string wrappedCmd = "cd " + escapeShellArg(destDir.string()) + " && (" + extractCmd + " & echo $! > " + pidFile + "; wait $!) > /dev/null 2>&1";
+    std::string pidFile = getSecureTaskPidPath(task->id, "extract");
+    task->pidFile = pidFile;
+    std::string wrappedCmd = "cd " + escapeShellArg(destDir.string()) + " && (" + extractCmd + " & echo $! > " + escapeShellArg(pidFile) + "; wait $!) > /dev/null 2>&1";
 
     std::weak_ptr<AsyncTask> weakTask = task;
-    task->workerThread = std::thread([this, weakTask, wrappedCmd]() {
+    task->workerThread = std::thread([this, weakTask, wrappedCmd, pidFile]() {
       auto task = weakTask.lock();
       if (!task) return;
 
       int res = system(wrappedCmd.c_str());
       (void)res;
 
-      std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
       try { fs::remove(pidFile); } catch(...) {}
 
       task->progress = 100;
@@ -1147,13 +1147,12 @@ private:
     task->isPaused = !currentlyPaused;
     
     if (task->type == "Zip" || task->type == "Extract") {
-      std::string prefix = (task->type == "Zip") ? "zip" : "extract";
-      std::string pidFile = "/tmp/fyzenor_" + prefix + "_" + std::to_string(task->id);
+      std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
       try {
         if (fs::exists(pidFile)) {
           std::ifstream f(pidFile);
-          pid_t pid;
-          if (f >> pid) {
+          pid_t pid = 0;
+          if ((f >> pid) && pid > 1) {
             if (task->isPaused) {
               kill(pid, SIGSTOP);
             } else {
@@ -1179,13 +1178,12 @@ private:
     if (task->isPaused) {
       task->isPaused = false;
       if (task->type == "Zip" || task->type == "Extract") {
-        std::string prefix = (task->type == "Zip") ? "zip" : "extract";
-        std::string pidFile = "/tmp/fyzenor_" + prefix + "_" + std::to_string(task->id);
+        std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
         try {
           if (fs::exists(pidFile)) {
             std::ifstream f(pidFile);
-            pid_t pid;
-            if (f >> pid) {
+            pid_t pid = 0;
+            if ((f >> pid) && pid > 1) {
               kill(pid, SIGCONT);
             }
           }
@@ -1198,35 +1196,23 @@ private:
       }
     }
 
-    if (task->type == "Zip") {
-      std::string pidFile = "/tmp/fyzenor_zip_" + std::to_string(task->id);
-      std::ifstream f(pidFile);
-      if (f.is_open()) {
-        std::string pidStr;
-        if (std::getline(f, pidStr)) {
-          std::string killCmd = "kill -9 " + pidStr + " 2>/dev/null";
-          int res = system(killCmd.c_str());
-          (void)res;
+    if (task->type == "Zip" || task->type == "Extract") {
+      std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
+      try {
+        if (fs::exists(pidFile)) {
+          std::ifstream f(pidFile);
+          pid_t pid = 0;
+          if ((f >> pid) && pid > 1) {
+            kill(pid, SIGKILL);
+          }
+          f.close();
         }
-        f.close();
-      }
+      } catch (...) {}
       try { fs::remove(pidFile); } catch(...) {}
-      if (!task->destPath.empty()) {
+
+      if (task->type == "Zip" && !task->destPath.empty()) {
         try { fs::remove(task->destPath); } catch(...) {}
       }
-    } else if (task->type == "Extract") {
-      std::string pidFile = "/tmp/fyzenor_extract_" + std::to_string(task->id);
-      std::ifstream f(pidFile);
-      if (f.is_open()) {
-        std::string pidStr;
-        if (std::getline(f, pidStr)) {
-          std::string killCmd = "kill -9 " + pidStr + " 2>/dev/null";
-          int res = system(killCmd.c_str());
-          (void)res;
-        }
-        f.close();
-      }
-      try { fs::remove(pidFile); } catch(...) {}
     }
   }
 
@@ -1507,7 +1493,7 @@ public:
       }
     }
     if (pipeToClose) {
-      fclose(pipeToClose);
+      pclose(pipeToClose);
     }
     if (searchThread.joinable()) {
       searchThread.join();
@@ -2341,7 +2327,7 @@ public:
         if (job->reqId != requestID)
           continue;
 
-        if (cachePath == "/tmp/fm_preview_thumb.png") {
+        if (cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
           try {
             fs::remove(cachePath);
           } catch (...) {}
@@ -3658,7 +3644,8 @@ public:
         return a.filename().string() < b.filename().string();
       });
 
-      fs::path tempFile = "/tmp/fyzenor_bulk_rename.txt";
+      fs::path tempFile = fs::path(getSecureRuntimeDir()) / "bulk_rename.txt";
+      unlink(tempFile.c_str());
       std::ofstream out(tempFile);
       if (!out.is_open()) {
         setStatus("Error: Failed to create temp file for rename");

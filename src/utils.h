@@ -92,5 +92,7 @@ void initColors();
 bool isCommandAvailable(const std::string& cmd);
 std::string urlDecode(const std::string& str);
 std::vector<fs::path> parsePastedPaths(const std::string& data);
+std::string getSecureRuntimeDir();
+std::string getSecureTaskPidPath(int taskId, const std::string& prefix);
 
 #endif // UTILS_H

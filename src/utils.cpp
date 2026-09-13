@@ -124,7 +124,7 @@ std::string getCachePath(const fs::path& p, int w, int h) {
   }
 
   if (pStr.find("Trash/files/") != std::string::npos || pStr.find(".Trash-") != std::string::npos) {
-    return "/tmp/fm_preview_thumb.png";
+    return (fs::path(getCacheDir()) / "thumb.png").string();
   }
 
   uintmax_t mtime = 0;
@@ -146,8 +146,46 @@ std::string getCachePath(const fs::path& p, int w, int h) {
     snprintf(hex, sizeof(hex), "%lx", hash);
     return (fs::path(getCacheDir()) / (std::string(hex) + ".png")).string();
   } catch (...) {
-    return "/tmp/fm_preview_thumb.png";
+    return (fs::path(getCacheDir()) / "thumb.png").string();
   }
+}
+
+std::string getSecureRuntimeDir() {
+  const char* xdg = getenv("XDG_RUNTIME_DIR");
+  std::string baseDir;
+  if (xdg && *xdg) {
+    baseDir = std::string(xdg) + "/fyzenor";
+  } else {
+    baseDir = "/tmp/fyzenor-" + std::to_string(getuid());
+  }
+
+  struct stat st;
+  if (lstat(baseDir.c_str(), &st) == 0) {
+    if (S_ISLNK(st.st_mode)) {
+      unlink(baseDir.c_str());
+      mkdir(baseDir.c_str(), 0700);
+    } else if (!S_ISDIR(st.st_mode) || st.st_uid != getuid()) {
+      const char* home = getenv("HOME");
+      if (home && *home) {
+        baseDir = std::string(home) + "/.cache/fyzenor/run";
+      } else {
+        baseDir = "/tmp/fyzenor-safe-" + std::to_string(getuid());
+      }
+      mkdir(baseDir.c_str(), 0700);
+    } else {
+      chmod(baseDir.c_str(), 0700);
+    }
+  } else {
+    mkdir(baseDir.c_str(), 0700);
+  }
+  return baseDir;
+}
+
+std::string getSecureTaskPidPath(int taskId, const std::string& prefix) {
+  std::string dir = getSecureRuntimeDir();
+  std::string filePath = dir + "/" + prefix + "_" + std::to_string(taskId) + ".pid";
+  unlink(filePath.c_str());
+  return filePath;
 }
 
 size_t utf8_length(const std::string& str) {

@@ -28,6 +28,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <ctime>
 #include <signal.h>
@@ -133,6 +134,8 @@ private:
   int previewTotalLines = 0;
   std::string lastPreviewScrolledPath = "";
   PluginManager pluginManager;
+  std::thread::id mainThreadId;
+  std::mutex statusMutex;
 
   struct PreviewJob {
     std::string path;
@@ -267,17 +270,28 @@ private:
 
   uint64_t getDirectorySize(const fs::path& dir) {
     uint64_t size = 0;
-    try {
-      for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
-        if (fs::is_regular_file(entry.status())) {
-          size += fs::file_size(entry);
+    std::error_code ec;
+    auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+    auto end = fs::recursive_directory_iterator();
+    while (it != end && !ec) {
+      std::error_code entryEc;
+      if (fs::is_regular_file(it->status(entryEc))) {
+        uintmax_t fsize = fs::file_size(it->path(), entryEc);
+        if (!entryEc && fsize != static_cast<uintmax_t>(-1)) {
+          size += fsize;
         }
       }
-    } catch (...) {}
+      it.increment(ec);
+    }
     return size;
   }
 
   void changeDirectory(const fs::path& target, bool recordHistory = true, const fs::path& preferredSelect = "") {
+    std::error_code dirEc;
+    if (!fs::is_directory(target, dirEc)) {
+      setStatus("Not a directory: " + target.string());
+      return;
+    }
     if (currentPath == target) return;
     clearDirectRender();
     saveCurrentDirCursor();
@@ -1406,10 +1420,15 @@ private:
   }
 
 public:
+  bool isMainThread() const {
+    return std::this_thread::get_id() == mainThreadId;
+  }
+
   FileManager()
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr), previewScrollOffset(0), previewDirTotalEntries(0),
         previewTotalLines(0), lastPreviewScrolledPath("") {
+    mainThreadId = std::this_thread::get_id();
     showHidden = configShowHidden;
     hidePreview = configHidePreview;
     hideParent = configHideParent;
@@ -1446,6 +1465,7 @@ public:
     defTab.multiSelection = {};
     tabs.push_back(defTab);
     activeTabIndex = 0;
+    mainThreadId = std::this_thread::get_id();
 
     syncProcessWorkingDir(currentPath);
     loadDirectory(currentPath, currentFiles);
@@ -1555,7 +1575,6 @@ public:
   // --- Auto-Update (Inotify) Functions ---
   void initInotify() {
     inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    inotifyFd = inotify_init1(IN_NONBLOCK);
     if (inotifyFd < 0) return;
     inotifyThread = std::thread(&FileManager::inotifyWorker, this);
   }
@@ -1584,9 +1603,12 @@ public:
 
         bool gotFsChange = false;
         bool gotDeviceChange = false;
-        const struct inotify_event* event;
-        for (char* ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len) {
-          event = reinterpret_cast<const struct inotify_event*>(ptr);
+        char* ptr = buffer;
+        while (ptr + sizeof(struct inotify_event) <= buffer + len) {
+          const auto* event = reinterpret_cast<const struct inotify_event*>(ptr);
+          size_t eventSize = sizeof(struct inotify_event) + event->len;
+          if (ptr + eventSize > buffer + len) break;
+
           if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) {
             bool isDevicePath = false;
             {
@@ -1605,6 +1627,7 @@ public:
               gotFsChange = true;
             }
           }
+          ptr += eventSize;
         }
 
         if (gotFsChange) {
@@ -2028,12 +2051,15 @@ public:
       if (isTrashMode) {
         std::vector<fs::path> trashDirs = getAllTrashFilesPaths();
         for (const auto& trashDir : trashDirs) {
-          if (fs::exists(trashDir) && fs::is_directory(trashDir)) {
-            for (const auto& entry : fs::directory_iterator(trashDir)) {
-              if (!showHidden && entry.path().filename().string().front() == '.')
+          std::error_code tEc;
+          if (fs::exists(trashDir, tEc) && fs::is_directory(trashDir, tEc)) {
+            for (auto it = fs::directory_iterator(trashDir, fs::directory_options::skip_permission_denied, tEc); it != fs::directory_iterator(); it.increment(tEc)) {
+              if (tEc) break;
+              std::string fn = it->path().filename().string();
+              if (!showHidden && !fn.empty() && fn.front() == '.')
                 continue;
-              FileEntry fe(entry);
-              TrashInfo ti = getTrashInfo(entry.path());
+              FileEntry fe(*it);
+              TrashInfo ti = getTrashInfo(it->path());
               if (!ti.originalPath.empty()) {
                 fe.name = fs::path(ti.originalPath).filename().string();
                 fe.extension = fs::path(ti.originalPath).extension().string();
@@ -2043,10 +2069,13 @@ public:
           }
         }
       } else {
-        for (const auto& entry : fs::directory_iterator(path)) {
-          if (!showHidden && entry.path().filename().string().front() == '.')
+        std::error_code dirEc;
+        for (auto it = fs::directory_iterator(path, fs::directory_options::skip_permission_denied, dirEc); it != fs::directory_iterator(); it.increment(dirEc)) {
+          if (dirEc) break;
+          std::string fn = it->path().filename().string();
+          if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
-          target.emplace_back(entry);
+          target.emplace_back(*it);
         }
       }
     } catch (const std::exception& e) {
@@ -2135,10 +2164,13 @@ public:
     if (currentPath.has_parent_path() && currentPath != currentPath.parent_path()) {
       parentFiles.clear();
       try {
-        for (const auto& entry : fs::directory_iterator(currentPath.parent_path())) {
-          if (!showHidden && entry.path().filename().string().front() == '.')
+        std::error_code pEc;
+        for (auto it = fs::directory_iterator(currentPath.parent_path(), fs::directory_options::skip_permission_denied, pEc); it != fs::directory_iterator(); it.increment(pEc)) {
+          if (pEc) break;
+          std::string fn = it->path().filename().string();
+          if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
-          parentFiles.emplace_back(entry);
+          parentFiles.emplace_back(*it);
         }
       } catch (...) {
       }
@@ -2735,21 +2767,27 @@ public:
   // ----------------------------
 
   void setStatus(const std::string& msg) {
+    std::lock_guard<std::mutex> lock(statusMutex);
     statusMessage = msg;
     statusTime = std::chrono::steady_clock::now();
   }
 
   void drawStatusToast() {
-    if (statusMessage.empty())
-      return;
+    std::string msg;
+    {
+      std::lock_guard<std::mutex> lock(statusMutex);
+      if (statusMessage.empty())
+        return;
 
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
-      statusMessage = "";
-      return;
+      auto now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
+        statusMessage = "";
+        return;
+      }
+      msg = statusMessage;
     }
 
-    int w = statusMessage.length() + 4;
+    int w = msg.length() + 4;
     if (w > width - 4) {
       w = width - 4;
     }
@@ -2769,15 +2807,15 @@ public:
     WINDOW* toastWin = newwin(h, w, y, x);
     if (!toastWin) return;
 
-    bool isError = statusMessage.find("Failed") != std::string::npos ||
-                   statusMessage.find("Error") != std::string::npos;
+    bool isError = msg.find("Failed") != std::string::npos ||
+                   msg.find("Error") != std::string::npos;
     int colorPair = isError ? 8 : 7;
 
     wattron(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
     drawRoundedBox(toastWin);
     wattroff(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
 
-    std::string dispMsg = statusMessage;
+    std::string dispMsg = msg;
     if ((int)dispMsg.length() > w - 4) {
       int limit = w - 7;
       if (limit < 1) limit = 1;
@@ -2790,10 +2828,6 @@ public:
   }
 
   std::string getSystemClipboardText() {
-    char testCwdBuf[512];
-    if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
-      ::chdir("/tmp");
-    }
     std::string cmd = "(wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || pbpaste 2>/dev/null)";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return "";
@@ -3288,10 +3322,6 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
-      char testCwdBuf[512];
-      if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
-        ::chdir("/tmp");
-      }
       std::error_code spEc;
       if (!fs::exists(searchPath, spEc)) return;
 
@@ -3398,8 +3428,13 @@ public:
     multiSelection.clear();
   }
 
+  bool pathExists(const fs::path& p) const {
+    std::error_code ec;
+    return fs::symlink_status(p, ec).type() != fs::file_type::not_found;
+  }
+
   fs::path getNonConflictingPath(const fs::path& base) {
-    if (!fs::exists(base))
+    if (!pathExists(base))
       return base;
     fs::path parent = base.parent_path();
     std::string stem = base.stem().string();
@@ -3407,7 +3442,7 @@ public:
     int counter = 1;
     while (true) {
       fs::path newPath = parent / (stem + "_" + std::to_string(counter) + ext);
-      if (!fs::exists(newPath))
+      if (!pathExists(newPath))
         return newPath;
       counter++;
     }
@@ -3427,7 +3462,7 @@ public:
         setStatus("Error: Cannot copy directory into itself");
         continue;
       }
-      if (fs::exists(dest)) {
+      if (pathExists(dest)) {
         if (clipboard.isCut && src == dest) {
           continue;
         }
@@ -3446,6 +3481,11 @@ public:
           if (src == dest) {
             jobs.push_back({src, dest});
             continue;
+          }
+          std::error_code sec;
+          auto st = fs::symlink_status(dest, sec);
+          if (fs::is_symlink(st) || (fs::is_directory(src) != fs::is_directory(dest, sec))) {
+            fs::remove_all(dest, sec);
           }
           jobs.push_back({src, dest});
         } else if (choice == 'k') {
@@ -3477,7 +3517,7 @@ public:
 
     for (const auto& src : clipboard.paths) {
       fs::path dest = currentPath / src.filename();
-      if (fs::exists(dest)) {
+      if (pathExists(dest)) {
         std::string filename = src.filename().string();
         if (filename.length() > 30) {
           filename = utf8_safe_truncate(filename, 27);
@@ -3490,9 +3530,9 @@ public:
         }
         
         if (choice == 'r') {
-          try {
-            fs::remove_all(dest);
-          } catch (...) {
+          std::error_code rec;
+          fs::remove_all(dest, rec);
+          if (rec) {
             setStatus("Error: Failed to replace " + dest.filename().string());
             continue;
           }
@@ -3595,12 +3635,13 @@ public:
       }
 
       setStatus("Shell task started in background");
+      fs::path commandDir = currentPath;
       std::weak_ptr<AsyncTask> weakTask = task;
-      task->workerThread = std::thread([this, weakTask, finalCmd]() {
+      task->workerThread = std::thread([this, weakTask, finalCmd, commandDir]() {
         auto task = weakTask.lock();
         if (!task) return;
 
-        std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && (" + finalCmd + ") > /dev/null 2>&1";
+        std::string runCmd = "cd " + escapeShellArg(commandDir.string()) + " && (" + finalCmd + ") > /dev/null 2>&1";
         int res = system(runCmd.c_str());
         
         task->isFinished = true;
@@ -3702,6 +3743,26 @@ public:
 
       int successCount = 0;
       int failCount = 0;
+
+      struct BulkRenameOp {
+        fs::path src;
+        fs::path dest;
+        fs::path tmp;
+      };
+
+      std::vector<BulkRenameOp> ops;
+      std::unordered_set<std::string> srcSet;
+      std::unordered_set<std::string> destSet;
+
+      for (size_t idx = 0; idx < selectedPaths.size(); ++idx) {
+        fs::path src = selectedPaths[idx];
+        std::string newName = newNames[idx];
+        if (newName.empty() || newName == src.filename().string()) {
+          continue;
+        }
+        srcSet.insert(src.string());
+      }
+
       for (size_t idx = 0; idx < selectedPaths.size(); ++idx) {
         fs::path src = selectedPaths[idx];
         std::string newName = newNames[idx];
@@ -3709,14 +3770,46 @@ public:
           continue;
         }
         fs::path dest = src.parent_path() / newName;
-        if (fs::exists(dest)) {
+
+        // Destination collision within the same batch
+        if (destSet.count(dest.string())) {
           failCount++;
           continue;
         }
-        try {
-          fs::rename(src, dest);
+
+        // If dest already exists on disk and is NOT one of the files being renamed in this batch
+        if (!srcSet.count(dest.string()) && pathExists(dest)) {
+          failCount++;
+          continue;
+        }
+
+        destSet.insert(dest.string());
+        fs::path tmp = src.parent_path() / (".fy_bulk_" + std::to_string(getpid()) + "_" + std::to_string(idx) + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        ops.push_back({src, dest, tmp});
+      }
+
+      // Phase 1: Rename src to unique temp
+      std::vector<BulkRenameOp> movedToTmp;
+      for (auto& op : ops) {
+        std::error_code ec;
+        fs::rename(op.src, op.tmp, ec);
+        if (ec) {
+          failCount++;
+        } else {
+          movedToTmp.push_back(op);
+        }
+      }
+
+      // Phase 2: Rename temp to dest
+      for (auto& op : movedToTmp) {
+        std::error_code ec;
+        fs::rename(op.tmp, op.dest, ec);
+        if (!ec) {
           successCount++;
-        } catch (...) {
+        } else {
+          // Attempt rollback
+          std::error_code rbEc;
+          fs::rename(op.tmp, op.src, rbEc);
           failCount++;
         }
       }
@@ -3739,7 +3832,7 @@ public:
       return;
 
     fs::path target = currentPath / newName;
-    if (target != file.path && fs::exists(target)) {
+    if (target != file.path && pathExists(target)) {
       setStatus(file.is_directory ? "Error: Folder already exists!" : "Error: File already exists!");
       return;
     }
@@ -4238,8 +4331,11 @@ public:
 
         std::time_t now = std::time(nullptr);
         char buf[100];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::localtime(&now));
-        out << "DeletionDate=" << buf << "\n";
+        std::tm ltime{};
+        if (localtime_r(&now, &ltime) != nullptr) {
+          std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &ltime);
+          out << "DeletionDate=" << buf << "\n";
+        }
         out.close();
       }
       return true;
@@ -4614,6 +4710,15 @@ public:
       size_t inactiveIdx = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
       if (inactiveIdx < tabs.size()) {
         tabs[inactiveIdx].currentFiles.clear();
+      }
+    }
+    {
+      std::lock_guard<std::mutex> lock(cacheMutex);
+      dirSizeCache.erase(currentPath.string());
+      for (const auto& f : currentFiles) {
+        if (f.is_directory) {
+          dirSizeCache.erase(f.path.string());
+        }
       }
     }
     updateInotifyWatches();
@@ -5007,8 +5112,9 @@ public:
     if (tabs[inactiveIdx].currentFiles.empty()) {
       try {
         std::vector<FileEntry> tempFiles;
-        for (const auto& entry : fs::directory_iterator(tabs[inactiveIdx].currentPath)) {
-          if (!showHidden && entry.path().filename().string().front() == '.')
+        for (const auto& entry : fs::directory_iterator(tabs[inactiveIdx].currentPath, fs::directory_options::skip_permission_denied)) {
+          std::string fn = entry.path().filename().string();
+          if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
           tempFiles.emplace_back(entry);
         }
@@ -5537,10 +5643,6 @@ public:
 
   std::vector<DeviceInfo> detectDevices() {
     std::vector<DeviceInfo> devices;
-    char testCwdBuf[512];
-    if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
-      ::chdir("/tmp");
-    }
     FILE* pipe = popen("gio mount -li 2>/dev/null", "r");
     if (!pipe) return devices;
 
@@ -5650,10 +5752,6 @@ public:
       return;
     }
     setStatus("Mounting " + dev.name + "...");
-    char testCwdBuf1[512];
-    if (getcwd(testCwdBuf1, sizeof(testCwdBuf1)) == nullptr) {
-      ::chdir("/tmp");
-    }
     FILE* p = popen(cmd.c_str(), "r");
     if (p) {
       char buf[256];
@@ -5683,10 +5781,6 @@ public:
     }
     std::string cmd = "gio mount -u \"" + target + "\" 2>&1";
     setStatus("Unmounting " + dev.name + "...");
-    char testCwdBuf2[512];
-    if (getcwd(testCwdBuf2, sizeof(testCwdBuf2)) == nullptr) {
-      ::chdir("/tmp");
-    }
     FILE* p = popen(cmd.c_str(), "r");
     if (p) {
       char buf[256];
@@ -6045,10 +6139,10 @@ public:
     }
 
     auto formatTime = [](time_t t) -> std::string {
-      struct tm* ltime = std::localtime(&t);
-      if (!ltime) return "Unknown";
+      struct tm ltime{};
+      if (localtime_r(&t, &ltime) == nullptr) return "Unknown";
       char buffer[64];
-      std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", ltime);
+      std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", &ltime);
       return std::string(buffer);
     };
 
@@ -6189,10 +6283,6 @@ public:
     long long reqId = searchRequestID;
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
-      char testCwdBuf[512];
-      if (getcwd(testCwdBuf, sizeof(testCwdBuf)) == nullptr) {
-        ::chdir("/tmp");
-      }
       std::error_code spEc;
       if (!fs::exists(searchPath, spEc)) return;
 
@@ -7110,8 +7200,9 @@ public:
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
         std::vector<fs::directory_entry> subEntries;
-        for (const auto& entry : fs::directory_iterator(file.path)) {
-          if (!showHidden && entry.path().filename().string().front() == '.')
+        for (const auto& entry : fs::directory_iterator(file.path, fs::directory_options::skip_permission_denied)) {
+          std::string fn = entry.path().filename().string();
+          if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
           subEntries.push_back(entry);
         }
@@ -7920,11 +8011,14 @@ public:
       }
       if (ch == ERR) {
         bool statusTimedOut = false;
-        if (!statusMessage.empty()) {
-          auto now = std::chrono::steady_clock::now();
-          if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
-            statusMessage = "";
-            statusTimedOut = true;
+        {
+          std::lock_guard<std::mutex> lock(statusMutex);
+          if (!statusMessage.empty()) {
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
+              statusMessage = "";
+              statusTimedOut = true;
+            }
           }
         }
         if (imageReady || searchReady || statusTimedOut) {
@@ -7936,6 +8030,7 @@ public:
       }
       needsRedraw = true;
       if (ch != ERR) {
+        std::lock_guard<std::mutex> lock(statusMutex);
         statusMessage = "";
       }
 

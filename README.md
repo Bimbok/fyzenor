@@ -18,7 +18,7 @@
 [![Ghostty](https://img.shields.io/badge/Terminal-Ghostty-black?style=flat&logo=ghostery&logoColor=white)](https://ghostty.org/)
 [![WezTerm](https://img.shields.io/badge/Terminal-WezTerm-4e2a84?style=flat&logo=wezterm&logoColor=white)](https://wezfurlong.org/wezterm/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-4.3.0--beta.1-purple?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.3.0--beta.2-purple?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer

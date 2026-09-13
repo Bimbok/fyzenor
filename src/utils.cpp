@@ -123,10 +123,6 @@ std::string getCachePath(const fs::path& p, int w, int h) {
     return pStr;
   }
 
-  if (pStr.find("Trash/files/") != std::string::npos || pStr.find(".Trash-") != std::string::npos) {
-    return (fs::path(getCacheDir()) / "thumb.png").string();
-  }
-
   uintmax_t mtime = 0;
   try {
     mtime = fs::last_write_time(p).time_since_epoch().count();
@@ -163,7 +159,9 @@ std::string getSecureRuntimeDir() {
   if (lstat(baseDir.c_str(), &st) == 0) {
     if (S_ISLNK(st.st_mode)) {
       unlink(baseDir.c_str());
-      mkdir(baseDir.c_str(), 0700);
+      std::error_code ec;
+      fs::create_directories(baseDir, ec);
+      chmod(baseDir.c_str(), 0700);
     } else if (!S_ISDIR(st.st_mode) || st.st_uid != getuid()) {
       const char* home = getenv("HOME");
       if (home && *home) {
@@ -171,12 +169,16 @@ std::string getSecureRuntimeDir() {
       } else {
         baseDir = "/tmp/fyzenor-safe-" + std::to_string(getuid());
       }
-      mkdir(baseDir.c_str(), 0700);
+      std::error_code ec;
+      fs::create_directories(baseDir, ec);
+      chmod(baseDir.c_str(), 0700);
     } else {
       chmod(baseDir.c_str(), 0700);
     }
   } else {
-    mkdir(baseDir.c_str(), 0700);
+    std::error_code ec;
+    fs::create_directories(baseDir, ec);
+    chmod(baseDir.c_str(), 0700);
   }
   return baseDir;
 }
@@ -188,19 +190,31 @@ std::string getSecureTaskPidPath(int taskId, const std::string& prefix) {
   return filePath;
 }
 
+static size_t get_utf8_char_length(const std::string& str, size_t i) {
+  if (i >= str.length()) return 0;
+  unsigned char c = static_cast<unsigned char>(str[i]);
+  if (c < 0x80) return 1;
+  size_t char_len = 1;
+  if ((c & 0xE0) == 0xC0) char_len = 2;
+  else if ((c & 0xF0) == 0xE0) char_len = 3;
+  else if ((c & 0xF8) == 0xF0) char_len = 4;
+  else return 1;
+
+  if (i + char_len > str.length()) return 1;
+  for (size_t k = 1; k < char_len; ++k) {
+    if ((static_cast<unsigned char>(str[i + k]) & 0xC0) != 0x80) {
+      return 1;
+    }
+  }
+  return char_len;
+}
+
 size_t utf8_length(const std::string& str) {
   size_t len = 0;
   size_t i = 0;
   while (i < str.length()) {
-    unsigned char c = str[i];
-    size_t char_len = 1;
-    if (c >= 0xf0)
-      char_len = 4;
-    else if (c >= 0xe0)
-      char_len = 3;
-    else if (c >= 0xc0)
-      char_len = 2;
-    i += char_len;
+    size_t char_len = get_utf8_char_length(str, i);
+    i += (char_len > 0 ? char_len : 1);
     len++;
   }
   return len;
@@ -210,15 +224,8 @@ std::string utf8_safe_truncate(const std::string& str, size_t max_cols) {
   size_t cols = 0;
   size_t bytes = 0;
   while (bytes < str.length() && cols < max_cols) {
-    unsigned char c = str[bytes];
-    size_t char_len = 1;
-    if (c >= 0xf0)
-      char_len = 4;
-    else if (c >= 0xe0)
-      char_len = 3;
-    else if (c >= 0xc0)
-      char_len = 2;
-    if (bytes + char_len > str.length()) {
+    size_t char_len = get_utf8_char_length(str, bytes);
+    if (char_len == 0 || bytes + char_len > str.length()) {
       break;
     }
     cols++;
@@ -240,7 +247,7 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   while (bytes > 0 && cols < max_cols) {
     size_t char_len = 1;
     while (char_len <= bytes) {
-      unsigned char c = str[bytes - char_len];
+      unsigned char c = static_cast<unsigned char>(str[bytes - char_len]);
       if ((c & 0xC0) != 0x80) {
         break;
       }
@@ -566,10 +573,13 @@ std::string getFileModifiedTime(const fs::path& path) {
     auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
         ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
-    std::tm* ltime = std::localtime(&ctime);
-    char buffer[64];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", ltime);
-    return std::string(buffer);
+    std::tm ltime{};
+    if (localtime_r(&ctime, &ltime) != nullptr) {
+      char buffer[64];
+      std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", &ltime);
+      return std::string(buffer);
+    }
+    return "Unknown";
   } catch (...) {
     return "Unknown";
   }

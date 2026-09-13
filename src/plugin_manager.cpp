@@ -230,12 +230,10 @@ int PluginManager::lua_Exec(lua_State* L) {
 
   if (lua_isstring(L, 1)) {
     std::string cmd = lua_tostring(L, 1);
-    std::thread([cmd]() {
-      char cwdBuf[512];
-      if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
-        ::chdir("/tmp");
-      }
-      int res = system(cmd.c_str());
+    std::string currentDir = pm->fileManager->currentPath.string();
+    std::thread([cmd, currentDir]() {
+      std::string wrapped = "cd " + escapeShellArg(currentDir) + " && (" + cmd + ")";
+      int res = system(wrapped.c_str());
       (void)res;
     }).detach();
   }
@@ -243,6 +241,7 @@ int PluginManager::lua_Exec(lua_State* L) {
 }
 
 int PluginManager::lua_ShellOutput(lua_State* L) {
+  PluginManager* pm = getPM(L);
   if (!lua_isstring(L, 1)) {
     lua_pushnil(L);
     return 1;
@@ -254,12 +253,10 @@ int PluginManager::lua_ShellOutput(lua_State* L) {
     return 1;
   }
 
-  char cwdBuf[512];
-  if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
-    ::chdir("/tmp");
-  }
+  std::string currentDir = (pm && pm->fileManager) ? pm->fileManager->currentPath.string() : "";
+  std::string wrappedCmd = currentDir.empty() ? cmd : ("cd " + escapeShellArg(currentDir) + " && (" + cmd + ")");
 
-  FILE* pipe = popen(cmd.c_str(), "r");
+  FILE* pipe = popen(wrappedCmd.c_str(), "r");
   if (!pipe) {
     lua_pushnil(L);
     return 1;
@@ -288,6 +285,7 @@ int PluginManager::lua_ShellOutput(lua_State* L) {
 int PluginManager::lua_Reload(lua_State* L) {
   PluginManager* pm = getPM(L);
   if (!pm || !pm->fileManager) return 0;
+  if (!pm->fileManager->isMainThread()) return 0;
 
   pm->fileManager->reloadAll();
   return 0;
@@ -438,7 +436,7 @@ std::string PluginManager::runCustomPreviewer(const std::string& ext, const std:
 
 int PluginManager::lua_Prompt(lua_State* L) {
   PluginManager* pm = getPM(L);
-  if (!pm || !pm->fileManager) {
+  if (!pm || !pm->fileManager || !pm->fileManager->isMainThread()) {
     lua_pushnil(L);
     return 1;
   }
@@ -453,7 +451,7 @@ int PluginManager::lua_Prompt(lua_State* L) {
 
 int PluginManager::lua_ChangeDirectory(lua_State* L) {
   PluginManager* pm = getPM(L);
-  if (!pm || !pm->fileManager) return 0;
+  if (!pm || !pm->fileManager || !pm->fileManager->isMainThread()) return 0;
 
   if (lua_isstring(L, 1)) {
     std::string pathStr = lua_tostring(L, 1);

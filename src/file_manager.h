@@ -127,6 +127,7 @@ private:
   std::string requestedPath;
   long long requestID = 0;
   bool lastWasDirectRender = false;
+  std::string lastDrawnPath = "";
   int previewScrollOffset = 0;
   int previewDirTotalEntries = 0;
   int previewTotalLines = 0;
@@ -1487,8 +1488,9 @@ public:
   }
 
   void clearDirectRender() {
-    std::cout << "\033_Ga=d,q=2\033\\" << std::flush;
+    std::cout << "\033_Ga=d,d=A,q=2\033\\" << std::flush;
     lastWasDirectRender = false;
+    lastDrawnPath = "";
   }
 
   void cancelSearch() {
@@ -1557,7 +1559,7 @@ public:
     if (winPreview)
       delwin(winPreview);
     clearDirectRender();
-    std::cout << "\033[?2004l" << std::flush;
+    std::cout << "\033[?2026l\033[?2004l" << std::flush;
     endwin();
   }
 
@@ -2165,7 +2167,7 @@ public:
 
   void suspendTerminal() {
     clearDirectRender();
-    std::cout << "\033[?2004l" << std::flush;
+    std::cout << "\033[?2026l\033[?2004l" << std::flush;
     def_prog_mode();
     endwin();
   }
@@ -2364,6 +2366,14 @@ public:
           continue;
 
         if (!fs::exists(cachePath)) {
+          std::lock_guard<std::mutex> lock(previewMutex);
+          if (job->reqId == requestID) {
+            sessionImageCache[job->path] = {"", 0, 0};
+            sessionImageCacheKeys.push_back(job->path);
+            cachedPath = job->path;
+            cachedBase64 = "";
+            imageReady = true;
+          }
           continue;
         }
 
@@ -2637,12 +2647,12 @@ public:
       bool isLast = (offset + chunkLen >= total);
       std::cout << "\033_G";
       if (offset == 0) {
-        // a=T: transmit and display, f=100: PNG, t=d: direct
+        // a=T: transmit and display, f=100: PNG, t=d: direct, i=1: image id 1, q=2: quiet
         // c, r: scale image to fit these columns and rows
-        std::cout << "a=T,f=100,t=d,q=2,c=" << cols << ",r=" << rows << ",";
+        std::cout << "a=T,f=100,t=d,i=1,q=2,c=" << cols << ",r=" << rows << ",";
       }
       std::cout << "m=" << (isLast ? "0" : "1") << ";";
-      std::cout << b64Data.substr(offset, chunkLen);
+      std::cout.write(b64Data.data() + offset, chunkLen);
       std::cout << "\033\\";
       offset += chunkLen;
     }
@@ -2672,6 +2682,7 @@ public:
 
       sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY, imgStartRow);
       lastWasDirectRender = true;
+      lastDrawnPath = cachedPath;
     }
   }
 
@@ -6844,7 +6855,8 @@ public:
       return;
     }
 
-    bool samePathAndImage = false;
+    bool isSameImageAlreadyDrawn = false;
+    bool isNextImageOrVideo = false;
     if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
       const auto& nextFile = currentFiles[selectedIndex];
       std::string extLower = nextFile.extension;
@@ -6862,15 +6874,37 @@ public:
       bool isImg = IMAGE_EXTS.count(extLower);
       bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
       
-      if (nextFile.path.string() == cachedPath && !isTextPreviewable && (isVid || isImg)) {
-        samePathAndImage = true;
+      isNextImageOrVideo = (isVid || isImg) && !isTextPreviewable;
+      if (isNextImageOrVideo && !lastDrawnPath.empty() && nextFile.path.string() == lastDrawnPath) {
+        isSameImageAlreadyDrawn = true;
       }
     }
 
     pendingDirectRenderType = PreviewType::NONE;
-    if (!samePathAndImage)
-      clearDirectRender();
-    werase(winPreview);
+    if (!isNextImageOrVideo) {
+      if (lastWasDirectRender) {
+        clearDirectRender();
+      }
+      werase(winPreview);
+    } else {
+      if (!lastWasDirectRender) {
+        // Transitioning from non-image preview to image preview
+        werase(winPreview);
+      } else {
+        // Transitioning from image to image (or staying on same image).
+        // Clear ONLY the header lines (rows 1 to contentStart - 1).
+        // Leaving the image area untouched in ncurses so doupdate() does NOT
+        // write spaces over Kitty graphics cells and cause blank flickering!
+        int pW = getmaxx(winPreview);
+        int cStart = getPreviewContentStartLine();
+        for (int y = 1; y < cStart; ++y) {
+          wmove(winPreview, y, 1);
+          for (int x = 1; x < pW - 1; ++x) {
+            waddch(winPreview, ' ');
+          }
+        }
+      }
+    }
     wattron(winPreview, COLOR_PAIR(6));
     drawRoundedBox(winPreview);
     wattroff(winPreview, COLOR_PAIR(6));
@@ -7129,33 +7163,63 @@ public:
     } else if (isVid || isImg || isTextPreviewable) {
       bool isGvfs = (file.path.string().find("/gvfs/") != std::string::npos);
       if ((isVid || isImg) && isGvfs) {
+        clearDirectRender();
         wattron(winPreview, COLOR_PAIR(8));
         mvwprintw(winPreview, contentStart, 2, " [Media File - No Preview on MTP] ");
         wattroff(winPreview, COLOR_PAIR(8));
         wnoutrefresh(winPreview);
       } else if ((isVid || isImg) && (!isCommandAvailable("ffmpeg") || !isCommandAvailable("ffprobe"))) {
+        clearDirectRender();
         wattron(winPreview, COLOR_PAIR(8));
         mvwprintw(winPreview, contentStart, 2, " [Media File - Install ffmpeg & ffprobe for preview] ");
         wattroff(winPreview, COLOR_PAIR(8));
         wnoutrefresh(winPreview);
       } else {
+        PreviewType type = isTextPreviewable ? PreviewType::TEXT : PreviewType::IMAGE;
         bool match = false;
         {
           std::lock_guard<std::mutex> lock(previewMutex);
+          if (type == PreviewType::IMAGE) {
+            auto it = sessionImageCache.find(file.path.string());
+            if (it != sessionImageCache.end()) {
+              auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), file.path.string());
+              if (kit != sessionImageCacheKeys.end()) {
+                sessionImageCacheKeys.erase(kit);
+              }
+              sessionImageCacheKeys.push_back(file.path.string());
+
+              cachedBase64 = it->second.b64;
+              cachedImgW = it->second.w;
+              cachedImgH = it->second.h;
+              cachedPath = file.path.string();
+              requestedPath = file.path.string();
+            }
+          }
           if (cachedPath == file.path.string())
             match = true;
         }
         if (match) {
-          if (isTextPreviewable)
+          if (isTextPreviewable) {
             drawCachedTextPreview();
-          else
-            pendingDirectRenderType = PreviewType::IMAGE;
+          } else {
+            if (cachedBase64.empty()) {
+              if (lastWasDirectRender) {
+                clearDirectRender();
+              }
+              wattron(winPreview, COLOR_PAIR(8));
+              mvwprintw(winPreview, contentStart, 2, " [Image Preview Unavailable] ");
+              wattroff(winPreview, COLOR_PAIR(8));
+            } else if (!isSameImageAlreadyDrawn) {
+              pendingDirectRenderType = PreviewType::IMAGE;
+            }
+          }
         } else {
-          wattron(winPreview, A_ITALIC | A_DIM);
-          mvwprintw(winPreview, contentStart, 4, "Generating preview...");
-          wattroff(winPreview, A_ITALIC | A_DIM);
+          if (!lastWasDirectRender) {
+            wattron(winPreview, A_ITALIC | A_DIM);
+            mvwprintw(winPreview, contentStart, 4, "Generating preview...");
+            wattroff(winPreview, A_ITALIC | A_DIM);
+          }
           if (requestedPath != file.path.string()) {
-            PreviewType type = isTextPreviewable ? PreviewType::TEXT : PreviewType::IMAGE;
             startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
           }
         }
@@ -7205,13 +7269,16 @@ public:
   }
 
   void flushScreen() {
+    std::cout << "\033[?2026h" << std::flush;
     wnoutrefresh(stdscr);
     doupdate();
+    fflush(stdout);
 
     if (pendingDirectRenderType != PreviewType::NONE) {
       drawFromCache(pendingDirectRenderType);
       pendingDirectRenderType = PreviewType::NONE;
     }
+    std::cout << "\033[?2026l" << std::flush;
   }
 
   void openFile() {
@@ -7867,6 +7934,9 @@ public:
       }
       if (ch == KEY_RESIZE) {
         clearDirectRender();
+        sessionImageCache.clear();
+        sessionImageCacheKeys.clear();
+        cachedPath = "";
         updateLayout();
         needsRedraw = true;
         continue;

@@ -6857,6 +6857,7 @@ public:
 
     bool isSameImageAlreadyDrawn = false;
     bool isNextImageOrVideo = false;
+    bool isNextCached = false;
     if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
       const auto& nextFile = currentFiles[selectedIndex];
       std::string extLower = nextFile.extension;
@@ -6878,6 +6879,13 @@ public:
       if (isNextImageOrVideo && !lastDrawnPath.empty() && nextFile.path.string() == lastDrawnPath) {
         isSameImageAlreadyDrawn = true;
       }
+      if (isNextImageOrVideo) {
+        std::lock_guard<std::mutex> lock(previewMutex);
+        auto it = sessionImageCache.find(nextFile.path.string());
+        if (it != sessionImageCache.end()) {
+          isNextCached = true;
+        }
+      }
     }
 
     pendingDirectRenderType = PreviewType::NONE;
@@ -6887,14 +6895,19 @@ public:
       }
       werase(winPreview);
     } else {
-      if (!lastWasDirectRender) {
-        // Transitioning from non-image preview to image preview
+      if (!lastWasDirectRender || !isNextCached) {
+        // If transitioning from non-image OR the next image is not yet cached (needs generation),
+        // clear previous direct render immediately so the old image never lingers and confuses the user!
+        if (lastWasDirectRender) {
+          clearDirectRender();
+        }
         werase(winPreview);
       } else {
-        // Transitioning from image to image (or staying on same image).
+        // Transitioning from image to image and the next image is already in memory cache
+        // (or staying on the same image).
         // Clear ONLY the header lines (rows 1 to contentStart - 1).
         // Leaving the image area untouched in ncurses so doupdate() does NOT
-        // write spaces over Kitty graphics cells and cause blank flickering!
+        // write spaces over Kitty graphics cells, enabling a seamless in-place swap!
         int pW = getmaxx(winPreview);
         int cStart = getPreviewContentStartLine();
         for (int y = 1; y < cStart; ++y) {
@@ -7214,11 +7227,9 @@ public:
             }
           }
         } else {
-          if (!lastWasDirectRender) {
-            wattron(winPreview, A_ITALIC | A_DIM);
-            mvwprintw(winPreview, contentStart, 4, "Generating preview...");
-            wattroff(winPreview, A_ITALIC | A_DIM);
-          }
+          wattron(winPreview, A_ITALIC | A_DIM);
+          mvwprintw(winPreview, contentStart, 4, "Generating preview...");
+          wattroff(winPreview, A_ITALIC | A_DIM);
           if (requestedPath != file.path.string()) {
             startAsyncPreview(file.path.string(), type, maxH - (contentStart + 1), maxW);
           }

@@ -273,8 +273,13 @@ private:
     std::error_code ec;
     auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
     auto end = fs::recursive_directory_iterator();
-    while (it != end && !ec) {
+    while (it != end) {
       std::error_code entryEc;
+      if (it->is_symlink(entryEc)) {
+        it.increment(ec);
+        if (ec) ec.clear();
+        continue;
+      }
       if (fs::is_regular_file(it->status(entryEc))) {
         uintmax_t fsize = fs::file_size(it->path(), entryEc);
         if (!entryEc && fsize != static_cast<uintmax_t>(-1)) {
@@ -282,6 +287,7 @@ private:
         }
       }
       it.increment(ec);
+      if (ec) ec.clear();
     }
     return size;
   }
@@ -1685,6 +1691,14 @@ public:
       }
     }
 
+    std::vector<fs::path> validPaths;
+    for (const auto& p : pathsToWatch) {
+      std::error_code ec;
+      if (fs::exists(p, ec) && fs::is_directory(p, ec)) {
+        validPaths.push_back(p);
+      }
+    }
+    pathsToWatch = std::move(validPaths);
     std::sort(pathsToWatch.begin(), pathsToWatch.end());
     pathsToWatch.erase(std::unique(pathsToWatch.begin(), pathsToWatch.end()), pathsToWatch.end());
 
@@ -1753,9 +1767,16 @@ public:
           }
 
           std::error_code entryEc;
-          if (!it->is_directory(entryEc)) {
+          if (it->is_symlink(entryEc)) {
+            it.increment(ec);
+            if (ec) {
+              ec.clear();
+            }
+            continue;
+          }
+          if (it->is_regular_file(entryEc)) {
             uintmax_t fsize = it->file_size(entryEc);
-            if (!entryEc) {
+            if (!entryEc && fsize != static_cast<uintmax_t>(-1)) {
               size += fsize;
             }
           }

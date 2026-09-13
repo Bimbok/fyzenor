@@ -279,6 +279,7 @@ private:
 
   void changeDirectory(const fs::path& target, bool recordHistory = true, const fs::path& preferredSelect = "") {
     if (currentPath == target) return;
+    clearDirectRender();
     saveCurrentDirCursor();
     if (recordHistory) {
       if (activeTabIndex < tabs.size()) {
@@ -312,6 +313,7 @@ private:
       setStatus("No back history");
       return;
     }
+    clearDirectRender();
     saveCurrentDirCursor();
     tab.forwardHistory.push_back(currentPath);
     if (tab.forwardHistory.size() > 100) {
@@ -342,6 +344,7 @@ private:
       setStatus("No forward history");
       return;
     }
+    clearDirectRender();
     saveCurrentDirCursor();
     tab.backHistory.push_back(currentPath);
     if (tab.backHistory.size() > 100) {
@@ -2345,18 +2348,17 @@ public:
         }
 
         if (!fs::exists(cachePath)) {
-          std::string fileCmd = "\"" + job->path + "\"";
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
                                     std::to_string(targetH) +
                                     ":force_original_aspect_ratio=decrease";
 
           std::string cmd;
           if (isVid) {
-            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter +
-                  "\" -frames:v 1 -f image2 \"" + cachePath + "\" > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " + escapeShellArg(scaleFilter) +
+                  " -frames:v 1 -f image2 " + escapeShellArg(cachePath) + " > /dev/null 2>&1";
           } else {
-            cmd = "ffmpeg -y -v error -i " + fileCmd + " -vf \"" + scaleFilter + "\" -f image2 \"" +
-                  cachePath + "\" > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " + escapeShellArg(scaleFilter) +
+                  " -f image2 " + escapeShellArg(cachePath) + " > /dev/null 2>&1";
           }
           int res = system(cmd.c_str());
           (void)res;
@@ -2368,6 +2370,10 @@ public:
         if (!fs::exists(cachePath)) {
           std::lock_guard<std::mutex> lock(previewMutex);
           if (job->reqId == requestID) {
+            auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
+            if (kit != sessionImageCacheKeys.end()) {
+              sessionImageCacheKeys.erase(kit);
+            }
             sessionImageCache[job->path] = {"", 0, 0};
             sessionImageCacheKeys.push_back(job->path);
             cachedPath = job->path;
@@ -2379,8 +2385,8 @@ public:
 
         int finalW = 0, finalH = 0;
         std::string probeCmd = "ffprobe -v error -select_streams v:0 -show_entries "
-                               "stream=width,height -of csv=s=x:p=0 \"" +
-                               cachePath + "\" 2>/dev/null";
+                               "stream=width,height -of csv=s=x:p=0 " +
+                               escapeShellArg(cachePath) + " 2>/dev/null";
         FILE* p = popen(probeCmd.c_str(), "r");
         if (p) {
           char buf[64];
@@ -2405,6 +2411,10 @@ public:
             cachedImgW = finalW;
             cachedImgH = finalH;
             cachedBase64 = b64;
+            auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
+            if (kit != sessionImageCacheKeys.end()) {
+              sessionImageCacheKeys.erase(kit);
+            }
             if (sessionImageCache.size() >= 100) {
               if (!sessionImageCacheKeys.empty()) {
                 std::string lruKey = sessionImageCacheKeys.front();
@@ -2635,6 +2645,7 @@ public:
 
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
                          int offX = 0, int offY = 0, int startRow = 8) {
+    if (b64Data.empty() || cols <= 0 || rows <= 0) return;
     // Move cursor to start of preview area (1-indexed for terminal)
     // pY+1 is the start of the window, we have startRow lines of header/padding +
     // offY.
@@ -2661,6 +2672,7 @@ public:
 
   void drawFromCache(PreviewType type) {
     std::lock_guard<std::mutex> lock(previewMutex);
+    if (!winPreview) return;
     int pW, pH, pX, pY;
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
@@ -2672,6 +2684,18 @@ public:
       int imgStartRow = getPreviewContentStartLine() + 1;
       int boxW = pW - 4;
       int boxH = pH - (imgStartRow + 1);
+
+      if (boxW < 2 || boxH < 2)
+        return;
+
+      if (cols > boxW)
+        cols = boxW;
+      if (rows > boxH)
+        rows = boxH;
+      if (cols < 1)
+        cols = 1;
+      if (rows < 1)
+        rows = 1;
 
       int offX = (boxW - cols) / 2;
       int offY = (boxH - rows) / 2;
@@ -4614,6 +4638,7 @@ public:
   }
 
   void toggleDualPaneMode() {
+    clearDirectRender();
     isDualPaneMode = !isDualPaneMode;
     if (isDualPaneMode) {
       if (tabs.size() < 2) {
@@ -4895,6 +4920,7 @@ public:
     newTab.multiSelection = {};
     newTab.currentFiles = {};
 
+    clearDirectRender();
     tabs.push_back(newTab);
     activeTabIndex = tabs.size() - 1;
 
@@ -4904,6 +4930,7 @@ public:
   }
 
   void closeTab() {
+    clearDirectRender();
     if (tabs.size() <= 1) {
       setStatus("Cannot close the last tab");
       return;
@@ -4946,6 +4973,7 @@ public:
 
   void switchTab(size_t index) {
     if (index >= tabs.size()) return;
+    clearDirectRender();
     
     tabs[activeTabIndex].currentPath = currentPath;
     tabs[activeTabIndex].selectedIndex = selectedIndex;
@@ -6841,8 +6869,16 @@ public:
   }
 
   void drawPreview() {
-    if (!winPreview) return;
+    if (!winPreview) {
+      if (lastWasDirectRender) {
+        clearDirectRender();
+      }
+      return;
+    }
     if (isDualPaneMode) {
+      if (lastWasDirectRender) {
+        clearDirectRender();
+      }
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
         drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true, isDiskUsageMode);
@@ -7062,12 +7098,12 @@ public:
       mvwaddstr(winPreview, dividerLine, i, "─");
     wattroff(winPreview, COLOR_PAIR(6));
 
-    bool isVid = VIDEO_EXTS.count(file.extension);
-    bool isImg = IMAGE_EXTS.count(file.extension);
-    bool isCode = isCodeFile(file.extension);
-
     std::string extLower = file.extension;
     std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
+
+    bool isVid = VIDEO_EXTS.count(extLower);
+    bool isImg = IMAGE_EXTS.count(extLower);
+    bool isCode = isCodeFile(extLower);
     bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
                       extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
     bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
@@ -7075,9 +7111,9 @@ public:
     bool isPdf = (extLower == ".pdf");
     bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
 
-    bool isDoc = (file.extension == ".doc" || file.extension == ".docx");
-    bool isXls = (file.extension == ".xls" || file.extension == ".xlsx");
-    bool isPpt = (file.extension == ".ppt" || file.extension == ".pptx");
+    bool isDoc = (extLower == ".doc" || extLower == ".docx");
+    bool isXls = (extLower == ".xls" || extLower == ".xlsx");
+    bool isPpt = (extLower == ".ppt" || extLower == ".pptx");
 
     int contentStart = getPreviewContentStartLine();
 
@@ -7417,6 +7453,7 @@ public:
 
   void goUp() {
     if (isSearching) {
+      clearDirectRender();
       cancelSearch();
       isSearching = false;
       reloadAll();
@@ -7433,6 +7470,7 @@ public:
   }
 
   void handleRefresh() {
+    clearDirectRender();
     initColors();
     {
       std::lock_guard<std::mutex> lock(cacheMutex);
@@ -7982,6 +8020,7 @@ public:
       }
       if (ch == KEY_F(3)) { // F3 (Toggle Preview Pane visibility)
         if (!isDualPaneMode) {
+          clearDirectRender();
           hidePreview = !hidePreview;
           updateLayout();
           reloadAll();

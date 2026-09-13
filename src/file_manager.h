@@ -1609,7 +1609,14 @@ public:
           size_t eventSize = sizeof(struct inotify_event) + event->len;
           if (ptr + eventSize > buffer + len) break;
 
-          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) {
+          if (event->mask & IN_IGNORED) {
+            std::lock_guard<std::mutex> lock(inotifyMutex);
+            watchDescriptors.erase(event->wd);
+            ptr += eventSize;
+            continue;
+          }
+
+          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF)) {
             bool isDevicePath = false;
             {
               std::lock_guard<std::mutex> lock(inotifyMutex);
@@ -1681,6 +1688,15 @@ public:
     std::sort(pathsToWatch.begin(), pathsToWatch.end());
     pathsToWatch.erase(std::unique(pathsToWatch.begin(), pathsToWatch.end()), pathsToWatch.end());
 
+    std::set<fs::path> newPaths(pathsToWatch.begin(), pathsToWatch.end());
+    std::set<fs::path> currentWatched;
+    for (auto const& [wd, path] : watchDescriptors) {
+      currentWatched.insert(path);
+    }
+    if (newPaths == currentWatched) {
+      return;
+    }
+
     for (auto const& [wd, path] : watchDescriptors) {
       inotify_rm_watch(inotifyFd, wd);
     }
@@ -1724,39 +1740,46 @@ public:
       }
 
       uintmax_t size = 0;
+      bool completed = false;
       std::error_code ec;
       if (fs::exists(job.path, ec) && fs::is_directory(job.path, ec)) {
         fs::recursive_directory_iterator it(job.path, fs::directory_options::skip_permission_denied, ec);
         fs::recursive_directory_iterator end;
-        while (it != end && !ec) {
-          if (job.viewId != currentViewId || stopWorker)
+        bool wasInterrupted = false;
+        while (it != end) {
+          if (job.viewId != currentViewId || stopWorker) {
+            wasInterrupted = true;
             break;
-
-          std::error_code entryEc;
-          if (it->is_symlink(entryEc)) {
-            it.increment(ec);
-            continue;
           }
 
-          if (it->is_regular_file(entryEc)) {
+          std::error_code entryEc;
+          if (!it->is_directory(entryEc)) {
             uintmax_t fsize = it->file_size(entryEc);
             if (!entryEc) {
               size += fsize;
             }
           }
           it.increment(ec);
+          if (ec) {
+            ec.clear();
+          }
+        }
+        if (!wasInterrupted) {
+          completed = true;
         }
       }
 
-      if (job.viewId == currentViewId) {
-        std::lock_guard<std::mutex> lock(resultMutex);
-        resultQueue.push_back({job.path, size, job.viewId});
-      }
+      if (completed && !stopWorker) {
+        if (job.viewId == currentViewId) {
+          std::lock_guard<std::mutex> lock(resultMutex);
+          resultQueue.push_back({job.path, size, job.viewId});
+        }
 
-      // Always update the cache
-      {
-        std::lock_guard<std::mutex> lock(cacheMutex);
-        dirSizeCache[job.path.string()] = size;
+        // Update the cache with successfully calculated size
+        {
+          std::lock_guard<std::mutex> lock(cacheMutex);
+          dirSizeCache[job.path.string()] = size;
+        }
       }
     }
   }
@@ -4712,15 +4735,6 @@ public:
         tabs[inactiveIdx].currentFiles.clear();
       }
     }
-    {
-      std::lock_guard<std::mutex> lock(cacheMutex);
-      dirSizeCache.erase(currentPath.string());
-      for (const auto& f : currentFiles) {
-        if (f.is_directory) {
-          dirSizeCache.erase(f.path.string());
-        }
-      }
-    }
     updateInotifyWatches();
   }
   void toggleHidden() {
@@ -6214,6 +6228,16 @@ public:
         auto it = dirSizeCache.find(details.absolutePath);
         if (it != dirSizeCache.end()) {
           details.size = it->second;
+        } else {
+          it = dirSizeCache.find(file.path.string());
+          if (it != dirSizeCache.end()) {
+            details.size = it->second;
+          } else if (selectedIndex < currentFiles.size()) {
+            it = dirSizeCache.find(currentFiles[selectedIndex].path.string());
+            if (it != dirSizeCache.end()) {
+              details.size = it->second;
+            }
+          }
         }
       }
 
@@ -7604,10 +7628,12 @@ public:
         std::lock_guard<std::mutex> lock(resultMutex);
         if (!resultQueue.empty()) {
           bool updated = false;
+          bool hasNewResults = false;
           while (!resultQueue.empty()) {
             SizeResult res = resultQueue.front();
             resultQueue.pop_front();
             if (res.viewId == currentViewId) {
+              hasNewResults = true;
               for (auto& f : currentFiles) {
                 if (f.path == res.path) {
                   f.size = res.size;
@@ -7617,22 +7643,22 @@ public:
               }
             }
           }
-          if (updated) {
-            if (sortMode == SortMode::SIZE) {
-              fs::path prevPath;
-              if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
-                prevPath = currentFiles[selectedIndex].path;
-              }
-              sortList(currentFiles); // Re-sort if sorting by size
-              if (!prevPath.empty()) {
-                for (size_t i = 0; i < currentFiles.size(); ++i) {
-                  if (currentFiles[i].path == prevPath) {
-                    selectedIndex = i;
-                    break;
-                  }
+          if (updated && sortMode == SortMode::SIZE) {
+            fs::path prevPath;
+            if (!currentFiles.empty() && selectedIndex < currentFiles.size()) {
+              prevPath = currentFiles[selectedIndex].path;
+            }
+            sortList(currentFiles); // Re-sort if sorting by size
+            if (!prevPath.empty()) {
+              for (size_t i = 0; i < currentFiles.size(); ++i) {
+                if (currentFiles[i].path == prevPath) {
+                  selectedIndex = i;
+                  break;
                 }
               }
             }
+          }
+          if (updated || hasNewResults) {
             needsRedraw = true;
           }
         }

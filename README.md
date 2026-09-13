@@ -14,6 +14,9 @@
 [![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
+[![Kitty](https://img.shields.io/badge/Terminal-Kitty-111111?style=flat&logo=kitty&logoColor=white)](https://sw.kovidgoyal.net/kitty/)
+[![Ghostty](https://img.shields.io/badge/Terminal-Ghostty-black?style=flat&logo=ghostery&logoColor=white)](https://ghostty.org/)
+[![WezTerm](https://img.shields.io/badge/Terminal-WezTerm-4e2a84?style=flat&logo=wezterm&logoColor=white)](https://wezfurlong.org/wezterm/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
 [![Version](https://img.shields.io/badge/Version-4.3.0--beta.1-purple?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
@@ -89,7 +92,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Simultaneous Multi-Open**        | Open all selected files simultaneously; code/text files load in a single editor, media in an `mpv` playlist, others in background launchers.         |
 | **Robust Symlink Management**     | Custom link icons (`󰌹`), detailed resolution preview (detects broken paths), and quick absolute symlink pasting with Shift+Y (`Y`).                 |
 | **Dynamic Sorting Modes**          | Toggle sorting order dynamically by pressing `s`, cycling between **Name**, **Size (Desc)**, and **Date Modified (Desc)**.                             |
-| **Async Media Preview**            | Generate image and video previews in the background using the Kitty Graphics Protocol and `ffmpeg`, without freezing navigation.                      |
+| **Async Media Preview**            | Generate high-resolution image and video previews asynchronously using the Kitty Graphics Protocol with zero flicker across **Kitty**, **Ghostty**, and **WezTerm**. |
 | **Modern & Polished UI**           | A clean, minimal interface featuring rounded corners, optimized spacing, and an elegant color palette designed for long-term readability and comfort. |
 | **Syntax-Aware Text Preview**      | Preview code and text files with `bat` or `batcat`, with fallback to plain text when needed.                                                          |
 | **Background Folder Sizing**       | Directory sizes are calculated asynchronously and update in place while you keep moving.                                                              |
@@ -140,8 +143,14 @@ To unleash the full power of Fyzenor, especially image previews, your system nee
 
 ### 1. A Compatible Terminal
 
-- **Recommended:** [Kitty](https://sw.kovidgoyal.net/kitty/) with native Kitty Graphics Protocol support.
-- **Others:** [WezTerm](https://wezfurlong.org/wezterm/) or [Konsole](https://konsole.kde.org/) may work, but Kitty is the primary development and testing target.
+To enjoy high-resolution image and video previews, use a modern terminal emulator that supports the Kitty Graphics Protocol:
+
+- **[Kitty](https://sw.kovidgoyal.net/kitty/)**: First-class support with native Kitty Graphics Protocol, synchronized frame updates (DEC Mode 2026), and smart cell preservation for a zero-flicker experience.
+- **[Ghostty](https://ghostty.org/)**: Native Kitty Graphics Protocol support with GPU-accelerated tear-free rendering.
+- **[WezTerm](https://wezfurlong.org/wezterm/)**: Full native support with memory-safe GPU texture pruning (`d=A`) and atomic in-place image swapping (`a=T,i=1`).
+- **[Konsole](https://konsole.kde.org/)**: Compatible with Kitty graphics protocol.
+
+> **Note for other terminals:** If you use Alacritty, GNOME Terminal, Foot, xterm, or another terminal without Kitty Graphics support, Fyzenor works out-of-the-box! Media previews gracefully fall back to detailed file metadata and syntax-highlighted text previews without any visual artifacts.
 
 ### 2. System Dependencies
 
@@ -640,9 +649,15 @@ flowchart TD
 
 ## 🎨 Visuals & Protocols
 
-### Kitty Graphics Protocol
+### Kitty Graphics Protocol & Multi-Terminal Media Engine
 
-Fyzenor uses the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) for high-resolution image and video previews. Previews are generated asynchronously so the UI remains fluid during navigation.
+Fyzenor incorporates a high-performance, asynchronous media preview engine built on the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/), delivering crisp image and video thumbnails without compromising navigation responsiveness:
+
+* **Zero-Flicker Synchronized Updates**: Leverages DEC Mode 2026 (`\033[?2026h` / `\033[?2026l`) to batch terminal draw operations into single atomic frames. This completely eliminates cursor jumping and visual tearing across fast terminals like **Kitty** and **Ghostty**.
+* **Memory-Safe Texture Lifecycle**: Uses targeted Kitty graphics commands (`a=T,i=1`) to swap media previews directly in-place, and explicit ID-based deletion (`d=A`) to prune stale textures from GPU memory. This prevents memory leaks and terminal freezes during rapid navigation in memory-strict emulators like **WezTerm**.
+* **Selective Cell Preservation**: Intelligently preserves unaffected TUI regions (directory trees, breadcrumbs, status bars) while updating the preview viewport, delivering smooth 60fps-like browsing.
+* **Non-Blocking Worker Pipeline**: Media thumbnails are extracted and scaled asynchronously in worker threads via `ffmpeg`, caching rendered frames in an LRU session cache for instantaneous recall.
+* **Tested Across Top Modern Emulators**: Hardened and verified on **Kitty**, **Ghostty**, and **WezTerm**, with graceful fallback to file metadata and syntax-highlighted text previews on terminals without graphics protocol support.
 
 ### Nerd Fonts
 

@@ -18,7 +18,7 @@
 [![Ghostty](https://img.shields.io/badge/Terminal-Ghostty-black?style=flat&logo=ghostery&logoColor=white)](https://ghostty.org/)
 [![WezTerm](https://img.shields.io/badge/Terminal-WezTerm-4e2a84?style=flat&logo=wezterm&logoColor=white)](https://wezfurlong.org/wezterm/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-4.3.0--beta.2-purple?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.3.0-brightgreen?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer
@@ -215,13 +215,13 @@ You can check your compiler version using:
 g++ --version
 ```
 
-### Smart Installer (Stable vs Beta Channels)
+### Smart Installer
 
 ```bash
-# 📦 Install Stable Release (v4.2.0 - Default)
-curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
+# 📦 Install Stable Release (v4.3.0 - Default)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
 
-# 🧪 Install Beta Channel (v4.3.0-beta.2 - Disk Usage, Keybindings Modal, Universal 256-Color & Lua Plugins)
+# 🧪 Install Development Channel (Beta)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
@@ -300,7 +300,37 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 - **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
 - **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
 
-## 🧩 Cutting-Edge Beta Features (v4.3.0-beta.2)
+## 🚀 What's New in v4.3.0
+
+### 🌌 Native Neovim Integration (`fyzenor.nvim`)
+Fyzenor now includes a dedicated Neovim plugin inspired by *yazi.nvim*! Run Fyzenor directly inside Neovim in a centered floating terminal window:
+* **Floating Window**: Centered modal with background dimming and customizable borders.
+* **Netrw Directory Hijacking**: Automatically replaces netrw when opening directory buffers (`nvim .` or `:edit dir/`).
+* **Multi-Buffer & Split Loading**: Select multiple files with <kbd>Tab</kbd> or <kbd>Space</kbd> and open them across splits (`<c-v>`, `<c-x>`), tabs (`<c-t>`), or buffer lists (`:args`).
+* **CWD Synchronization**: Automatically updates Neovim's `:cd` when closing Fyzenor.
+* **Quick Install (`lazy.nvim`)**:
+  ```lua
+  {
+    "Bimbok/fyzenor",
+    event = "VeryLazy",
+    opts = { open_for_directories = true, change_neovim_cwd_on_close = true },
+    keys = {
+      { "<leader>e", "<cmd>Fyzenor<cr>", desc = "Open Fyzenor (current file)" },
+      { "<leader>E", "<cmd>Fyzenor cwd<cr>", desc = "Open Fyzenor (project root)" },
+      { "<leader>fe", "<cmd>FyzenorToggle<cr>", desc = "Toggle Fyzenor" },
+    },
+  }
+  ```
+
+### 📊 Visual Disk Usage & Bar Graph Mode (`U`)
+* **Single-Key Storage Analysis**: Press <kbd>U</kbd> in normal mode to turn any directory listing into a visual storage visualizer (like `ncdu`).
+* **Proportional Bar Graphs**: Unicode proportional bars (e.g. `██████░░░░ 60%`) rendered alongside directory sizes.
+* **Non-Blocking Background Scanning**: Deep directory calculations happen asynchronously on worker threads with zero UI latency.
+* **Circular Symlink Protection**: Inode-level cycle detection prevents infinite recursion hangs.
+
+### 🖱️ Mouse Controls & Pane-Aware Scrolling
+* **Pane-Aware Hover Scrolling**: Hover your mouse over the parent, current, pinned, or preview pane and scroll the wheel to scroll that specific pane directly without clicking or changing focus!
+* **Preview Scrolling**: Smoothly scroll long text, code, or directory previews with the mouse wheel or <kbd>Ctrl+E</kbd> (down) / <kbd>Ctrl+Y</kbd> (up).
 
 ### 🎯 Yazi-like Cursor Tracking Across Sorting (`s`)
 * **Locked-in Item Tracking**: When you hover over a file or folder and press <kbd>s</kbd> to change sort modes (Alphabetical ➔ Size ➔ Date), the file list is rearranged, but your cursor **automatically tracks and stays locked onto that exact file or folder**, adjusting scroll offsets smoothly without jumping to the top.

@@ -44,8 +44,8 @@ for arg in "$@"; do
             echo -e "${BOLD}Fyzenor Installer & Manager${NC}"
             echo -e "Usage: ./install.sh [OPTIONS]\n"
             echo -e "Options:"
-            echo -e "  ${YELLOW}--stable${NC}       Install / update Stable channel (default, v4.2.0 on main branch)"
-            echo -e "  ${YELLOW}--beta${NC}         Install / update Beta channel (v4.3.0-beta.2 on beta branch)"
+            echo -e "  ${YELLOW}--stable${NC}       Install / update Stable channel (default, v4.3.0 on main branch)"
+            echo -e "  ${YELLOW}--beta${NC}         Install / update Beta channel (development preview on beta branch)"
             echo -e "  ${YELLOW}--uninstall${NC}    Uninstall Fyzenor binary, symlink, desktop entry, and icons"
             echo -e "  ${YELLOW}--purge${NC}        When used with --uninstall, also delete ~/.config/fyzenor and ~/.fm_pins"
             echo -e "  ${YELLOW}-h, --help${NC}     Show this help message"
@@ -162,9 +162,9 @@ fi
 # INSTALLATION / UPDATE ROUTINE
 # -------------------------------------------------------------
 if [ "$TARGET_BRANCH" = "beta" ]; then
-    echo -e "${YELLOW}Installing Channel: BETA (v4.3.0-beta.2 - Cutting-edge features, Disk Usage, Keybindings Modal & Lua Plugin Engine)${NC}\n"
+    echo -e "${YELLOW}Installing Channel: BETA (Cutting-edge preview on beta branch)${NC}\n"
 else
-    echo -e "${GREEN}Installing Channel: STABLE (v4.2.0 - Tested production release)${NC}\n"
+    echo -e "${GREEN}Installing Channel: STABLE (v4.3.0 - Tested production release)${NC}\n"
 fi
 
 # Function to check command dependency
@@ -488,6 +488,6 @@ echo -e "\n${GREEN}╔═══════════════════�
 echo -e "${GREEN}║             Installation Completed Successfully!         ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo -e "🚀 Run ${BOLD}${YELLOW}fyzenor${NC} or shortcut ${BOLD}${YELLOW}fm${NC} to start."
-echo -e "ℹ️  Version: ${BLUE}$("$INSTALL_PATH" --version 2>/dev/null || echo "v4.3.0-beta.2")${NC}"
+echo -e "ℹ️  Version: ${BLUE}$("$INSTALL_PATH" --version 2>/dev/null || echo "v4.3.0")${NC}"
 echo -e "⚙️  Config directory: ${BLUE}$CONFIG_DIR${NC}"
 echo -e "🗑️  To uninstall at any time: ${YELLOW}./uninstall.sh${NC} (or ./install.sh --uninstall)\n"

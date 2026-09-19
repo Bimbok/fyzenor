@@ -506,14 +506,117 @@ When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspen
 
 Fyzenor supports the following command-line arguments:
 
-| Option            | Description                            |
-| :---------------- | :------------------------------------- |
-| `-v`, `--version` | Display the current version of Fyzenor. |
-| `-h`, `--help`    | Show the help message and exit.        |
+```bash
+fyzenor [options] [path]
+```
+
+| Argument / Option      | Description                                                    |
+| :--------------------- | :------------------------------------------------------------- |
+| `[path]`               | Directory to open, or file to highlight and select on startup.  |
+| `--chooser-file <file>`| Write chosen files to this file upon exit (file chooser mode). |
+| `--cwd-file <file>`    | Write the final current working directory to this file on exit.|
+| `-v`, `--version`      | Display the current version of Fyzenor.                         |
+| `-h`, `--help`         | Show the help message and exit.                                |
 
 ```bash
-fyzenor --version
+# Open Fyzenor at a specific directory
+fyzenor ~/Projects
+
+# Open Fyzenor hovering on a specific file
+fyzenor src/main.cpp
+
+# Use as a file chooser
+fyzenor --chooser-file=/tmp/selected.txt
 ```
+
+---
+
+## 🔌 Neovim Integration (`fyzenor.nvim`)
+
+Fyzenor integrates directly into Neovim as an ultra-fast floating file manager, file picker, and netrw replacement (modeled after `yazi.nvim`).
+
+### 📦 Installation
+
+#### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
+
+```lua
+{
+  "Bimbok/fyzenor",
+  cmd = { "Fyzenor", "FyzenorToggle", "FyzenorCwd" },
+  keys = {
+    { "<leader>-", "<cmd>Fyzenor<cr>", desc = "Open Fyzenor at current file" },
+    { "<leader>cw", "<cmd>FyzenorCwd<cr>", desc = "Open Fyzenor in Neovim CWD" },
+  },
+  opts = {
+    -- Hijack netrw when opening directories (e.g. `nvim .` or `:edit dir/`)
+    open_for_directories = true,
+    -- Synchronize Neovim's current working directory with Fyzenor on close
+    change_neovim_cwd_on_close = false,
+    -- Floating window scaling factor (0.1 to 1.0)
+    floating_window_scaling_factor = 0.9,
+    -- Window border style ("rounded", "single", "double", "none")
+    border = "rounded",
+    -- Keymaps active inside the Fyzenor floating terminal
+    keymaps = {
+      open_file_in_vertical_split = "<c-v>",
+      open_file_in_horizontal_split = "<c-x>",
+      open_file_in_tab = "<c-t>",
+      send_to_quickfix_list = "<c-q>",
+      copy_relative_path_to_selected_files = "<c-y>",
+      grep_in_directory = "<c-f>",
+      show_help = "<f1>",
+    },
+  },
+}
+```
+
+#### Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
+
+```lua
+use({
+  "Bimbok/fyzenor",
+  config = function()
+    require("fyzenor").setup({
+      open_for_directories = true,
+    })
+  end,
+})
+```
+
+#### Using [vim-plug](https://github.com/junegunn/vim-plug)
+
+```vim
+Plug 'Bimbok/fyzenor'
+
+" In your init.lua / init.vim
+lua require("fyzenor").setup()
+```
+
+### 🎮 Neovim Commands & Lua API
+
+| Command / Lua API            | Description                                                |
+| :--------------------------- | :--------------------------------------------------------- |
+| `:Fyzenor [path]`            | Opens Fyzenor focused on `[path]` (or current file/cwd).   |
+| `:Fyzenor cwd`               | Opens Fyzenor directly in Neovim's working directory.      |
+| `:FyzenorToggle [path]`      | Toggles the Fyzenor floating window.                       |
+| `:FyzenorCwd`                | Shortcut to open Fyzenor in CWD.                           |
+| `require("fyzenor").open()`  | Lua function to open Fyzenor programmatically.            |
+| `require("fyzenor").toggle()`| Lua function to toggle Fyzenor.                            |
+
+### ⌨️ Terminal Keybindings (Inside Floating Fyzenor)
+
+| Keybinding | Action                                                               |
+| :--------- | :------------------------------------------------------------------- |
+| `<Enter>`  | Choose selected file(s) and open in current window                   |
+| `<C-v>`    | Open selected file(s) in a **vertical split**                        |
+| `<C-x>`    | Open selected file(s) in a **horizontal split**                      |
+| `<C-t>`    | Open selected file(s) in a **new tab**                               |
+| `<C-q>`    | Send selected file(s) to Neovim's **quickfix list**                  |
+| `<C-y>`    | Copy relative path of selected file(s) to clipboard (`+` register)   |
+| `<C-f>`    | Live grep / search inside the browsed directory                     |
+| `C`        | Choose current working directory as selection                        |
+| `q`        | Cancel selection and close floating window                           |
+| `<F1>`     | Display floating keymap help modal                                   |
 
 ---
 

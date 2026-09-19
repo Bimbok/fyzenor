@@ -95,6 +95,9 @@ private:
   size_t selectedIndex;
   size_t scrollOffset;
   std::unordered_map<int, std::string> customMacros;
+  std::string chooserFile = "";
+  std::string cwdFile = "";
+  bool shouldExit = false;
 
   WINDOW *winPinned, *winParent, *winCurrent, *winPreview;
   int width, height;
@@ -1430,10 +1433,10 @@ public:
     return std::this_thread::get_id() == mainThreadId;
   }
 
-  FileManager()
+  FileManager(const std::string& startPath = "", const std::string& chooserFilePath = "", const std::string& cwdFilePath = "")
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr), previewScrollOffset(0), previewDirTotalEntries(0),
-        previewTotalLines(0), lastPreviewScrolledPath("") {
+        previewTotalLines(0), lastPreviewScrolledPath(""), chooserFile(chooserFilePath), cwdFile(cwdFilePath) {
     mainThreadId = std::this_thread::get_id();
     showHidden = configShowHidden;
     hidePreview = configHidePreview;
@@ -1451,19 +1454,68 @@ public:
     previewWorker = std::thread(&FileManager::processPreviewWorker, this);
     initInotify();
 
-    try {
-      currentPath = fs::current_path();
-    } catch (...) {
-      const char* home = getenv("HOME");
-      if (home) {
-        currentPath = fs::path(home);
+    std::string targetSelection = "";
+    if (!startPath.empty()) {
+      std::string pathStr = startPath;
+      if (pathStr == "~") {
+        const char* home = getenv("HOME");
+        if (home) pathStr = home;
+      } else if (pathStr.rfind("~/", 0) == 0) {
+        const char* home = getenv("HOME");
+        if (home) pathStr = std::string(home) + pathStr.substr(1);
+      }
+      std::error_code ec;
+      fs::path p = fs::u8path(pathStr);
+      if (fs::exists(p, ec)) {
+        if (fs::is_directory(p, ec)) {
+          currentPath = fs::canonical(p, ec);
+          if (ec) currentPath = fs::absolute(p);
+        } else {
+          targetSelection = p.filename().string();
+          fs::path parent = p.parent_path();
+          if (parent.empty()) parent = ".";
+          currentPath = fs::canonical(parent, ec);
+          if (ec) currentPath = fs::absolute(parent);
+        }
       } else {
-        currentPath = fs::path("/");
+        fs::path parent = p.parent_path();
+        if (!parent.empty() && fs::is_directory(parent, ec)) {
+          targetSelection = p.filename().string();
+          currentPath = fs::canonical(parent, ec);
+          if (ec) currentPath = fs::absolute(parent);
+        }
       }
     }
+
+    if (currentPath.empty()) {
+      try {
+        currentPath = fs::current_path();
+      } catch (...) {
+        const char* home = getenv("HOME");
+        if (home) {
+          currentPath = fs::path(home);
+        } else {
+          currentPath = fs::path("/");
+        }
+      }
+    }
+
+    syncProcessWorkingDir(currentPath);
+    loadDirectory(currentPath, currentFiles);
+    loadParent();
+
+    if (!targetSelection.empty()) {
+      for (size_t i = 0; i < currentFiles.size(); ++i) {
+        if (currentFiles[i].path.filename().string() == targetSelection) {
+          selectedIndex = i;
+          break;
+        }
+      }
+    }
+
     Tab defTab;
     defTab.currentPath = currentPath;
-    defTab.selectedIndex = 0;
+    defTab.selectedIndex = selectedIndex;
     defTab.scrollOffset = 0;
     defTab.isSearching = false;
     defTab.isTrashMode = false;
@@ -1471,12 +1523,8 @@ public:
     defTab.multiSelection = {};
     tabs.push_back(defTab);
     activeTabIndex = 0;
-    mainThreadId = std::this_thread::get_id();
-
-    syncProcessWorkingDir(currentPath);
-    loadDirectory(currentPath, currentFiles);
-    loadParent();
     tabs[activeTabIndex].currentFiles = currentFiles;
+    mainThreadId = std::this_thread::get_id();
 
     pluginManager.init(this);
 
@@ -1495,11 +1543,16 @@ public:
 
     refresh();
 
-    auto initEndTime = std::chrono::steady_clock::now();
-    double initMs = std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime).count() / 1000.0;
-    char startupBuf[64];
-    snprintf(startupBuf, sizeof(startupBuf), "󱐌 Loaded in %.2fms", initMs);
-    setStatus(startupBuf);
+    if (!chooserFile.empty()) {
+      std::ofstream out(chooserFile, std::ios::trunc);
+      setStatus("󰋚 Chooser Mode: <Enter> select, <Space> multi, <C> select cwd, <q> cancel");
+    } else {
+      auto initEndTime = std::chrono::steady_clock::now();
+      double initMs = std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime).count() / 1000.0;
+      char startupBuf[64];
+      snprintf(startupBuf, sizeof(startupBuf), "󱐌 Loaded in %.2fms", initMs);
+      setStatus(startupBuf);
+    }
   }
 
   void clearDirectRender() {
@@ -1573,6 +1626,13 @@ public:
       delwin(winCurrent);
     if (winPreview)
       delwin(winPreview);
+    if (!cwdFile.empty()) {
+      std::ofstream out(cwdFile);
+      if (out.is_open()) {
+        out << currentPath.string() << "\n";
+        out.close();
+      }
+    }
     clearDirectRender();
     std::cout << "\033[?2026l\033[?2004l" << std::flush;
     endwin();
@@ -7467,6 +7527,24 @@ public:
     if (pathsToOpen.empty())
       return;
 
+    if (!chooserFile.empty()) {
+      if (multiSelection.empty() && pathsToOpen.size() == 1 && fs::is_directory(pathsToOpen[0])) {
+        clearDirectRender();
+        isSearching = false;
+        changeDirectory(pathsToOpen[0], true);
+        return;
+      }
+      std::ofstream out(chooserFile);
+      if (out.is_open()) {
+        for (const auto& p : pathsToOpen) {
+          out << fs::absolute(p).string() << "\n";
+        }
+        out.close();
+      }
+      shouldExit = true;
+      return;
+    }
+
     if (pathsToOpen.size() == 1 && fs::is_directory(pathsToOpen[0])) {
       clearDirectRender();
       isSearching = false;
@@ -7620,6 +7698,9 @@ public:
     bool needsRedraw = true;
 
     while (true) {
+      if (shouldExit) {
+        return;
+      }
       if (inotifyTriggered) {
         inotifyTriggered = false;
         if (!ensureValidCurrentPath()) {
@@ -7859,6 +7940,15 @@ public:
       }
 
       int ch = getch();
+      if (!chooserFile.empty() && ch == 'C') {
+        std::ofstream out(chooserFile);
+        if (out.is_open()) {
+          out << fs::absolute(currentPath).string() << "\n";
+          out.close();
+        }
+        shouldExit = true;
+        return;
+      }
       std::string kName = keyToName(ch);
       if (!kName.empty() && pluginManager.handleKey(kName)) {
         needsRedraw = true;
@@ -8334,6 +8424,7 @@ public:
         case KEY_RIGHT:
         case 10:
           openFile();
+          if (shouldExit) return;
           break;
         case 'h':
         case KEY_LEFT:
@@ -8440,6 +8531,17 @@ public:
           break;
         case 'c':
           handleCopyPath();
+          break;
+        case 'C':
+          if (!chooserFile.empty()) {
+            std::ofstream out(chooserFile);
+            if (out.is_open()) {
+              out << fs::absolute(currentPath).string() << "\n";
+              out.close();
+            }
+            shouldExit = true;
+            return;
+          }
           break;
         case 's':
           toggleSort();

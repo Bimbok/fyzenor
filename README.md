@@ -542,6 +542,7 @@ Fyzenor integrates directly into Neovim as an ultra-fast floating file manager, 
 ```lua
 {
   "Bimbok/fyzenor",
+  branch = "beta",
   cmd = { "Fyzenor", "FyzenorToggle", "FyzenorCwd" },
   keys = {
     { "<leader>-", "<cmd>Fyzenor<cr>", desc = "Open Fyzenor at current file" },

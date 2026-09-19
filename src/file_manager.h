@@ -56,6 +56,7 @@ struct SizeResult {
 
 class FileManager {
   friend class PluginManager;
+
 private:
   struct Tab {
     fs::path currentPath;
@@ -198,7 +199,8 @@ private:
   std::unordered_map<std::string, DirCursorState> dirCursorHistory;
 
   void saveCurrentDirCursor() {
-    if (currentFiles.empty()) return;
+    if (currentFiles.empty())
+      return;
     DirCursorState state;
     state.selectedIndex = selectedIndex;
     state.scrollOffset = scrollOffset;
@@ -218,7 +220,8 @@ private:
     // 1. If preferredTarget specified (e.g. came from child directory)
     if (!preferredTarget.empty()) {
       for (size_t i = 0; i < currentFiles.size(); ++i) {
-        if (currentFiles[i].path == preferredTarget || currentFiles[i].name == preferredTarget.filename().string()) {
+        if (currentFiles[i].path == preferredTarget ||
+            currentFiles[i].name == preferredTarget.filename().string()) {
           selectedIndex = i;
           int visibleH = height - 4;
           if (visibleH > 0 && selectedIndex >= (size_t)visibleH) {
@@ -274,13 +277,15 @@ private:
   uint64_t getDirectorySize(const fs::path& dir) {
     uint64_t size = 0;
     std::error_code ec;
-    auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+    auto it =
+        fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
     auto end = fs::recursive_directory_iterator();
     while (it != end) {
       std::error_code entryEc;
       if (it->is_symlink(entryEc)) {
         it.increment(ec);
-        if (ec) ec.clear();
+        if (ec)
+          ec.clear();
         continue;
       }
       if (fs::is_regular_file(it->status(entryEc))) {
@@ -290,18 +295,21 @@ private:
         }
       }
       it.increment(ec);
-      if (ec) ec.clear();
+      if (ec)
+        ec.clear();
     }
     return size;
   }
 
-  void changeDirectory(const fs::path& target, bool recordHistory = true, const fs::path& preferredSelect = "") {
+  void changeDirectory(const fs::path& target, bool recordHistory = true,
+                       const fs::path& preferredSelect = "") {
     std::error_code dirEc;
     if (!fs::is_directory(target, dirEc)) {
       setStatus("Not a directory: " + target.string());
       return;
     }
-    if (currentPath == target) return;
+    if (currentPath == target)
+      return;
     clearDirectRender();
     saveCurrentDirCursor();
     if (recordHistory) {
@@ -330,7 +338,8 @@ private:
   }
 
   void handleGoBack() {
-    if (activeTabIndex >= tabs.size()) return;
+    if (activeTabIndex >= tabs.size())
+      return;
     auto& tab = tabs[activeTabIndex];
     if (tab.backHistory.empty()) {
       setStatus("No back history");
@@ -342,10 +351,10 @@ private:
     if (tab.forwardHistory.size() > 100) {
       tab.forwardHistory.erase(tab.forwardHistory.begin());
     }
-    
+
     fs::path target = tab.backHistory.back();
     tab.backHistory.pop_back();
-    
+
     currentPath = target;
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
@@ -361,7 +370,8 @@ private:
   }
 
   void handleGoForward() {
-    if (activeTabIndex >= tabs.size()) return;
+    if (activeTabIndex >= tabs.size())
+      return;
     auto& tab = tabs[activeTabIndex];
     if (tab.forwardHistory.empty()) {
       setStatus("No forward history");
@@ -373,10 +383,10 @@ private:
     if (tab.backHistory.size() > 100) {
       tab.backHistory.erase(tab.backHistory.begin());
     }
-    
+
     fs::path target = tab.forwardHistory.back();
     tab.forwardHistory.pop_back();
-    
+
     currentPath = target;
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].currentPath = currentPath;
@@ -393,24 +403,30 @@ private:
 
   void drawHistoryOverlay() {
     clearDirectRender();
-    if (activeTabIndex >= tabs.size()) return;
+    if (activeTabIndex >= tabs.size())
+      return;
     auto& tab = tabs[activeTabIndex];
-    
+
     std::vector<fs::path> hist = tab.backHistory;
     std::reverse(hist.begin(), hist.end());
-    
+
     int h = 15;
     int w = 70;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    if (h > height - 4)
+      h = height - 4;
+    if (w > width - 4)
+      w = width - 4;
+    if (h < 6)
+      h = 6;
+    if (w < 20)
+      w = 20;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
 
     WINDOW* histWin = newwin(h, w, startY, startX);
-    if (!histWin) return;
+    if (!histWin)
+      return;
     keypad(histWin, TRUE);
     wtimeout(histWin, 200);
 
@@ -463,7 +479,8 @@ private:
       wrefresh(histWin);
 
       int ch = wgetch(histWin);
-      if (ch == ERR) continue;
+      if (ch == ERR)
+        continue;
       if (ch == 'q' || ch == 27) {
         break;
       }
@@ -496,7 +513,8 @@ private:
 
   void drawPermissionsOverlay() {
     clearDirectRender();
-    if (currentFiles.empty() || selectedIndex >= currentFiles.size()) return;
+    if (currentFiles.empty() || selectedIndex >= currentFiles.size())
+      return;
     fs::path filePath = currentFiles[selectedIndex].path;
 
     fs::perms perms;
@@ -524,29 +542,34 @@ private:
     std::string group = "";
     struct stat info;
     if (stat(filePath.c_str(), &info) == 0) {
-      struct passwd *pw = getpwuid(info.st_uid);
-      struct group  *gr = getgrgid(info.st_gid);
+      struct passwd* pw = getpwuid(info.st_uid);
+      struct group* gr = getgrgid(info.st_gid);
       owner = pw ? pw->pw_name : std::to_string(info.st_uid);
       group = gr ? gr->gr_name : std::to_string(info.st_gid);
     }
 
     int h = 18;
     int w = 60;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    if (h > height - 4)
+      h = height - 4;
+    if (w > width - 4)
+      w = width - 4;
+    if (h < 6)
+      h = 6;
+    if (w < 20)
+      w = 20;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
 
     WINDOW* permWin = newwin(h, w, startY, startX);
-    if (!permWin) return;
+    if (!permWin)
+      return;
     keypad(permWin, TRUE);
     wtimeout(permWin, 200);
 
-    int activeRow = 0; 
-    int activeCol = 0; 
+    int activeRow = 0;
+    int activeCol = 0;
 
     while (true) {
       werase(permWin);
@@ -575,7 +598,7 @@ private:
         for (int c = 0; c < 3; ++c) {
           int posX = 16 + c * 12;
           bool isSel = (activeRow == r && activeCol == c);
-          
+
           if (isSel) {
             wattron(permWin, COLOR_PAIR(6) | A_BOLD);
           }
@@ -628,7 +651,8 @@ private:
       wrefresh(permWin);
 
       int ch = wgetch(permWin);
-      if (ch == ERR) continue;
+      if (ch == ERR)
+        continue;
       if (ch == 'q' || ch == 27) {
         break;
       }
@@ -657,29 +681,40 @@ private:
           grid[activeRow][activeCol] = !grid[activeRow][activeCol];
         }
       }
-      if (ch == 10) { 
+      if (ch == 10) {
         if (activeRow < 3) {
           grid[activeRow][activeCol] = !grid[activeRow][activeCol];
         } else if (activeRow == 3) {
           std::string val = promptInput("New Owner", owner);
-          if (!val.empty()) owner = val;
+          if (!val.empty())
+            owner = val;
         } else if (activeRow == 4) {
           std::string val = promptInput("New Group", group);
-          if (!val.empty()) group = val;
+          if (!val.empty())
+            group = val;
         } else if (activeRow == 5) {
           if (activeCol == 0) {
             fs::perms newPerms = fs::perms::none;
-            if (grid[0][0]) newPerms |= fs::perms::owner_read;
-            if (grid[0][1]) newPerms |= fs::perms::owner_write;
-            if (grid[0][2]) newPerms |= fs::perms::owner_exec;
+            if (grid[0][0])
+              newPerms |= fs::perms::owner_read;
+            if (grid[0][1])
+              newPerms |= fs::perms::owner_write;
+            if (grid[0][2])
+              newPerms |= fs::perms::owner_exec;
 
-            if (grid[1][0]) newPerms |= fs::perms::group_read;
-            if (grid[1][1]) newPerms |= fs::perms::group_write;
-            if (grid[1][2]) newPerms |= fs::perms::group_exec;
+            if (grid[1][0])
+              newPerms |= fs::perms::group_read;
+            if (grid[1][1])
+              newPerms |= fs::perms::group_write;
+            if (grid[1][2])
+              newPerms |= fs::perms::group_exec;
 
-            if (grid[2][0]) newPerms |= fs::perms::others_read;
-            if (grid[2][1]) newPerms |= fs::perms::others_write;
-            if (grid[2][2]) newPerms |= fs::perms::others_exec;
+            if (grid[2][0])
+              newPerms |= fs::perms::others_read;
+            if (grid[2][1])
+              newPerms |= fs::perms::others_write;
+            if (grid[2][2])
+              newPerms |= fs::perms::others_exec;
 
             try {
               fs::permissions(filePath, newPerms, fs::perm_options::replace);
@@ -748,19 +783,24 @@ private:
       if (!rel.empty() && rel.string() != "." && rel.string().substr(0, 2) != "..") {
         return true;
       }
-    } catch (...) {}
+    } catch (...) {
+    }
     return false;
   }
 
-  bool copyFileWithProgress(const fs::path& src, const fs::path& dest, std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied, uint64_t totalBytes) {
+  bool copyFileWithProgress(const fs::path& src, const fs::path& dest,
+                            std::shared_ptr<AsyncTask> task, uint64_t& bytesCopied,
+                            uint64_t totalBytes) {
     try {
       if (fs::is_symlink(fs::symlink_status(dest))) {
         fs::remove(dest);
       }
-    } catch (...) {}
+    } catch (...) {
+    }
 
     std::ifstream in(src, std::ios::binary);
-    if (!in) return false;
+    if (!in)
+      return false;
 
     uintmax_t destSize = 0;
     bool appendMode = false;
@@ -780,7 +820,8 @@ private:
           appendMode = true;
         }
       }
-    } catch (...) {}
+    } catch (...) {
+    }
 
     std::ofstream out;
     if (appendMode) {
@@ -815,7 +856,8 @@ private:
       out.open(dest, std::ios::binary);
     }
 
-    if (!out) return false;
+    if (!out)
+      return false;
 
     char buffer[65536];
     while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
@@ -848,9 +890,10 @@ private:
       std::lock_guard<std::mutex> lock(taskMutex);
       task->id = nextTaskId++;
       task->type = isCut ? "Move" : "Copy";
-      task->description = (jobs.size() > 1)
-          ? "Copying " + std::to_string(jobs.size()) + " items to " + currentPath.filename().string()
-          : "Copying " + jobs[0].first.filename().string() + " to " + currentPath.filename().string();
+      task->description = (jobs.size() > 1) ? "Copying " + std::to_string(jobs.size()) +
+                                                  " items to " + currentPath.filename().string()
+                                            : "Copying " + jobs[0].first.filename().string() +
+                                                  " to " + currentPath.filename().string();
       activeTasks.push_back(task);
     }
 
@@ -860,7 +903,8 @@ private:
     std::weak_ptr<AsyncTask> weakTask = task;
     task->workerThread = std::thread([this, weakTask, jobs, isCut]() {
       auto task = weakTask.lock();
-      if (!task) return;
+      if (!task)
+        return;
 
       uint64_t totalBytes = 0;
       for (const auto& job : jobs) {
@@ -870,7 +914,8 @@ private:
           } else if (fs::is_regular_file(job.first)) {
             totalBytes += fs::file_size(job.first);
           }
-        } catch (...) {}
+        } catch (...) {
+        }
       }
       task->totalBytes = totalBytes;
 
@@ -893,7 +938,8 @@ private:
             bool dirCopiedFully = true;
             std::vector<fs::path> filesToKeep;
             try {
-              for (const auto& entry : fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied)) {
+              for (const auto& entry : fs::recursive_directory_iterator(
+                       src, fs::directory_options::skip_permission_denied)) {
                 task->checkPause();
                 if (task->isCancelled.load()) {
                   dirCopiedFully = false;
@@ -906,7 +952,8 @@ private:
                 } else if (fs::is_regular_file(entry.status())) {
                   bool ok = copyFileWithProgress(entry.path(), d, task, bytesCopied, totalBytes);
                   if (ok) {
-                    if (isCut) filesToKeep.push_back(entry.path());
+                    if (isCut)
+                      filesToKeep.push_back(entry.path());
                   } else {
                     dirCopiedFully = false;
                   }
@@ -921,7 +968,10 @@ private:
                 jobOk = true;
               } else {
                 for (const auto& p : filesToKeep) {
-                  try { fs::remove(p); } catch(...) {}
+                  try {
+                    fs::remove(p);
+                  } catch (...) {
+                  }
                 }
               }
             } else {
@@ -933,7 +983,10 @@ private:
             bool ok = copyFileWithProgress(src, dest, task, bytesCopied, totalBytes);
             if (ok) {
               if (isCut) {
-                try { fs::remove(src); } catch(...) {}
+                try {
+                  fs::remove(src);
+                } catch (...) {
+                }
               }
               jobOk = true;
             }
@@ -952,11 +1005,13 @@ private:
       if (task->isCancelled.load()) {
         task->statusMessage = "Cancelled";
       } else if (failCount > 0) {
-        task->statusMessage = "Finished with errors (pasted " + std::to_string(successCount) + " items, " + std::to_string(failCount) + " failed)";
+        task->statusMessage = "Finished with errors (pasted " + std::to_string(successCount) +
+                              " items, " + std::to_string(failCount) + " failed)";
       } else {
         task->statusMessage = "Finished (pasted " + std::to_string(successCount) + " items)";
       }
-      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      std::string logMsg =
+          "[" + task->type + "] " + task->description + " - " + task->statusMessage;
       {
         std::lock_guard<std::mutex> lock(taskMutex);
         taskHistoryLogs.push_back(logMsg);
@@ -966,15 +1021,16 @@ private:
   }
 
   void startDeleteTask(const std::vector<fs::path>& targets) {
-    if (targets.empty()) return;
+    if (targets.empty())
+      return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
       task->id = nextTaskId++;
       task->type = "Delete";
       task->description = (targets.size() > 1)
-          ? "Deleting " + std::to_string(targets.size()) + " items"
-          : "Deleting " + targets[0].filename().string();
+                              ? "Deleting " + std::to_string(targets.size()) + " items"
+                              : "Deleting " + targets[0].filename().string();
       activeTasks.push_back(task);
     }
 
@@ -983,17 +1039,20 @@ private:
     std::weak_ptr<AsyncTask> weakTask = task;
     task->workerThread = std::thread([this, weakTask, targets]() {
       auto task = weakTask.lock();
-      if (!task) return;
+      if (!task)
+        return;
 
       int totalItems = targets.size();
       int processed = 0;
 
       for (const auto& p : targets) {
         task->checkPause();
-        if (task->isCancelled.load()) break;
+        if (task->isCancelled.load())
+          break;
         try {
           fs::remove_all(p);
-        } catch (...) {}
+        } catch (...) {
+        }
         processed++;
         task->progress = (processed * 100) / totalItems;
       }
@@ -1004,7 +1063,8 @@ private:
       } else {
         task->statusMessage = "Finished (deleted " + std::to_string(totalItems) + " items)";
       }
-      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      std::string logMsg =
+          "[" + task->type + "] " + task->description + " - " + task->statusMessage;
       {
         std::lock_guard<std::mutex> lock(taskMutex);
         taskHistoryLogs.push_back(logMsg);
@@ -1014,15 +1074,16 @@ private:
   }
 
   void startTrashTask(const std::vector<fs::path>& targets) {
-    if (targets.empty()) return;
+    if (targets.empty())
+      return;
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
       task->id = nextTaskId++;
       task->type = "Trash";
       task->description = (targets.size() > 1)
-          ? "Trashing " + std::to_string(targets.size()) + " items"
-          : "Trashing " + targets[0].filename().string();
+                              ? "Trashing " + std::to_string(targets.size()) + " items"
+                              : "Trashing " + targets[0].filename().string();
       activeTasks.push_back(task);
     }
 
@@ -1031,7 +1092,8 @@ private:
     std::weak_ptr<AsyncTask> weakTask = task;
     task->workerThread = std::thread([this, weakTask, targets]() {
       auto task = weakTask.lock();
-      if (!task) return;
+      if (!task)
+        return;
 
       int totalItems = targets.size();
       int processed = 0;
@@ -1041,7 +1103,8 @@ private:
 
       for (const auto& p : targets) {
         task->checkPause();
-        if (task->isCancelled.load()) break;
+        if (task->isCancelled.load())
+          break;
 
         if (moveToTrash(p)) {
           successCount++;
@@ -1066,11 +1129,13 @@ private:
       if (task->isCancelled.load()) {
         task->statusMessage = "Cancelled";
       } else if (!failedTargets.empty()) {
-        task->statusMessage = "Finished with errors (trashed " + std::to_string(successCount) + " items, " + std::to_string(failedTargets.size()) + " failed)";
+        task->statusMessage = "Finished with errors (trashed " + std::to_string(successCount) +
+                              " items, " + std::to_string(failedTargets.size()) + " failed)";
       } else {
         task->statusMessage = "Finished (trashed " + std::to_string(totalItems) + " items)";
       }
-      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      std::string logMsg =
+          "[" + task->type + "] " + task->description + " - " + task->statusMessage;
       {
         std::lock_guard<std::mutex> lock(taskMutex);
         taskHistoryLogs.push_back(logMsg);
@@ -1094,25 +1159,33 @@ private:
 
     std::string pidFile = getSecureTaskPidPath(task->id, "zip");
     task->pidFile = pidFile;
-    std::string wrappedCmd = "cd " + escapeShellArg(zipDir.string()) + " && (" + zipCmd + " & echo $! > " + escapeShellArg(pidFile) + "; wait $!) > /dev/null 2>&1";
+    std::string wrappedCmd = "cd " + escapeShellArg(zipDir.string()) + " && (" + zipCmd +
+                             " & echo $! > " + escapeShellArg(pidFile) +
+                             "; wait $!) > /dev/null 2>&1";
 
     std::weak_ptr<AsyncTask> weakTask = task;
     task->workerThread = std::thread([this, weakTask, wrappedCmd, pidFile]() {
       auto task = weakTask.lock();
-      if (!task) return;
+      if (!task)
+        return;
 
       int res = system(wrappedCmd.c_str());
       (void)res;
 
-      try { fs::remove(pidFile); } catch(...) {}
+      try {
+        fs::remove(pidFile);
+      } catch (...) {
+      }
 
       task->progress = 100;
       if (task->isCancelled.load()) {
         task->statusMessage = "Cancelled";
       } else {
-        task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+        task->statusMessage =
+            (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
       }
-      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      std::string logMsg =
+          "[" + task->type + "] " + task->description + " - " + task->statusMessage;
       {
         std::lock_guard<std::mutex> lock(taskMutex);
         taskHistoryLogs.push_back(logMsg);
@@ -1121,7 +1194,8 @@ private:
     });
   }
 
-  void startExtractTask(const std::string& extractCmd, const std::string& archiveName, const fs::path& destDir) {
+  void startExtractTask(const std::string& extractCmd, const std::string& archiveName,
+                        const fs::path& destDir) {
     auto task = std::make_shared<AsyncTask>();
     {
       std::lock_guard<std::mutex> lock(taskMutex);
@@ -1136,25 +1210,33 @@ private:
 
     std::string pidFile = getSecureTaskPidPath(task->id, "extract");
     task->pidFile = pidFile;
-    std::string wrappedCmd = "cd " + escapeShellArg(destDir.string()) + " && (" + extractCmd + " & echo $! > " + escapeShellArg(pidFile) + "; wait $!) > /dev/null 2>&1";
+    std::string wrappedCmd = "cd " + escapeShellArg(destDir.string()) + " && (" + extractCmd +
+                             " & echo $! > " + escapeShellArg(pidFile) +
+                             "; wait $!) > /dev/null 2>&1";
 
     std::weak_ptr<AsyncTask> weakTask = task;
     task->workerThread = std::thread([this, weakTask, wrappedCmd, pidFile]() {
       auto task = weakTask.lock();
-      if (!task) return;
+      if (!task)
+        return;
 
       int res = system(wrappedCmd.c_str());
       (void)res;
 
-      try { fs::remove(pidFile); } catch(...) {}
+      try {
+        fs::remove(pidFile);
+      } catch (...) {
+      }
 
       task->progress = 100;
       if (task->isCancelled.load()) {
         task->statusMessage = "Cancelled";
       } else {
-        task->statusMessage = (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
+        task->statusMessage =
+            (res == 0) ? "Finished successfully" : "Failed with exit code " + std::to_string(res);
       }
-      std::string logMsg = "[" + task->type + "] " + task->description + " - " + task->statusMessage;
+      std::string logMsg =
+          "[" + task->type + "] " + task->description + " - " + task->statusMessage;
       {
         std::lock_guard<std::mutex> lock(taskMutex);
         taskHistoryLogs.push_back(logMsg);
@@ -1164,13 +1246,17 @@ private:
   }
 
   void toggleTaskPause(std::shared_ptr<AsyncTask> task) {
-    if (!task || task->isFinished) return;
-    
+    if (!task || task->isFinished)
+      return;
+
     bool currentlyPaused = task->isPaused;
     task->isPaused = !currentlyPaused;
-    
+
     if (task->type == "Zip" || task->type == "Extract") {
-      std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
+      std::string pidFile =
+          task->pidFile.empty()
+              ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract")
+              : task->pidFile;
       try {
         if (fs::exists(pidFile)) {
           std::ifstream f(pidFile);
@@ -1183,25 +1269,30 @@ private:
             }
           }
         }
-      } catch (...) {}
+      } catch (...) {
+      }
     }
-    
+
     if (!task->isPaused) {
       std::lock_guard<std::mutex> lock(task->pauseMutex);
       task->pauseCv.notify_all();
     }
-    
+
     task->statusMessage = task->isPaused ? "Paused" : "Running";
   }
 
   void cancelTask(std::shared_ptr<AsyncTask> task) {
-    if (!task || task->isFinished) return;
+    if (!task || task->isFinished)
+      return;
     task->isCancelled = true;
 
     if (task->isPaused) {
       task->isPaused = false;
       if (task->type == "Zip" || task->type == "Extract") {
-        std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
+        std::string pidFile =
+            task->pidFile.empty()
+                ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract")
+                : task->pidFile;
         try {
           if (fs::exists(pidFile)) {
             std::ifstream f(pidFile);
@@ -1210,9 +1301,10 @@ private:
               kill(pid, SIGCONT);
             }
           }
-        } catch (...) {}
+        } catch (...) {
+        }
       }
-      
+
       {
         std::lock_guard<std::mutex> lock(task->pauseMutex);
         task->pauseCv.notify_all();
@@ -1220,7 +1312,10 @@ private:
     }
 
     if (task->type == "Zip" || task->type == "Extract") {
-      std::string pidFile = task->pidFile.empty() ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract") : task->pidFile;
+      std::string pidFile =
+          task->pidFile.empty()
+              ? getSecureTaskPidPath(task->id, (task->type == "Zip") ? "zip" : "extract")
+              : task->pidFile;
       try {
         if (fs::exists(pidFile)) {
           std::ifstream f(pidFile);
@@ -1230,11 +1325,18 @@ private:
           }
           f.close();
         }
-      } catch (...) {}
-      try { fs::remove(pidFile); } catch(...) {}
+      } catch (...) {
+      }
+      try {
+        fs::remove(pidFile);
+      } catch (...) {
+      }
 
       if (task->type == "Zip" && !task->destPath.empty()) {
-        try { fs::remove(task->destPath); } catch(...) {}
+        try {
+          fs::remove(task->destPath);
+        } catch (...) {
+        }
       }
     }
   }
@@ -1283,7 +1385,8 @@ private:
           seq += line[i];
           i++;
         }
-        if (i >= line.size()) break;
+        if (i >= line.size())
+          break;
         char cmd = line[i];
         i++;
 
@@ -1350,9 +1453,12 @@ private:
                 int g = params[p + 3];
                 int b = params[p + 4];
                 if (r == g && g == b) {
-                  if (r < 8) fg = 16;
-                  else if (r > 248) fg = 231;
-                  else fg = 232 + (r - 8) * 24 / 240;
+                  if (r < 8)
+                    fg = 16;
+                  else if (r > 248)
+                    fg = 231;
+                  else
+                    fg = 232 + (r - 8) * 24 / 240;
                 } else {
                   int qr = (r * 5 + 127) / 255;
                   int qg = (g * 5 + 127) / 255;
@@ -1370,9 +1476,12 @@ private:
                 int g = params[p + 3];
                 int b = params[p + 4];
                 if (r == g && g == b) {
-                  if (r < 8) bg = 16;
-                  else if (r > 248) bg = 231;
-                  else bg = 232 + (r - 8) * 24 / 240;
+                  if (r < 8)
+                    bg = 16;
+                  else if (r > 248)
+                    bg = 231;
+                  else
+                    bg = 232 + (r - 8) * 24 / 240;
                 } else {
                   int qr = (r * 5 + 127) / 255;
                   int qg = (g * 5 + 127) / 255;
@@ -1402,7 +1511,8 @@ private:
           int spacesToPrint = 4 - ((cx - startX) % 4);
           for (int s = 0; s < spacesToPrint; ++s) {
             getyx(win, cy, cx);
-            if (cx >= startX + maxW) break;
+            if (cx >= startX + maxW)
+              break;
             waddch(win, ' ');
           }
           i++;
@@ -1433,18 +1543,23 @@ public:
     return std::this_thread::get_id() == mainThreadId;
   }
 
-  FileManager(const std::string& startPath = "", const std::string& chooserFilePath = "", const std::string& cwdFilePath = "")
+  FileManager(const std::string& startPath = "", const std::string& chooserFilePath = "",
+              const std::string& cwdFilePath = "")
       : selectedIndex(0), scrollOffset(0), winPinned(nullptr), winParent(nullptr),
         winCurrent(nullptr), winPreview(nullptr), previewScrollOffset(0), previewDirTotalEntries(0),
-        previewTotalLines(0), lastPreviewScrolledPath(""), chooserFile(chooserFilePath), cwdFile(cwdFilePath) {
+        previewTotalLines(0), lastPreviewScrolledPath(""), chooserFile(chooserFilePath),
+        cwdFile(cwdFilePath) {
     mainThreadId = std::this_thread::get_id();
     showHidden = configShowHidden;
     hidePreview = configHidePreview;
     hideParent = configHideParent;
     hidePinned = configHidePinned;
-    if (configSortMode == "size") sortMode = SortMode::SIZE;
-    else if (configSortMode == "date") sortMode = SortMode::DATE;
-    else sortMode = SortMode::NAME;
+    if (configSortMode == "size")
+      sortMode = SortMode::SIZE;
+    else if (configSortMode == "date")
+      sortMode = SortMode::DATE;
+    else
+      sortMode = SortMode::NAME;
 
     setlocale(LC_ALL, "");
     loadPins();
@@ -1459,30 +1574,36 @@ public:
       std::string pathStr = startPath;
       if (pathStr == "~") {
         const char* home = getenv("HOME");
-        if (home) pathStr = home;
+        if (home)
+          pathStr = home;
       } else if (pathStr.rfind("~/", 0) == 0) {
         const char* home = getenv("HOME");
-        if (home) pathStr = std::string(home) + pathStr.substr(1);
+        if (home)
+          pathStr = std::string(home) + pathStr.substr(1);
       }
       std::error_code ec;
       fs::path p = fs::u8path(pathStr);
       if (fs::exists(p, ec)) {
         if (fs::is_directory(p, ec)) {
           currentPath = fs::canonical(p, ec);
-          if (ec) currentPath = fs::absolute(p);
+          if (ec)
+            currentPath = fs::absolute(p);
         } else {
           targetSelection = p.filename().string();
           fs::path parent = p.parent_path();
-          if (parent.empty()) parent = ".";
+          if (parent.empty())
+            parent = ".";
           currentPath = fs::canonical(parent, ec);
-          if (ec) currentPath = fs::absolute(parent);
+          if (ec)
+            currentPath = fs::absolute(parent);
         }
       } else {
         fs::path parent = p.parent_path();
         if (!parent.empty() && fs::is_directory(parent, ec)) {
           targetSelection = p.filename().string();
           currentPath = fs::canonical(parent, ec);
-          if (ec) currentPath = fs::absolute(parent);
+          if (ec)
+            currentPath = fs::absolute(parent);
         }
       }
     }
@@ -1545,10 +1666,13 @@ public:
 
     if (!chooserFile.empty()) {
       std::ofstream out(chooserFile, std::ios::trunc);
-      setStatus("󰋚 Chooser Mode: <Enter> select, <Space> multi, <C> select cwd, <q> cancel");
+      setStatus("󰋚 Chooser Mode: <Enter> select, <Space>/<Tab> multi, <C> select cwd, <q> cancel");
     } else {
       auto initEndTime = std::chrono::steady_clock::now();
-      double initMs = std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime).count() / 1000.0;
+      double initMs =
+          std::chrono::duration_cast<std::chrono::microseconds>(initEndTime - globalStartTime)
+              .count() /
+          1000.0;
       char startupBuf[64];
       snprintf(startupBuf, sizeof(startupBuf), "󱐌 Loaded in %.2fms", initMs);
       setStatus(startupBuf);
@@ -1641,7 +1765,8 @@ public:
   // --- Auto-Update (Inotify) Functions ---
   void initInotify() {
     inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (inotifyFd < 0) return;
+    if (inotifyFd < 0)
+      return;
     inotifyThread = std::thread(&FileManager::inotifyWorker, this);
   }
 
@@ -1673,7 +1798,8 @@ public:
         while (ptr + sizeof(struct inotify_event) <= buffer + len) {
           const auto* event = reinterpret_cast<const struct inotify_event*>(ptr);
           size_t eventSize = sizeof(struct inotify_event) + event->len;
-          if (ptr + eventSize > buffer + len) break;
+          if (ptr + eventSize > buffer + len)
+            break;
 
           if (event->mask & IN_IGNORED) {
             std::lock_guard<std::mutex> lock(inotifyMutex);
@@ -1682,7 +1808,8 @@ public:
             continue;
           }
 
-          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF)) {
+          if (event->mask & (IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM |
+                             IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF)) {
             bool isDevicePath = false;
             {
               std::lock_guard<std::mutex> lock(inotifyMutex);
@@ -1714,7 +1841,8 @@ public:
   }
 
   void updateInotifyWatches() {
-    if (inotifyFd < 0) return;
+    if (inotifyFd < 0)
+      return;
 
     std::lock_guard<std::mutex> lock(inotifyMutex);
 
@@ -1780,12 +1908,14 @@ public:
       try {
         if (fs::exists(path) && fs::is_directory(path)) {
           int wd = inotify_add_watch(inotifyFd, path.string().c_str(),
-                                     IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
+                                     IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_TO |
+                                         IN_MOVED_FROM | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
           if (wd >= 0) {
             watchDescriptors[wd] = path;
           }
         }
-      } catch (...) {}
+      } catch (...) {
+      }
     }
   }
 
@@ -1817,7 +1947,8 @@ public:
       bool completed = false;
       std::error_code ec;
       if (fs::exists(job.path, ec) && fs::is_directory(job.path, ec)) {
-        fs::recursive_directory_iterator it(job.path, fs::directory_options::skip_permission_denied, ec);
+        fs::recursive_directory_iterator it(job.path, fs::directory_options::skip_permission_denied,
+                                            ec);
         fs::recursive_directory_iterator end;
         bool wasInterrupted = false;
         while (it != end) {
@@ -1881,19 +2012,22 @@ public:
         try {
           if (fs::exists(line))
             pinnedPaths.push_back(line);
-        } catch (...) {}
+        } catch (...) {
+        }
       }
     }
   }
   void loadCustomMacros() {
     customMacros.clear();
     std::string homeDir = getenv("HOME") ? getenv("HOME") : "";
-    if (homeDir.empty()) return;
+    if (homeDir.empty())
+      return;
 
     std::string configPath = homeDir + "/.config/fyzenor/keys.toml";
     try {
       fs::create_directories(homeDir + "/.config/fyzenor");
-    } catch (...) {}
+    } catch (...) {
+    }
 
     if (!fs::exists(configPath)) {
       std::ofstream df(configPath);
@@ -1910,17 +2044,20 @@ public:
     }
 
     std::ifstream f(configPath);
-    if (!f.is_open()) return;
+    if (!f.is_open())
+      return;
 
     std::string line;
     std::string section = "";
     while (std::getline(f, line)) {
       auto first = line.find_first_not_of(" \t\r\n");
-      if (first == std::string::npos) continue;
+      if (first == std::string::npos)
+        continue;
       auto last = line.find_last_not_of(" \t\r\n");
       line = line.substr(first, last - first + 1);
 
-      if (line.empty() || line[0] == '#') continue;
+      if (line.empty() || line[0] == '#')
+        continue;
 
       if (line[0] == '[' && line.back() == ']') {
         section = line.substr(1, line.length() - 2);
@@ -1961,7 +2098,8 @@ public:
   }
 
   void executeMacro(const std::string& rawCmd) {
-    if (rawCmd.empty()) return;
+    if (rawCmd.empty())
+      return;
 
     std::string cmd = rawCmd;
     std::string currentFile = "";
@@ -1980,7 +2118,8 @@ public:
         for (const auto& p : multiSelection) {
           selList += "\"" + p.string() + "\" ";
         }
-        if (!selList.empty()) selList.pop_back();
+        if (!selList.empty())
+          selList.pop_back();
       } else {
         selList = "\"" + currentFile + "\"";
       }
@@ -1990,17 +2129,17 @@ public:
     }
 
     suspendTerminal();
-    
+
     std::system("clear");
     std::cout << "\033[1;36m[Fyzenor Macro] Running: " << cmd << "\033[0m\n\n";
-    
+
     std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && " + cmd;
     int code = std::system(runCmd.c_str());
     (void)code;
-    
+
     std::cout << "\n\033[1;30mPress Enter to return to Fyzenor...\033[0m";
     std::cin.get();
-    
+
     resumeTerminal();
     clear();
     reloadAll();
@@ -2058,8 +2197,8 @@ public:
   }
 
   bool isCodeFile(const std::string& ext) {
-    if (ext == ".pdf" || ext == ".doc" || ext == ".docx" ||
-        ext == ".ppt" || ext == ".pptx" || ext == ".xls" || ext == ".xlsx") {
+    if (ext == ".pdf" || ext == ".doc" || ext == ".docx" || ext == ".ppt" || ext == ".pptx" ||
+        ext == ".xls" || ext == ".xlsx") {
       return false;
     }
     return CORE_EXTS.count(ext) || FRONTEND_EXTS.count(ext) || SCRIPTS_EXTS.count(ext) ||
@@ -2130,7 +2269,7 @@ public:
     cancelSearch();
     isSearching = false;
     target.clear();
-    for (auto it = multiSelection.begin(); it != multiSelection.end(); ) {
+    for (auto it = multiSelection.begin(); it != multiSelection.end();) {
       std::error_code ec;
       if (!fs::exists(*it, ec)) {
         it = multiSelection.erase(it);
@@ -2157,8 +2296,11 @@ public:
         for (const auto& trashDir : trashDirs) {
           std::error_code tEc;
           if (fs::exists(trashDir, tEc) && fs::is_directory(trashDir, tEc)) {
-            for (auto it = fs::directory_iterator(trashDir, fs::directory_options::skip_permission_denied, tEc); it != fs::directory_iterator(); it.increment(tEc)) {
-              if (tEc) break;
+            for (auto it = fs::directory_iterator(
+                     trashDir, fs::directory_options::skip_permission_denied, tEc);
+                 it != fs::directory_iterator(); it.increment(tEc)) {
+              if (tEc)
+                break;
               std::string fn = it->path().filename().string();
               if (!showHidden && !fn.empty() && fn.front() == '.')
                 continue;
@@ -2174,8 +2316,11 @@ public:
         }
       } else {
         std::error_code dirEc;
-        for (auto it = fs::directory_iterator(path, fs::directory_options::skip_permission_denied, dirEc); it != fs::directory_iterator(); it.increment(dirEc)) {
-          if (dirEc) break;
+        for (auto it =
+                 fs::directory_iterator(path, fs::directory_options::skip_permission_denied, dirEc);
+             it != fs::directory_iterator(); it.increment(dirEc)) {
+          if (dirEc)
+            break;
           std::string fn = it->path().filename().string();
           if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
@@ -2218,8 +2363,10 @@ public:
   }
 
   void adjustLeftPane() {
-    if (isDualPaneMode) return;
-    if (hideParent && hidePinned) return;
+    if (isDualPaneMode)
+      return;
+    if (hideParent && hidePinned)
+      return;
 
     int w1 = static_cast<int>(width * configParentWidth);
 
@@ -2239,7 +2386,8 @@ public:
       return;
     }
 
-    if (!winPinned || !winParent) return;
+    if (!winPinned || !winParent)
+      return;
 
     int hPinned = 0;
     int hParent = 0;
@@ -2269,8 +2417,11 @@ public:
       parentFiles.clear();
       try {
         std::error_code pEc;
-        for (auto it = fs::directory_iterator(currentPath.parent_path(), fs::directory_options::skip_permission_denied, pEc); it != fs::directory_iterator(); it.increment(pEc)) {
-          if (pEc) break;
+        for (auto it = fs::directory_iterator(currentPath.parent_path(),
+                                              fs::directory_options::skip_permission_denied, pEc);
+             it != fs::directory_iterator(); it.increment(pEc)) {
+          if (pEc)
+            break;
           std::string fn = it->path().filename().string();
           if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
@@ -2325,10 +2476,18 @@ public:
         dualPaneSplitOffset = w1 - width / 2;
       }
 
-      if (winPinned) { delwin(winPinned); winPinned = nullptr; }
-      if (winParent) { delwin(winParent); winParent = nullptr; }
-      if (winCurrent) delwin(winCurrent);
-      if (winPreview) delwin(winPreview);
+      if (winPinned) {
+        delwin(winPinned);
+        winPinned = nullptr;
+      }
+      if (winParent) {
+        delwin(winParent);
+        winParent = nullptr;
+      }
+      if (winCurrent)
+        delwin(winCurrent);
+      if (winPreview)
+        delwin(winPreview);
 
       winCurrent = newwin(height - 2, w1, 1, 0);
       winPreview = newwin(height - 2, w2, 1, w1);
@@ -2340,13 +2499,26 @@ public:
     // Adjusted widths dynamically from layout configuration values and visibility states
     int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
     int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
-    if (w3 < 0) w3 = 0;
+    if (w3 < 0)
+      w3 = 0;
     int w2 = width - w1 - w3;
 
-    if (winPinned) { delwin(winPinned); winPinned = nullptr; }
-    if (winParent) { delwin(winParent); winParent = nullptr; }
-    if (winCurrent) { delwin(winCurrent); winCurrent = nullptr; }
-    if (winPreview) { delwin(winPreview); winPreview = nullptr; }
+    if (winPinned) {
+      delwin(winPinned);
+      winPinned = nullptr;
+    }
+    if (winParent) {
+      delwin(winParent);
+      winParent = nullptr;
+    }
+    if (winCurrent) {
+      delwin(winCurrent);
+      winCurrent = nullptr;
+    }
+    if (winPreview) {
+      delwin(winPreview);
+      winPreview = nullptr;
+    }
 
     int hPinned = 0;
     int hParent = 0;
@@ -2371,7 +2543,8 @@ public:
         winPinned = newwin(hPinned, w1, 1, 0);
       }
       if (!hideParent) {
-        winParent = newwin(hParent, w1, hidePinned ? 1 : (parentFiles.empty() ? height - 1 : 1 + hPinned), 0);
+        winParent = newwin(hParent, w1,
+                           hidePinned ? 1 : (parentFiles.empty() ? height - 1 : 1 + hPinned), 0);
       }
     }
 
@@ -2412,7 +2585,8 @@ public:
 
     {
       std::lock_guard<std::mutex> lock(previewMutex);
-      nextPreviewJob = std::make_unique<PreviewJob>(PreviewJob{path, type, previewHeight, previewWidth, requestID});
+      nextPreviewJob = std::make_unique<PreviewJob>(
+          PreviewJob{path, type, previewHeight, previewWidth, requestID});
     }
     previewCv.notify_one();
   }
@@ -2466,7 +2640,8 @@ public:
         if (cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
           try {
             fs::remove(cachePath);
-          } catch (...) {}
+          } catch (...) {
+          }
         }
 
         if (!fs::exists(cachePath)) {
@@ -2476,11 +2651,13 @@ public:
 
           std::string cmd;
           if (isVid) {
-            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " + escapeShellArg(scaleFilter) +
-                  " -frames:v 1 -f image2 " + escapeShellArg(cachePath) + " > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " +
+                  escapeShellArg(scaleFilter) + " -frames:v 1 -f image2 " +
+                  escapeShellArg(cachePath) + " > /dev/null 2>&1";
           } else {
-            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " + escapeShellArg(scaleFilter) +
-                  " -f image2 " + escapeShellArg(cachePath) + " > /dev/null 2>&1";
+            cmd = "ffmpeg -y -v error -i " + escapeShellArg(job->path) + " -vf " +
+                  escapeShellArg(scaleFilter) + " -f image2 " + escapeShellArg(cachePath) +
+                  " > /dev/null 2>&1";
           }
           int res = system(cmd.c_str());
           (void)res;
@@ -2492,7 +2669,8 @@ public:
         if (!fs::exists(cachePath)) {
           std::lock_guard<std::mutex> lock(previewMutex);
           if (job->reqId == requestID) {
-            auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
+            auto kit =
+                std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
             if (kit != sessionImageCacheKeys.end()) {
               sessionImageCacheKeys.erase(kit);
             }
@@ -2533,7 +2711,8 @@ public:
             cachedImgW = finalW;
             cachedImgH = finalH;
             cachedBase64 = b64;
-            auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
+            auto kit =
+                std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), job->path);
             if (kit != sessionImageCacheKeys.end()) {
               sessionImageCacheKeys.erase(kit);
             }
@@ -2552,10 +2731,12 @@ public:
         }
       } else if (job->type == PreviewType::TEXT) {
         std::string ext = fs::path(job->path).extension().string();
-        for (auto& c : ext) c = tolower(c);
+        for (auto& c : ext)
+          c = tolower(c);
 
         if (pluginManager.hasCustomPreviewer(ext)) {
-          std::string luaPreview = pluginManager.runCustomPreviewer(ext, job->path, job->previewWidth, job->previewHeight);
+          std::string luaPreview = pluginManager.runCustomPreviewer(
+              ext, job->path, job->previewWidth, job->previewHeight);
           std::vector<std::string> lines;
           std::stringstream ss(luaPreview);
           std::string item;
@@ -2571,10 +2752,10 @@ public:
           continue;
         }
 
-        bool isArchive = (ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz" || 
+        bool isArchive = (ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz" ||
                           ext == ".rar" || ext == ".bz2" || ext == ".xz" || ext == ".7z");
-        
-        bool isAudio = (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" || 
+
+        bool isAudio = (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" ||
                         ext == ".m4a" || ext == ".aac" || ext == ".opus" || ext == ".wma");
 
         if (isArchive) {
@@ -2606,7 +2787,8 @@ public:
                 if (job->reqId != requestID || stopWorker)
                   break;
                 std::string ln(buf);
-                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                if (!ln.empty() && ln.back() == '\n')
+                  ln.pop_back();
                 lines.push_back(ln);
                 hasData = true;
               }
@@ -2623,7 +2805,10 @@ public:
           if (isCommandAvailable("mediainfo")) {
             mediaCmd = "mediainfo \"" + job->path + "\" 2>/dev/null | head -n 40";
           } else if (isCommandAvailable("ffprobe")) {
-            mediaCmd = "ffprobe -v error -show_format -show_streams \"" + job->path + "\" 2>/dev/null | grep -E \"codec_name|duration|bit_rate|width|height|sample_rate|channels|title|artist\" | head -n 40";
+            mediaCmd = "ffprobe -v error -show_format -show_streams \"" + job->path +
+                       "\" 2>/dev/null | grep -E "
+                       "\"codec_name|duration|bit_rate|width|height|sample_rate|channels|title|"
+                       "artist\" | head -n 40";
           }
 
           lines.push_back("\033[1;35mMedia Info Metadata:\033[0m");
@@ -2637,7 +2822,8 @@ public:
                 if (job->reqId != requestID || stopWorker)
                   break;
                 std::string ln(buf);
-                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                if (!ln.empty() && ln.back() == '\n')
+                  ln.pop_back();
                 lines.push_back(ln);
                 hasData = true;
               }
@@ -2653,7 +2839,8 @@ public:
           }
         } else if (ext == ".pdf") {
           if (isCommandAvailable("pdftotext")) {
-            std::string pdfCmd = "pdftotext -layout -l 3 \"" + job->path + "\" - 2>/dev/null | head -n 40";
+            std::string pdfCmd =
+                "pdftotext -layout -l 3 \"" + job->path + "\" - 2>/dev/null | head -n 40";
             lines.push_back("\033[1;32mPDF Document Preview (First 3 Pages):\033[0m");
             lines.push_back("--------------------------------");
             FILE* pipe = popen(pdfCmd.c_str(), "r");
@@ -2664,7 +2851,8 @@ public:
                 if (job->reqId != requestID || stopWorker)
                   break;
                 std::string ln(buf);
-                if (!ln.empty() && ln.back() == '\n') ln.pop_back();
+                if (!ln.empty() && ln.back() == '\n')
+                  ln.pop_back();
                 lines.push_back(ln);
                 hasData = true;
               }
@@ -2767,7 +2955,8 @@ public:
 
   void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
                          int offX = 0, int offY = 0, int startRow = 8) {
-    if (b64Data.empty() || cols <= 0 || rows <= 0) return;
+    if (b64Data.empty() || cols <= 0 || rows <= 0)
+      return;
     // Move cursor to start of preview area (1-indexed for terminal)
     // pY+1 is the start of the window, we have startRow lines of header/padding +
     // offY.
@@ -2794,7 +2983,8 @@ public:
 
   void drawFromCache(PreviewType type) {
     std::lock_guard<std::mutex> lock(previewMutex);
-    if (!winPreview) return;
+    if (!winPreview)
+      return;
     int pW, pH, pX, pY;
     getmaxyx(winPreview, pH, pW);
     getbegyx(winPreview, pY, pX);
@@ -2909,10 +3099,11 @@ public:
     }
 
     WINDOW* toastWin = newwin(h, w, y, x);
-    if (!toastWin) return;
+    if (!toastWin)
+      return;
 
-    bool isError = msg.find("Failed") != std::string::npos ||
-                   msg.find("Error") != std::string::npos;
+    bool isError =
+        msg.find("Failed") != std::string::npos || msg.find("Error") != std::string::npos;
     int colorPair = isError ? 8 : 7;
 
     wattron(toastWin, COLOR_PAIR(colorPair) | A_BOLD);
@@ -2922,7 +3113,8 @@ public:
     std::string dispMsg = msg;
     if ((int)dispMsg.length() > w - 4) {
       int limit = w - 7;
-      if (limit < 1) limit = 1;
+      if (limit < 1)
+        limit = 1;
       dispMsg = utf8_safe_truncate(dispMsg, limit);
     }
 
@@ -2932,9 +3124,11 @@ public:
   }
 
   std::string getSystemClipboardText() {
-    std::string cmd = "(wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || pbpaste 2>/dev/null)";
+    std::string cmd = "(wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || "
+                      "pbpaste 2>/dev/null)";
     FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "";
+    if (!pipe)
+      return "";
     char buf[512];
     std::string result = "";
     while (fgets(buf, sizeof(buf), pipe) != nullptr) {
@@ -2953,7 +3147,8 @@ public:
 
   FileStyle getPromptFileStyle(const std::string& input) {
     std::string s = input;
-    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+    while (!s.empty() &&
+           (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
       s.pop_back();
     }
     if (s.empty()) {
@@ -3011,11 +3206,14 @@ public:
     int w = std::min(width - 4, std::max((int)prompt.length() + 16, 54));
     int y = (height - h) / 2;
     int x = (width - w) / 2;
-    if (x < 1) x = 1;
-    if (y < 1) y = 1;
+    if (x < 1)
+      x = 1;
+    if (y < 1)
+      y = 1;
 
     WINDOW* win = newwin(h, w, y, x);
-    if (!win) return defaultVal;
+    if (!win)
+      return defaultVal;
     keypad(win, TRUE);
 
     std::string input = defaultVal;
@@ -3060,7 +3258,8 @@ public:
         iconToDisplay = getPromptTypeIcon(currentInput);
       } else if (!staticIcon.empty()) {
         iconToDisplay = staticIcon;
-        while (!iconToDisplay.empty() && (iconToDisplay.back() == ' ' || iconToDisplay.back() == '\t')) {
+        while (!iconToDisplay.empty() &&
+               (iconToDisplay.back() == ' ' || iconToDisplay.back() == '\t')) {
           iconToDisplay.pop_back();
         }
       }
@@ -3098,7 +3297,8 @@ public:
       wattroff(win, COLOR_PAIR(18) | A_BOLD);
 
       int cursorCol = inputFieldX + (cursorIdx - startIdx);
-      if (cursorCol >= w - 1) cursorCol = w - 2;
+      if (cursorCol >= w - 1)
+        cursorCol = w - 2;
       wmove(win, inputFieldY, cursorCol);
       wrefresh(win);
 
@@ -3110,8 +3310,10 @@ public:
         w = std::min(width - 4, std::max((int)prompt.length() + 16, 54));
         y = (height - h) / 2;
         x = (width - w) / 2;
-        if (x < 1) x = 1;
-        if (y < 1) y = 1;
+        if (x < 1)
+          x = 1;
+        if (y < 1)
+          y = 1;
         wresize(win, h, w);
         mvwin(win, y, x);
         maxInputW = w - 2;
@@ -3138,7 +3340,8 @@ public:
             if (c == ERR) {
               std::this_thread::sleep_for(std::chrono::milliseconds(2));
               c = wgetch(win);
-              if (c == ERR) break;
+              if (c == ERR)
+                break;
             }
             if (c == 27) {
               nodelay(win, TRUE);
@@ -3151,12 +3354,18 @@ public:
               if (e1 == '[' && e2 == '2' && e3 == '0' && e4 == '1' && e5 == '~') {
                 break;
               } else {
-                if (c >= 32 && c <= 126) pastedData += (char)c;
-                if (e1 >= 32 && e1 <= 126) pastedData += (char)e1;
-                if (e2 >= 32 && e2 <= 126) pastedData += (char)e2;
-                if (e3 >= 32 && e3 <= 126) pastedData += (char)e3;
-                if (e4 >= 32 && e4 <= 126) pastedData += (char)e4;
-                if (e5 >= 32 && e5 <= 126) pastedData += (char)e5;
+                if (c >= 32 && c <= 126)
+                  pastedData += (char)c;
+                if (e1 >= 32 && e1 <= 126)
+                  pastedData += (char)e1;
+                if (e2 >= 32 && e2 <= 126)
+                  pastedData += (char)e2;
+                if (e3 >= 32 && e3 <= 126)
+                  pastedData += (char)e3;
+                if (e4 >= 32 && e4 <= 126)
+                  pastedData += (char)e4;
+                if (e5 >= 32 && e5 <= 126)
+                  pastedData += (char)e5;
               }
             } else if ((c >= 32 && c <= 126) || (c >= 128 && c <= 255)) {
               pastedData += (char)c;
@@ -3183,14 +3392,17 @@ public:
       } else if (ch == 23) { // Ctrl+W -> Delete word backwards
         if (cursorIdx > 0 && !input.empty()) {
           int end = cursorIdx;
-          while (cursorIdx > 0 && input[cursorIdx - 1] == ' ') cursorIdx--;
-          while (cursorIdx > 0 && input[cursorIdx - 1] != ' ') cursorIdx--;
+          while (cursorIdx > 0 && input[cursorIdx - 1] == ' ')
+            cursorIdx--;
+          while (cursorIdx > 0 && input[cursorIdx - 1] != ' ')
+            cursorIdx--;
           input.erase(cursorIdx, end - cursorIdx);
         }
       } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
         if (cursorIdx > 0 && !input.empty()) {
           int count = 1;
-          while (cursorIdx - count > 0 && (static_cast<unsigned char>(input[cursorIdx - count]) & 0xC0) == 0x80) {
+          while (cursorIdx - count > 0 &&
+                 (static_cast<unsigned char>(input[cursorIdx - count]) & 0xC0) == 0x80) {
             count++;
           }
           input.erase(cursorIdx - count, count);
@@ -3199,7 +3411,8 @@ public:
       } else if (ch == KEY_DC) {
         if (cursorIdx < (int)input.length()) {
           int count = 1;
-          while (cursorIdx + count < (int)input.length() && (static_cast<unsigned char>(input[cursorIdx + count]) & 0xC0) == 0x80) {
+          while (cursorIdx + count < (int)input.length() &&
+                 (static_cast<unsigned char>(input[cursorIdx + count]) & 0xC0) == 0x80) {
             count++;
           }
           input.erase(cursorIdx, count);
@@ -3214,7 +3427,8 @@ public:
         if (cursorIdx < (int)input.length()) {
           do {
             cursorIdx++;
-          } while (cursorIdx < (int)input.length() && (static_cast<unsigned char>(input[cursorIdx]) & 0xC0) == 0x80);
+          } while (cursorIdx < (int)input.length() &&
+                   (static_cast<unsigned char>(input[cursorIdx]) & 0xC0) == 0x80);
         }
       } else if (ch == KEY_HOME || ch == 1) {
         cursorIdx = 0;
@@ -3390,7 +3604,8 @@ public:
   }
 
   bool fuzzyMatch(const std::string& str, const std::string& query) {
-    if (query.empty()) return true;
+    if (query.empty())
+      return true;
     size_t queryIdx = 0;
     for (char c : str) {
       if (tolower(c) == tolower(query[queryIdx])) {
@@ -3427,22 +3642,25 @@ public:
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
       std::error_code spEc;
-      if (!fs::exists(searchPath, spEc)) return;
+      if (!fs::exists(searchPath, spEc))
+        return;
 
       std::string cmd = "rg --files-with-matches --smart-case --hidden --glob \"!.git\" " +
-                        escapeShellArg(query) + " " +
-                        escapeShellArg(searchPath.string()) + " 2>/dev/null";
+                        escapeShellArg(query) + " " + escapeShellArg(searchPath.string()) +
+                        " 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
-        if (reqId != searchRequestID) return;
+        if (reqId != searchRequestID)
+          return;
         searchPipe = popen(cmd.c_str(), "r");
         pipe = searchPipe;
       }
       if (!pipe) {
         {
           std::lock_guard<std::mutex> lock(searchMutex);
-          if (searchPipe == pipe) searchPipe = nullptr;
+          if (searchPipe == pipe)
+            searchPipe = nullptr;
         }
         if (reqId == searchRequestID) {
           setStatus("Error: Failed to run ripgrep");
@@ -3456,7 +3674,8 @@ public:
 
       while (true) {
         char* res = fgets(buffer, sizeof(buffer), pipe);
-        if (!res || reqId != searchRequestID) break;
+        if (!res || reqId != searchRequestID)
+          break;
         std::string pathStr(buffer);
         if (!pathStr.empty() && pathStr.back() == '\n')
           pathStr.pop_back();
@@ -3471,11 +3690,13 @@ public:
         }
 
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 && !results.empty()) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 &&
+            !results.empty()) {
           if (reqId == searchRequestID) {
             std::lock_guard<std::mutex> lock(searchResultMutex);
             pendingSearchResults = results;
-            pendingSearchStatus = "Searching... Found " + std::to_string(results.size()) + " matches";
+            pendingSearchStatus =
+                "Searching... Found " + std::to_string(results.size()) + " matches";
             hasPendingSearchResults = true;
             searchReady = true;
           }
@@ -3498,7 +3719,10 @@ public:
       if (reqId == searchRequestID) {
         std::lock_guard<std::mutex> lock(searchResultMutex);
         pendingSearchResults = results;
-        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Search finished. Found " + std::to_string(results.size()) + " matches");
+        pendingSearchStatus =
+            results.empty()
+                ? ("No matches found for: " + query)
+                : ("Search finished. Found " + std::to_string(results.size()) + " matches");
         hasPendingSearchResults = true;
         searchReady = true;
       }
@@ -3580,7 +3804,7 @@ public:
         if (!ans.empty()) {
           choice = std::tolower(ans[0]);
         }
-        
+
         if (choice == 'r') {
           if (src == dest) {
             jobs.push_back({src, dest});
@@ -3602,7 +3826,8 @@ public:
       }
     }
 
-    if (jobs.empty()) return;
+    if (jobs.empty())
+      return;
 
     startPasteTask(jobs, clipboard.isCut);
 
@@ -3632,7 +3857,7 @@ public:
         if (!ans.empty()) {
           choice = std::tolower(ans[0]);
         }
-        
+
         if (choice == 'r') {
           std::error_code rec;
           fs::remove_all(dest, rec);
@@ -3651,7 +3876,8 @@ public:
       }
     }
 
-    if (jobs.empty()) return;
+    if (jobs.empty())
+      return;
 
     int successCount = 0;
     int failCount = 0;
@@ -3672,7 +3898,8 @@ public:
     }
 
     if (failCount > 0) {
-      setStatus("Symlinked " + std::to_string(successCount) + " items (" + std::to_string(failCount) + " failed)");
+      setStatus("Symlinked " + std::to_string(successCount) + " items (" +
+                std::to_string(failCount) + " failed)");
     } else {
       setStatus("Created " + std::to_string(successCount) + " symlinks");
     }
@@ -3743,11 +3970,13 @@ public:
       std::weak_ptr<AsyncTask> weakTask = task;
       task->workerThread = std::thread([this, weakTask, finalCmd, commandDir]() {
         auto task = weakTask.lock();
-        if (!task) return;
+        if (!task)
+          return;
 
-        std::string runCmd = "cd " + escapeShellArg(commandDir.string()) + " && (" + finalCmd + ") > /dev/null 2>&1";
+        std::string runCmd =
+            "cd " + escapeShellArg(commandDir.string()) + " && (" + finalCmd + ") > /dev/null 2>&1";
         int res = system(runCmd.c_str());
-        
+
         task->isFinished = true;
         if (res == 0) {
           task->statusMessage = "Success";
@@ -3757,18 +3986,18 @@ public:
       });
     } else {
       suspendTerminal();
-      
+
       std::cout << "\033[H\033[J";
       std::cout << "Executing: " << finalCmd << "\n\n";
-      
+
       std::string runCmd = "cd " + escapeShellArg(currentPath.string()) + " && " + finalCmd;
       int res = system(runCmd.c_str());
-      
+
       std::cout << "\nCommand exited with code: " << res << "\n";
       std::cout << "Press Enter to return to Fyzenor...";
       std::string dummy;
       std::getline(std::cin, dummy);
-      
+
       resumeTerminal();
       reloadAll();
     }
@@ -3784,10 +4013,11 @@ public:
       for (const auto& p : multiSelection) {
         selectedPaths.push_back(p);
       }
-      
-      std::sort(selectedPaths.begin(), selectedPaths.end(), [](const fs::path& a, const fs::path& b) {
-        return a.filename().string() < b.filename().string();
-      });
+
+      std::sort(selectedPaths.begin(), selectedPaths.end(),
+                [](const fs::path& a, const fs::path& b) {
+                  return a.filename().string() < b.filename().string();
+                });
 
       fs::path tempFile = fs::path(getSecureRuntimeDir()) / "bulk_rename.txt";
       unlink(tempFile.c_str());
@@ -3830,7 +4060,8 @@ public:
       std::vector<std::string> newNames;
       std::string line;
       while (std::getline(in, line)) {
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || std::isspace(line.back()))) {
+        while (!line.empty() &&
+               (line.back() == '\r' || line.back() == '\n' || std::isspace(line.back()))) {
           line.pop_back();
         }
         if (!line.empty()) {
@@ -3838,10 +4069,14 @@ public:
         }
       }
       in.close();
-      try { fs::remove(tempFile); } catch(...) {}
+      try {
+        fs::remove(tempFile);
+      } catch (...) {
+      }
 
       if (newNames.size() != selectedPaths.size()) {
-        setStatus("Bulk rename aborted: Line count mismatch (" + std::to_string(newNames.size()) + " vs " + std::to_string(selectedPaths.size()) + ")");
+        setStatus("Bulk rename aborted: Line count mismatch (" + std::to_string(newNames.size()) +
+                  " vs " + std::to_string(selectedPaths.size()) + ")");
         return;
       }
 
@@ -3888,7 +4123,10 @@ public:
         }
 
         destSet.insert(dest.string());
-        fs::path tmp = src.parent_path() / (".fy_bulk_" + std::to_string(getpid()) + "_" + std::to_string(idx) + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        fs::path tmp =
+            src.parent_path() /
+            (".fy_bulk_" + std::to_string(getpid()) + "_" + std::to_string(idx) + "_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         ops.push_back({src, dest, tmp});
       }
 
@@ -3922,7 +4160,8 @@ public:
       reloadAll();
 
       if (failCount > 0) {
-        setStatus("Renamed " + std::to_string(successCount) + " files (" + std::to_string(failCount) + " failed)");
+        setStatus("Renamed " + std::to_string(successCount) + " files (" +
+                  std::to_string(failCount) + " failed)");
       } else {
         setStatus("Bulk renamed " + std::to_string(successCount) + " files");
       }
@@ -3937,7 +4176,8 @@ public:
 
     fs::path target = currentPath / newName;
     if (target != file.path && pathExists(target)) {
-      setStatus(file.is_directory ? "Error: Folder already exists!" : "Error: File already exists!");
+      setStatus(file.is_directory ? "Error: Folder already exists!"
+                                  : "Error: File already exists!");
       return;
     }
 
@@ -3955,10 +4195,12 @@ public:
       return;
 
     auto first = input.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) return;
+    if (first == std::string::npos)
+      return;
     auto last = input.find_last_not_of(" \t\r\n");
     input = input.substr(first, last - first + 1);
-    if (input.empty()) return;
+    if (input.empty())
+      return;
 
     bool isDir = false;
     if (input.back() == '/' || input.back() == '\\') {
@@ -4027,8 +4269,12 @@ public:
     }
   }
 
-  void handleNewFile() { handleCreate(); }
-  void handleNewFolder() { handleCreate(); }
+  void handleNewFile() {
+    handleCreate();
+  }
+  void handleNewFolder() {
+    handleCreate();
+  }
   void handleZip() {
     if (!isCommandAvailable("zip")) {
       setStatus("Error: 'zip' utility is not installed/available");
@@ -4070,36 +4316,43 @@ public:
       setStatus("Error: Cannot extract a directory!");
       return;
     }
-    
+
     std::string extractCmd;
     std::string requiredTool;
-    auto getExtractCommand = [this, &requiredTool](const fs::path& archivePath, const fs::path& destDir, std::string& cmd) -> bool {
+    auto getExtractCommand = [this, &requiredTool](const fs::path& archivePath,
+                                                   const fs::path& destDir,
+                                                   std::string& cmd) -> bool {
       std::string ext = archivePath.extension().string();
       std::string pathStr = archivePath.string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
       bool isTarGz = (pathStr.length() > 7 && pathStr.substr(pathStr.length() - 7) == ".tar.gz") ||
                      (pathStr.length() > 4 && pathStr.substr(pathStr.length() - 4) == ".tgz");
-      bool isTarBz2 = (pathStr.length() > 8 && pathStr.substr(pathStr.length() - 8) == ".tar.bz2") ||
-                      (pathStr.length() > 5 && pathStr.substr(pathStr.length() - 5) == ".tbz2");
+      bool isTarBz2 =
+          (pathStr.length() > 8 && pathStr.substr(pathStr.length() - 8) == ".tar.bz2") ||
+          (pathStr.length() > 5 && pathStr.substr(pathStr.length() - 5) == ".tbz2");
       bool isTarXz = (pathStr.length() > 7 && pathStr.substr(pathStr.length() - 7) == ".tar.xz") ||
                      (pathStr.length() > 4 && pathStr.substr(pathStr.length() - 4) == ".txz");
 
       if (ext == ".zip") {
         requiredTool = "unzip";
-        cmd = "unzip -q " + escapeShellArg(archivePath.string()) + " -d " + escapeShellArg(destDir.string());
+        cmd = "unzip -q " + escapeShellArg(archivePath.string()) + " -d " +
+              escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".tar" || isTarGz || isTarBz2 || isTarXz) {
         requiredTool = "tar";
-        cmd = "tar -xf " + escapeShellArg(archivePath.string()) + " -C " + escapeShellArg(destDir.string());
+        cmd = "tar -xf " + escapeShellArg(archivePath.string()) + " -C " +
+              escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".7z") {
         requiredTool = "7z";
-        cmd = "7z x -y " + escapeShellArg(archivePath.string()) + " -o" + escapeShellArg(destDir.string());
+        cmd = "7z x -y " + escapeShellArg(archivePath.string()) + " -o" +
+              escapeShellArg(destDir.string());
         return true;
       } else if (ext == ".rar") {
         requiredTool = "unrar";
-        cmd = "unrar x -y " + escapeShellArg(archivePath.string()) + " " + escapeShellArg(destDir.string());
+        cmd = "unrar x -y " + escapeShellArg(archivePath.string()) + " " +
+              escapeShellArg(destDir.string());
         return true;
       }
       return false;
@@ -4185,7 +4438,8 @@ public:
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
     WINDOW* promptWin = newwin(h, w, startY, startX);
-    if (!promptWin) return;
+    if (!promptWin)
+      return;
 
     keypad(promptWin, TRUE);
     wattron(promptWin, COLOR_PAIR(6) | A_BOLD);
@@ -4196,7 +4450,8 @@ public:
     mvwprintw(promptWin, 1, 2, "󰗘 Dropped File(s) Detected");
     wattroff(promptWin, COLOR_PAIR(1) | A_BOLD);
 
-    std::string countStr = (paths.size() > 1) ? std::to_string(paths.size()) + " items" : paths[0].filename().string();
+    std::string countStr =
+        (paths.size() > 1) ? std::to_string(paths.size()) + " items" : paths[0].filename().string();
     if (countStr.length() > (size_t)(w - 15)) {
       countStr = countStr.substr(0, w - 18) + "...";
     }
@@ -4242,7 +4497,7 @@ public:
         targets.push_back(p);
     std::string countStr = (targets.size() > 1) ? std::to_string(targets.size()) + " items"
                                                 : targets[0].filename().string();
-    
+
     std::string confirmMsg = isTrashMode ? "Permanently delete " + countStr + " from Trash? (y/n)"
                                          : "Delete " + countStr + " permanently? (y/n)";
     std::string confirm = promptInput(confirmMsg);
@@ -4253,12 +4508,14 @@ public:
       const char* home = std::getenv("HOME");
       if (home) {
         for (const auto& p : targets) {
-          fs::path infoFile = fs::path(home) / ".local/share/Trash/info" / (p.filename().string() + ".trashinfo");
+          fs::path infoFile =
+              fs::path(home) / ".local/share/Trash/info" / (p.filename().string() + ".trashinfo");
           try {
             if (fs::exists(infoFile)) {
               fs::remove(infoFile);
             }
-          } catch (...) {}
+          } catch (...) {
+          }
         }
       }
     }
@@ -4292,7 +4549,8 @@ public:
           }
         }
       }
-    } catch (...) {}
+    } catch (...) {
+    }
     return info;
   }
 
@@ -4360,7 +4618,8 @@ public:
             }
           }
         }
-      } catch (...) {}
+      } catch (...) {
+      }
     }
     return paths;
   }
@@ -4378,7 +4637,8 @@ public:
       fs::path mountPoint = getMountPoint(absPath);
 
       const char* home = std::getenv("HOME");
-      if (!home) return false;
+      if (!home)
+        return false;
       fs::path homePath(home);
 
       struct stat st_mount, st_home;
@@ -4423,7 +4683,8 @@ public:
       try {
         fs::rename(absPath, destFile);
       } catch (const std::filesystem::filesystem_error&) {
-        fs::copy(absPath, destFile, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        fs::copy(absPath, destFile,
+                 fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         fs::remove_all(absPath);
       }
 
@@ -4484,7 +4745,8 @@ public:
           }
         }
       }
-    } catch (...) {}
+    } catch (...) {
+    }
     return "";
   }
 
@@ -4497,7 +4759,8 @@ public:
     int successCount = 0;
     for (const auto& p : lastTrashedFiles) {
       TrashInfo ti = getTrashInfo(p);
-      if (ti.originalPath.empty()) continue;
+      if (ti.originalPath.empty())
+        continue;
       try {
         fs::path dest(ti.originalPath);
         if (dest.has_parent_path()) {
@@ -4519,12 +4782,14 @@ public:
           fs::remove_all(p);
         }
 
-        fs::path infoFile = p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
+        fs::path infoFile =
+            p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
         if (fs::exists(infoFile)) {
           fs::remove(infoFile);
         }
         successCount++;
-      } catch (...) {}
+      } catch (...) {
+      }
     }
 
     if (successCount > 0) {
@@ -4601,18 +4866,21 @@ public:
           fs::remove_all(p);
         }
 
-        fs::path infoFile = p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
+        fs::path infoFile =
+            p.parent_path().parent_path() / "info" / (p.filename().string() + ".trashinfo");
         if (fs::exists(infoFile)) {
           fs::remove(infoFile);
         }
         successCount++;
-      } catch (...) {}
+      } catch (...) {
+      }
     }
 
     if (successCount == (int)targets.size()) {
       setStatus("Restored successfully");
     } else {
-      setStatus("Restored " + std::to_string(successCount) + "/" + std::to_string(targets.size()) + " items");
+      setStatus("Restored " + std::to_string(successCount) + "/" + std::to_string(targets.size()) +
+                " items");
     }
 
     multiSelection.clear();
@@ -4642,7 +4910,8 @@ public:
             targets.push_back(entry.path());
           }
         }
-      } catch (...) {}
+      } catch (...) {
+      }
     }
 
     if (targets.empty()) {
@@ -4717,22 +4986,28 @@ public:
     char cwdBuf[4096];
     if (getcwd(cwdBuf, sizeof(cwdBuf)) == nullptr) {
       const char* home = std::getenv("HOME");
-      fs::path safeDir = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+      fs::path safeDir = (home && fs::exists(home, ec) && fs::is_directory(home, ec))
+                             ? fs::path(home)
+                             : fs::path("/");
       ::chdir(safeDir.c_str());
       fs::current_path(safeDir, ec);
     }
 
     // 2. Validate all tabs to ensure their paths still exist on disk
     for (size_t i = 0; i < tabs.size(); ++i) {
-      if (tabs[i].isTrashMode) continue;
+      if (tabs[i].isTrashMode)
+        continue;
       if (!fs::exists(tabs[i].currentPath, ec) || !fs::is_directory(tabs[i].currentPath, ec)) {
         fs::path validPath = tabs[i].currentPath.parent_path();
-        while (!validPath.empty() && (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) && validPath != validPath.parent_path()) {
+        while (!validPath.empty() &&
+               (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) &&
+               validPath != validPath.parent_path()) {
           validPath = validPath.parent_path();
         }
         if (validPath.empty() || !fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) {
           const char* home = std::getenv("HOME");
-          validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+          validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home)
+                                                                                   : fs::path("/");
         }
         tabs[i].currentPath = validPath;
         tabs[i].selectedIndex = 0;
@@ -4747,12 +5022,15 @@ public:
     // 3. Validate active currentPath
     if (!isTrashMode && (!fs::exists(currentPath, ec) || !fs::is_directory(currentPath, ec))) {
       fs::path validPath = currentPath.parent_path();
-      while (!validPath.empty() && (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) && validPath != validPath.parent_path()) {
+      while (!validPath.empty() &&
+             (!fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) &&
+             validPath != validPath.parent_path()) {
         validPath = validPath.parent_path();
       }
       if (validPath.empty() || !fs::exists(validPath, ec) || !fs::is_directory(validPath, ec)) {
         const char* home = std::getenv("HOME");
-        validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home) : fs::path("/");
+        validPath = (home && fs::exists(home, ec) && fs::is_directory(home, ec)) ? fs::path(home)
+                                                                                 : fs::path("/");
       }
       currentPath = validPath;
       if (activeTabIndex < tabs.size()) {
@@ -4806,7 +5084,8 @@ public:
   }
 
   void reloadAll() {
-    if (ensureValidCurrentPath()) return;
+    if (ensureValidCurrentPath())
+      return;
     loadDirectory(currentPath, currentFiles);
     loadParent();
     tabs[activeTabIndex].currentFiles = currentFiles;
@@ -4876,7 +5155,8 @@ public:
   }
 
   void drawPinned() {
-    if (!winPinned) return;
+    if (!winPinned)
+      return;
     werase(winPinned);
     if (focusPinned)
       wattron(winPinned, COLOR_PAIR(18) | A_BOLD);
@@ -4896,7 +5176,8 @@ public:
       if (name.empty())
         name = pinnedPaths[i].string();
       int limit = getmaxx(winPinned) - 8;
-      if (limit < 1) limit = 1;
+      if (limit < 1)
+        limit = 1;
       if (name.length() > (size_t)limit) {
         name = utf8_safe_truncate(name, limit);
       }
@@ -4922,7 +5203,8 @@ public:
   }
 
   void drawParent() {
-    if (!winParent) return;
+    if (!winParent)
+      return;
     werase(winParent);
     if (parentFiles.empty()) {
       wnoutrefresh(winParent);
@@ -4951,7 +5233,8 @@ public:
       bool isCurrent = (static_cast<int>(start + i) == highlightIdx);
       wmove(winParent, i + 1, 1);
 
-      FileStyle style = getFileStyle(file.name, file.extension, file.is_directory, file.is_empty_directory);
+      FileStyle style =
+          getFileStyle(file.name, file.extension, file.is_directory, file.is_empty_directory);
       if (file.is_symlink) {
         style.icon = ICON_LINK;
       }
@@ -4960,7 +5243,8 @@ public:
       std::string display = file.name;
       if (display.length() > (size_t)getmaxx(winParent) - 8) {
         int limit = getmaxx(winParent) - 11;
-        if (limit < 1) limit = 1;
+        if (limit < 1)
+          limit = 1;
         display = utf8_safe_truncate(display, limit);
       }
 
@@ -4990,7 +5274,8 @@ public:
     move(0, 0);
     clrtoeol();
 
-    if (tabs.empty()) return;
+    if (tabs.empty())
+      return;
 
     // Prepare tab displays and widths
     std::vector<std::string> tabDisplays;
@@ -5012,11 +5297,13 @@ public:
 
     while (true) {
       int totalWidth = 2;
-      if (startTab > 0) totalWidth += 4;
+      if (startTab > 0)
+        totalWidth += 4;
       for (size_t i = startTab; i <= endTab; ++i) {
         totalWidth += tabWidths[i];
       }
-      if (endTab < tabs.size() - 1) totalWidth += 4;
+      if (endTab < tabs.size() - 1)
+        totalWidth += 4;
 
       if (totalWidth <= width || startTab == endTab) {
         break;
@@ -5149,7 +5436,7 @@ public:
     isSearching = tabs[activeTabIndex].isSearching;
     isTrashMode = tabs[activeTabIndex].isTrashMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
-    
+
     auto savedSelection = tabs[activeTabIndex].multiSelection;
     reloadAll();
     multiSelection = savedSelection;
@@ -5159,9 +5446,10 @@ public:
   }
 
   void switchTab(size_t index) {
-    if (index >= tabs.size()) return;
+    if (index >= tabs.size())
+      return;
     clearDirectRender();
-    
+
     tabs[activeTabIndex].currentPath = currentPath;
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
@@ -5188,7 +5476,8 @@ public:
   }
 
   void onTabSwitched() {
-    if (!isDualPaneMode) return;
+    if (!isDualPaneMode)
+      return;
     if (focusLeftPane) {
       if (activeTabIndex == rightTabIndex) {
         rightTabIndex = leftTabIndex;
@@ -5203,11 +5492,13 @@ public:
   }
 
   void loadInactiveTabDirectoryIfNeeded(size_t inactiveIdx) {
-    if (inactiveIdx >= tabs.size()) return;
+    if (inactiveIdx >= tabs.size())
+      return;
     if (tabs[inactiveIdx].currentFiles.empty()) {
       try {
         std::vector<FileEntry> tempFiles;
-        for (const auto& entry : fs::directory_iterator(tabs[inactiveIdx].currentPath, fs::directory_options::skip_permission_denied)) {
+        for (const auto& entry : fs::directory_iterator(
+                 tabs[inactiveIdx].currentPath, fs::directory_options::skip_permission_denied)) {
           std::string fn = entry.path().filename().string();
           if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
@@ -5258,7 +5549,8 @@ public:
           maxItemSize = s;
         }
       }
-      if (totalDirSize == 0) totalDirSize = 1;
+      if (totalDirSize == 0)
+        totalDirSize = 1;
     }
 
     wattron(win, A_BOLD | COLOR_PAIR(1));
@@ -5274,7 +5566,8 @@ public:
         usageTitle += " (" + std::to_string(paneFiles.size()) + " items) ";
       }
       int maxTitleW = getmaxx(win) - 4;
-      if (maxTitleW < 5) maxTitleW = 5;
+      if (maxTitleW < 5)
+        maxTitleW = 5;
       if ((int)usageTitle.length() > maxTitleW) {
         usageTitle = utf8_safe_truncate(usageTitle, maxTitleW - 3) + "... ";
       }
@@ -5284,11 +5577,13 @@ public:
     } else {
       std::string title = " 󰉖 " + panePath.filename().string() + " ";
       int maxTitleW = getmaxx(win) - 4;
-      if (maxTitleW < 5) maxTitleW = 5;
+      if (maxTitleW < 5)
+        maxTitleW = 5;
       if ((int)title.length() > maxTitleW) {
         std::string filename = panePath.filename().string();
         int maxFilenameW = maxTitleW - 6; // Subtracting " 󰉖 " and " "
-        if (maxFilenameW < 3) maxFilenameW = 3;
+        if (maxFilenameW < 3)
+          maxFilenameW = 3;
         if ((int)filename.length() > maxFilenameW) {
           filename = utf8_safe_truncate(filename, maxFilenameW - 3) + "...";
         }
@@ -5349,7 +5644,8 @@ public:
       }
       bool isDimmed = inClipboard && clipboard.isCut && !isSelected;
 
-      FileStyle style = getFileStyle(file.name, file.extension, file.is_directory, file.is_empty_directory);
+      FileStyle style =
+          getFileStyle(file.name, file.extension, file.is_directory, file.is_empty_directory);
       if (file.is_symlink) {
         style.icon = ICON_LINK;
       }
@@ -5428,10 +5724,14 @@ public:
 
       if (paneIsDiskUsageMode) {
         int winW = getmaxx(win);
-        if (winW >= 68) barWidth = 12;
-        else if (winW >= 54) barWidth = 8;
-        else if (winW >= 44) barWidth = 5;
-        else barWidth = 0;
+        if (winW >= 68)
+          barWidth = 12;
+        else if (winW >= 54)
+          barWidth = 8;
+        else if (winW >= 44)
+          barWidth = 5;
+        else
+          barWidth = 0;
 
         if (totalDirSize > 0 && curSize > 0 && !isCalc) {
           pct = ((double)curSize / (double)totalDirSize) * 100.0;
@@ -5448,8 +5748,10 @@ public:
           if (maxItemSize > 0 && curSize > 0 && !isCalc) {
             double ratio = (double)curSize / (double)maxItemSize;
             filledBlocks = (int)(ratio * barWidth + 0.5);
-            if (filledBlocks > barWidth) filledBlocks = barWidth;
-            if (filledBlocks == 0 && curSize > 0) filledBlocks = 1;
+            if (filledBlocks > barWidth)
+              filledBlocks = barWidth;
+            if (filledBlocks == 0 && curSize > 0)
+              filledBlocks = 1;
           } else {
             filledBlocks = 0;
           }
@@ -5462,7 +5764,8 @@ public:
       }
 
       int availWidth = getmaxx(win) - rightBlockWidth - 11;
-      if (availWidth < 10) availWidth = 10;
+      if (availWidth < 10)
+        availWidth = 10;
 
       std::string fullDisplay = dirPart + filePart;
       std::string symDisplay = "";
@@ -5476,7 +5779,8 @@ public:
         size_t fullLen = utf8_length(fullDisplay);
         if (fullLen >= (size_t)availWidth) {
           int limit = (int)availWidth - 3;
-          if (limit < 1) limit = 1;
+          if (limit < 1)
+            limit = 1;
           fullDisplay = utf8_safe_truncate(fullDisplay, limit);
           size_t lastSlash = fullDisplay.find_last_of("/\\");
           if (lastSlash != std::string::npos) {
@@ -5492,7 +5796,8 @@ public:
           if (maxSymLen >= 7) {
             std::string symTarget = file.symlink_target;
             int limit = (int)maxSymLen - 3;
-            if (limit < 1) limit = 1;
+            if (limit < 1)
+              limit = 1;
             symTarget = utf8_safe_truncate(symTarget, limit);
             symDisplay = " 󰌹 " + symTarget;
           } else {
@@ -5555,17 +5860,21 @@ public:
           wattron(win, A_DIM);
           wprintw(win, "%s", dirPart.c_str());
           wattroff(win, A_DIM);
-          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
+          if (isMultiSelected)
+            wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s", filePart.c_str());
-          if (isMultiSelected) wattroff(win, COLOR_PAIR(9) | A_BOLD);
+          if (isMultiSelected)
+            wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
       } else {
         if (isSelected) {
           wprintw(win, "%s", filePart.c_str());
         } else {
-          if (isMultiSelected) wattron(win, COLOR_PAIR(9) | A_BOLD);
+          if (isMultiSelected)
+            wattron(win, COLOR_PAIR(9) | A_BOLD);
           wprintw(win, "%s", filePart.c_str());
-          if (isMultiSelected) wattroff(win, COLOR_PAIR(9) | A_BOLD);
+          if (isMultiSelected)
+            wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
       }
 
@@ -5591,14 +5900,19 @@ public:
 
       if (paneIsDiskUsageMode) {
         if (barWidth > 0) {
-          if (!isSelected) wattron(win, A_DIM);
+          if (!isSelected)
+            wattron(win, A_DIM);
           waddstr(win, "[");
-          if (!isSelected) wattroff(win, A_DIM);
+          if (!isSelected)
+            wattroff(win, A_DIM);
 
           int barPair = 6;
-          if (pct >= 50.0) barPair = 3;
-          else if (pct >= 20.0) barPair = 18;
-          else if (pct >= 5.0) barPair = 6;
+          if (pct >= 50.0)
+            barPair = 3;
+          else if (pct >= 20.0)
+            barPair = 18;
+          else if (pct >= 5.0)
+            barPair = 6;
 
           if (!isSelected) {
             wattron(win, COLOR_PAIR(barPair) | (pct >= 20.0 ? A_BOLD : A_NORMAL));
@@ -5610,12 +5924,14 @@ public:
             wattroff(win, COLOR_PAIR(barPair) | (pct >= 20.0 ? A_BOLD : A_NORMAL));
           }
 
-          if (!isSelected) wattron(win, A_DIM);
+          if (!isSelected)
+            wattron(win, A_DIM);
           for (int b = filledBlocks; b < barWidth; ++b) {
             waddstr(win, "░");
           }
           waddstr(win, "] ");
-          if (!isSelected) wattroff(win, A_DIM);
+          if (!isSelected)
+            wattroff(win, A_DIM);
         }
 
         if (!isSelected) {
@@ -5628,7 +5944,8 @@ public:
         }
 
         int pad = 8 - (int)sz.length();
-        for (int p = 0; p < pad; ++p) waddch(win, ' ');
+        for (int p = 0; p < pad; ++p)
+          waddch(win, ' ');
         if (!isSelected && isCalc) {
           wattron(win, A_DIM);
         }
@@ -5654,7 +5971,8 @@ public:
       }
     }
 
-    // Redraw the borders at the very end of rendering to ensure they are never broken by text drawing
+    // Redraw the borders at the very end of rendering to ensure they are never broken by text
+    // drawing
     if (hasFocus)
       wattron(win, COLOR_PAIR(6) | A_BOLD);
     else
@@ -5670,33 +5988,37 @@ public:
     if (isDualPaneMode) {
       size_t leftIdx = leftTabIndex;
       if (activeTabIndex == leftIdx) {
-        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true, isDiskUsageMode);
+        drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection,
+                 isSearching, isTrashMode, true, isDiskUsageMode);
       } else {
         loadInactiveTabDirectoryIfNeeded(leftIdx);
         drawPane(winCurrent, tabs[leftIdx].currentPath, tabs[leftIdx].currentFiles,
                  tabs[leftIdx].selectedIndex, tabs[leftIdx].scrollOffset,
-                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode, false, tabs[leftIdx].isDiskUsageMode);
+                 tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode,
+                 false, tabs[leftIdx].isDiskUsageMode);
       }
       return;
     }
 
-    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, !focusPinned, isDiskUsageMode);
+    drawPane(winCurrent, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection,
+             isSearching, isTrashMode, !focusPinned, isDiskUsageMode);
   }
 
   struct DeviceInfo {
     std::string name;
-    std::string unixDevice;      // e.g. /dev/nvme0n1p3 or /dev/bus/usb/003/009
-    std::string activationRoot;   // e.g. mtp://SAMSUNG_SAMSUNG_Android_RZCW91FV5WA/
-    std::string type;            // "MTP" or "Block"
+    std::string unixDevice;     // e.g. /dev/nvme0n1p3 or /dev/bus/usb/003/009
+    std::string activationRoot; // e.g. mtp://SAMSUNG_SAMSUNG_Android_RZCW91FV5WA/
+    std::string type;           // "MTP" or "Block"
     bool isMounted = false;
-    std::string mountPath;       // e.g. /run/user/1000/gvfs/mtp:host=... or /media/...
+    std::string mountPath; // e.g. /run/user/1000/gvfs/mtp:host=... or /media/...
     bool canMount = false;
     bool canUnmount = false;
   };
 
   std::string resolveMtpPath(uid_t uid, const std::string& host) {
     std::string path = "/run/user/" + std::to_string(uid) + "/gvfs/mtp:host=" + host;
-    if (fs::exists(path)) return path;
+    if (fs::exists(path))
+      return path;
 
     std::string gvfsBase = "/run/user/" + std::to_string(uid) + "/gvfs";
     try {
@@ -5711,7 +6033,8 @@ public:
           }
         }
       }
-    } catch (...) {}
+    } catch (...) {
+    }
 
     return path;
   }
@@ -5739,7 +6062,8 @@ public:
   std::vector<DeviceInfo> detectDevices() {
     std::vector<DeviceInfo> devices;
     FILE* pipe = popen("gio mount -li 2>/dev/null", "r");
-    if (!pipe) return devices;
+    if (!pipe)
+      return devices;
 
     char buffer[512];
     DeviceInfo curDev;
@@ -5775,7 +6099,8 @@ public:
         continue;
       }
 
-      if (!inVolume) continue;
+      if (!inVolume)
+        continue;
 
       if (!line.empty() && !isspace(line[0]) && trimmed.rfind("Volume(", 0) != 0) {
         devices.push_back(curDev);
@@ -5783,7 +6108,8 @@ public:
         continue;
       }
 
-      if (trimmed.empty()) continue;
+      if (trimmed.empty())
+        continue;
       std::string propLine = trimmed;
 
       if (propLine.rfind("Type: GProxyVolume (GProxyVolumeMonitorMTP)", 0) == 0) {
@@ -5858,8 +6184,10 @@ public:
       if (status == 0) {
         setStatus("Mounted " + dev.name);
       } else {
-        while (!err.empty() && (err.back() == '\n' || err.back() == '\r')) err.pop_back();
-        if (err.empty()) err = "Process exited with code " + std::to_string(status);
+        while (!err.empty() && (err.back() == '\n' || err.back() == '\r'))
+          err.pop_back();
+        if (err.empty())
+          err = "Process exited with code " + std::to_string(status);
         setStatus("Mount failed: " + err);
       }
     }
@@ -5887,8 +6215,10 @@ public:
       if (status == 0) {
         setStatus("Unmounted " + dev.name);
       } else {
-        while (!err.empty() && (err.back() == '\n' || err.back() == '\r')) err.pop_back();
-        if (err.empty()) err = "Process exited with code " + std::to_string(status);
+        while (!err.empty() && (err.back() == '\n' || err.back() == '\r'))
+          err.pop_back();
+        if (err.empty())
+          err = "Process exited with code " + std::to_string(status);
         setStatus("Unmount failed: " + err);
       }
     }
@@ -5900,10 +6230,14 @@ public:
 
     int h = 18;
     int w = 66;
-    if (h > height - 4) h = height - 4;
-    if (w > width - 4) w = width - 4;
-    if (h < 6) h = 6;
-    if (w < 20) w = 20;
+    if (h > height - 4)
+      h = height - 4;
+    if (w > width - 4)
+      w = width - 4;
+    if (h < 6)
+      h = 6;
+    if (w < 20)
+      w = 20;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
@@ -5953,14 +6287,16 @@ public:
           std::string icon = "󰋊";
           if (dev.type == "MTP") {
             icon = "";
-          } else if (dev.unixDevice.rfind("/dev/sd", 0) == 0 || dev.unixDevice.rfind("/dev/mmcblk", 0) == 0) {
+          } else if (dev.unixDevice.rfind("/dev/sd", 0) == 0 ||
+                     dev.unixDevice.rfind("/dev/mmcblk", 0) == 0) {
             icon = "󰕓";
           }
 
           std::string status = dev.isMounted ? "Mounted" : "Unmounted";
           std::string devName = dev.name;
           int maxNameW = w - 24;
-          if (maxNameW < 10) maxNameW = 10;
+          if (maxNameW < 10)
+            maxNameW = 10;
           if ((int)devName.length() > maxNameW) {
             devName = utf8_safe_truncate(devName, maxNameW - 3);
           }
@@ -6048,7 +6384,8 @@ public:
           const auto& dev = devices[selectedDeviceIndex];
           if (dev.isMounted) {
             unmountDevice(dev);
-            if (!dev.mountPath.empty() && (currentPath == dev.mountPath || isDescendant(currentPath, dev.mountPath))) {
+            if (!dev.mountPath.empty() &&
+                (currentPath == dev.mountPath || isDescendant(currentPath, dev.mountPath))) {
               const char* home = getenv("HOME");
               changeDirectory(home ? fs::path(home) : fs::path("/"), true);
               reloadAll();
@@ -6151,12 +6488,13 @@ public:
     }
 
     char perm[11];
-    perm[0] = S_ISLNK(st.st_mode) ? 'l' :
-              S_ISDIR(st.st_mode) ? 'd' :
-              S_ISCHR(st.st_mode) ? 'c' :
-              S_ISBLK(st.st_mode) ? 'b' :
-              S_ISFIFO(st.st_mode) ? 'p' :
-              S_ISSOCK(st.st_mode) ? 's' : '-';
+    perm[0] = S_ISLNK(st.st_mode)    ? 'l'
+              : S_ISDIR(st.st_mode)  ? 'd'
+              : S_ISCHR(st.st_mode)  ? 'c'
+              : S_ISBLK(st.st_mode)  ? 'b'
+              : S_ISFIFO(st.st_mode) ? 'p'
+              : S_ISSOCK(st.st_mode) ? 's'
+                                     : '-';
     perm[1] = (st.st_mode & S_IRUSR) ? 'r' : '-';
     perm[2] = (st.st_mode & S_IWUSR) ? 'w' : '-';
     perm[3] = (st.st_mode & S_IXUSR) ? 'x' : '-';
@@ -6168,9 +6506,12 @@ public:
     perm[9] = (st.st_mode & S_IXOTH) ? 'x' : '-';
     perm[10] = '\0';
 
-    if (st.st_mode & S_ISUID) perm[3] = (st.st_mode & S_IXUSR) ? 's' : 'S';
-    if (st.st_mode & S_ISGID) perm[6] = (st.st_mode & S_IXGRP) ? 's' : 'S';
-    if (st.st_mode & S_ISVTX) perm[9] = (st.st_mode & S_IXOTH) ? 't' : 'T';
+    if (st.st_mode & S_ISUID)
+      perm[3] = (st.st_mode & S_IXUSR) ? 's' : 'S';
+    if (st.st_mode & S_ISGID)
+      perm[6] = (st.st_mode & S_IXGRP) ? 's' : 'S';
+    if (st.st_mode & S_ISVTX)
+      perm[9] = (st.st_mode & S_IXOTH) ? 't' : 'T';
 
     details.permissionsSymbolic = perm;
 
@@ -6235,7 +6576,8 @@ public:
 
     auto formatTime = [](time_t t) -> std::string {
       struct tm ltime{};
-      if (localtime_r(&t, &ltime) == nullptr) return "Unknown";
+      if (localtime_r(&t, &ltime) == nullptr)
+        return "Unknown";
       char buffer[64];
       std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", &ltime);
       return std::string(buffer);
@@ -6259,31 +6601,41 @@ public:
 
     int h = details.isSymlink ? 17 : 16;
     int w = 70;
-    if (w > width - 4) w = width - 4;
-    if (h > height - 2) h = height - 2;
-    if (w < 10) w = 10;
-    if (h < 5) h = 5;
+    if (w > width - 4)
+      w = width - 4;
+    if (h > height - 2)
+      h = height - 2;
+    if (w < 10)
+      w = 10;
+    if (h < 5)
+      h = 5;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
-    if (startY < 0) startY = 0;
-    if (startX < 0) startX = 0;
+    if (startY < 0)
+      startY = 0;
+    if (startX < 0)
+      startX = 0;
 
     WINDOW* detWin = newwin(h, w, startY, startX);
-    if (!detWin) return;
+    if (!detWin)
+      return;
 
     wattron(detWin, COLOR_PAIR(6) | A_BOLD);
     drawRoundedBox(detWin);
     wattroff(detWin, COLOR_PAIR(6) | A_BOLD);
 
-    auto printField = [&](int row, const std::string& label, const std::string& val, int valColorPair) {
+    auto printField = [&](int row, const std::string& label, const std::string& val,
+                          int valColorPair) {
       mvwprintw(detWin, row, 2, "%-15s", label.c_str());
       int maxValW = w - 20;
-      if (maxValW < 5) maxValW = 5;
+      if (maxValW < 5)
+        maxValW = 5;
       std::string showVal = val;
       if ((int)showVal.length() > maxValW) {
         int subLen = maxValW - 3;
-        if (subLen < 1) subLen = 1;
+        if (subLen < 1)
+          subLen = 1;
         showVal = utf8_safe_truncate(showVal, subLen);
       }
       wattron(detWin, COLOR_PAIR(valColorPair));
@@ -6389,20 +6741,24 @@ public:
 
     searchThread = std::thread([this, query, reqId, searchPath]() {
       std::error_code spEc;
-      if (!fs::exists(searchPath, spEc)) return;
+      if (!fs::exists(searchPath, spEc))
+        return;
 
-      std::string cmd = "find " + escapeShellArg(searchPath.string()) + " -name .git -prune -o -print 2>/dev/null";
+      std::string cmd = "find " + escapeShellArg(searchPath.string()) +
+                        " -name .git -prune -o -print 2>/dev/null";
       FILE* pipe = nullptr;
       {
         std::lock_guard<std::mutex> lock(searchMutex);
-        if (reqId != searchRequestID) return;
+        if (reqId != searchRequestID)
+          return;
         searchPipe = popen(cmd.c_str(), "r");
         pipe = searchPipe;
       }
       if (!pipe) {
         {
           std::lock_guard<std::mutex> lock(searchMutex);
-          if (searchPipe == pipe) searchPipe = nullptr;
+          if (searchPipe == pipe)
+            searchPipe = nullptr;
         }
         if (reqId == searchRequestID) {
           setStatus("Error: Failed to run find");
@@ -6416,14 +6772,16 @@ public:
 
       while (true) {
         char* res = fgets(buffer, sizeof(buffer), pipe);
-        if (!res || reqId != searchRequestID) break;
+        if (!res || reqId != searchRequestID)
+          break;
         std::string pathStr(buffer);
         if (!pathStr.empty() && pathStr.back() == '\n')
           pathStr.pop_back();
         if (!pathStr.empty()) {
           try {
             fs::path p(pathStr);
-            if (p == currentPath) continue;
+            if (p == currentPath)
+              continue;
             std::string relPath = fs::relative(p, currentPath).string();
             if (fuzzyMatch(relPath, query)) {
               if (fs::exists(p)) {
@@ -6435,11 +6793,13 @@ public:
         }
 
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 && !results.empty()) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() > 50 &&
+            !results.empty()) {
           if (reqId == searchRequestID) {
             std::lock_guard<std::mutex> lock(searchResultMutex);
             pendingSearchResults = results;
-            pendingSearchStatus = "Fuzzy Find: Searching... Found " + std::to_string(results.size()) + " matches";
+            pendingSearchStatus =
+                "Fuzzy Find: Searching... Found " + std::to_string(results.size()) + " matches";
             hasPendingSearchResults = true;
             searchReady = true;
           }
@@ -6462,7 +6822,10 @@ public:
       if (reqId == searchRequestID) {
         std::lock_guard<std::mutex> lock(searchResultMutex);
         pendingSearchResults = results;
-        pendingSearchStatus = results.empty() ? ("No matches found for: " + query) : ("Fuzzy Find finished. Found " + std::to_string(results.size()) + " matches");
+        pendingSearchStatus =
+            results.empty()
+                ? ("No matches found for: " + query)
+                : ("Fuzzy Find finished. Found " + std::to_string(results.size()) + " matches");
         hasPendingSearchResults = true;
         searchReady = true;
       }
@@ -6477,77 +6840,80 @@ public:
       std::string desc;
     };
 
-    std::vector<HelpItem> leftItems = {
-      {"j / k , ↓ / ↑", "Navigate files / items up & down"},
-      {"h / l , ← / →", "Parent directory / Open item"},
-      {"Enter", "Open file or enter directory"},
-      {"g / G", "Jump to top / bottom of list"},
-      {"Ctrl+O / P", "Directory history back / forward"},
-      {"H", "Directory history jump list"},
-      {"Space / v", "Toggle select (Space: next, v: stay)"},
-      {"a", "Select all items in directory"},
-      {"Esc", "Clear all selected items"},
-      {"y", "Copy selected (or hovered) items"},
-      {"x", "Cut selected (or hovered) items"},
-      {"p", "Paste copied or cut items"},
-      {"Y", "Paste as symbolic link"},
-      {"c", "Copy full file path to clipboard"},
-      {"d / Delete", "Move item to trash"},
-      {"D", "Delete permanently (bypass trash)"},
-      {"T", "Toggle trash manager mode"},
-      {"u", "Undo last trash action (restore)"},
-      {"r", "Rename item (or restore in trash)"},
-      {"e", "Extract archive / Empty trash"},
-      {"n", "Create file (name) or dir (name/)"},
-      {"z", "Compress to zip archive"},
-      {"Ctrl+D", "Drag & drop out files (ripdrag)"},
-      {"U", "Visual disk usage (ncdu mode)"},
-      {".", "Toggle hidden (dot) files"}
-    };
+    std::vector<HelpItem> leftItems = {{"j / k , ↓ / ↑", "Navigate files / items up & down"},
+                                       {"h / l , ← / →", "Parent directory / Open item"},
+                                       {"Enter", "Open file or enter directory"},
+                                       {"g / G", "Jump to top / bottom of list"},
+                                       {"Ctrl+O / P", "Directory history back / forward"},
+                                       {"H", "Directory history jump list"},
+                                       {"Space / v", "Toggle select (Space: next, v: stay)"},
+                                       {"a", "Select all items in directory"},
+                                       {"Esc", "Clear all selected items"},
+                                       {"y", "Copy selected (or hovered) items"},
+                                       {"x", "Cut selected (or hovered) items"},
+                                       {"p", "Paste copied or cut items"},
+                                       {"Y", "Paste as symbolic link"},
+                                       {"c", "Copy full file path to clipboard"},
+                                       {"d / Delete", "Move item to trash"},
+                                       {"D", "Delete permanently (bypass trash)"},
+                                       {"T", "Toggle trash manager mode"},
+                                       {"u", "Undo last trash action (restore)"},
+                                       {"r", "Rename item (or restore in trash)"},
+                                       {"e", "Extract archive / Empty trash"},
+                                       {"n", "Create file (name) or dir (name/)"},
+                                       {"z", "Compress to zip archive"},
+                                       {"Ctrl+D", "Drag & drop out files (ripdrag)"},
+                                       {"U", "Visual disk usage (ncdu mode)"},
+                                       {".", "Toggle hidden (dot) files"}};
 
-    std::vector<HelpItem> rightItems = {
-      {"s", "Cycle sorting (name/size/time/ext)"},
-      {"/", "Live text search in files (ripgrep)"},
-      {"f", "Fuzzy file finder (fzf)"},
-      {"w", "Background tasks manager"},
-      {"i", "File information & metadata"},
-      {"I", "Edit file permissions (chmod)"},
-      {"m", "Mounts & storage devices"},
-      {":", "Execute shell command (:!cmd)"},
-      {"P", "Pin / bookmark current directory"},
-      {"Tab", "Switch pane / bookmarks focus"},
-      {"F2", "Toggle dual-pane mode"},
-      {"F3", "Toggle preview pane visibility"},
-      {"F4", "Toggle parent pane visibility"},
-      {"F6", "Toggle bookmarks / pinned pane"},
-      {"Ctrl+G", "Open lazygit / Grow pane width"},
-      {"Ctrl+B / H", "Shrink focused pane width"},
-      {"Ctrl+E / Y", "Scroll preview pane down / up"},
-      {"Mouse Wheel", "Scroll hovered pane (preview/list)"},
-      {"t", "Create new tab"},
-      {"W / Ctrl+W", "Close current tab"},
-      {"[ / ]", "Previous / next tab"},
-      {"1 - 9, 0", "Jump directly to tab 1 - 10"},
-      {"F5 / Ctrl+R", "Refresh directory & reload icons"},
-      {"?", "Toggle this keybindings help"},
-      {"q", "Quit Fyzenor"}
-    };
+    std::vector<HelpItem> rightItems = {{"s", "Cycle sorting (name/size/time/ext)"},
+                                        {"/", "Live text search in files (ripgrep)"},
+                                        {"f", "Fuzzy file finder (fzf)"},
+                                        {"w", "Background tasks manager"},
+                                        {"i", "File information & metadata"},
+                                        {"I", "Edit file permissions (chmod)"},
+                                        {"m", "Mounts & storage devices"},
+                                        {":", "Execute shell command (:!cmd)"},
+                                        {"P", "Pin / bookmark current directory"},
+                                        {"Tab", "Switch pane / bookmarks focus"},
+                                        {"F2", "Toggle dual-pane mode"},
+                                        {"F3", "Toggle preview pane visibility"},
+                                        {"F4", "Toggle parent pane visibility"},
+                                        {"F6", "Toggle bookmarks / pinned pane"},
+                                        {"Ctrl+G", "Open lazygit / Grow pane width"},
+                                        {"Ctrl+B / H", "Shrink focused pane width"},
+                                        {"Ctrl+E / Y", "Scroll preview pane down / up"},
+                                        {"Mouse Wheel", "Scroll hovered pane (preview/list)"},
+                                        {"t", "Create new tab"},
+                                        {"W / Ctrl+W", "Close current tab"},
+                                        {"[ / ]", "Previous / next tab"},
+                                        {"1 - 9, 0", "Jump directly to tab 1 - 10"},
+                                        {"F5 / Ctrl+R", "Refresh directory & reload icons"},
+                                        {"?", "Toggle this keybindings help"},
+                                        {"q", "Quit Fyzenor"}};
 
     int h = std::min(height - 4, 32);
-    if (h < 20) h = std::max(16, height - 2);
-    if (h > height - 2) h = height - 2;
+    if (h < 20)
+      h = std::max(16, height - 2);
+    if (h > height - 2)
+      h = height - 2;
 
     int w = std::min(width - 4, 116);
-    if (w < 80) w = std::max(48, width - 2);
-    if (w > width - 2) w = width - 2;
+    if (w < 80)
+      w = std::max(48, width - 2);
+    if (w > width - 2)
+      w = width - 2;
 
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
-    if (startY < 0) startY = 0;
-    if (startX < 0) startX = 0;
+    if (startY < 0)
+      startY = 0;
+    if (startX < 0)
+      startX = 0;
 
     WINDOW* helpWin = newwin(h, w, startY, startX);
-    if (!helpWin) return;
+    if (!helpWin)
+      return;
 
     keypad(helpWin, TRUE);
     wtimeout(helpWin, -1);
@@ -6563,15 +6929,18 @@ public:
     size_t totalItems = twoCol ? std::max(leftItems.size(), rightItems.size()) : allItems.size();
 
     int displayRows = (h >= 32) ? ((h - 3) - 4) : ((h - 2) - 4);
-    if (displayRows < 1) displayRows = 1;
+    if (displayRows < 1)
+      displayRows = 1;
     int maxScroll = (totalItems > (size_t)displayRows) ? (int)(totalItems - displayRows) : 0;
     int scrollOffset = 0;
 
     auto printKeyLine = [&](int row, int colX, int colW, const HelpItem& item) {
-      if (row < 4 || row >= h - 2) return;
+      if (row < 4 || row >= h - 2)
+        return;
 
       int keyFieldW = 14;
-      if (colW < 42) keyFieldW = 11;
+      if (colW < 42)
+        keyFieldW = 11;
 
       size_t keyLen = utf8_length(item.key);
       std::string keyStr = item.key;
@@ -6724,9 +7093,10 @@ public:
       // Footer
       std::string closeHint = "[q / Esc / ? / Enter] Close";
       if (maxScroll > 0) {
-        std::string scrollInfo = "[↑/↓/j/k] Scroll (" + std::to_string(scrollOffset + 1) + "-" +
-                                 std::to_string(std::min(totalItems, (size_t)(scrollOffset + displayRows))) +
-                                 " of " + std::to_string(totalItems) + ")";
+        std::string scrollInfo =
+            "[↑/↓/j/k] Scroll (" + std::to_string(scrollOffset + 1) + "-" +
+            std::to_string(std::min(totalItems, (size_t)(scrollOffset + displayRows))) + " of " +
+            std::to_string(totalItems) + ")";
         wattron(helpWin, COLOR_PAIR(24) | A_BOLD);
         mvwprintw(helpWin, h - 2, 2, "%s", scrollInfo.c_str());
         wattroff(helpWin, COLOR_PAIR(24) | A_BOLD);
@@ -6748,9 +7118,11 @@ public:
       if (ch == 'q' || ch == 27 || ch == 10 || ch == ' ' || ch == '?') {
         break;
       } else if (ch == 'j' || ch == KEY_DOWN) {
-        if (scrollOffset < maxScroll) scrollOffset++;
+        if (scrollOffset < maxScroll)
+          scrollOffset++;
       } else if (ch == 'k' || ch == KEY_UP) {
-        if (scrollOffset > 0) scrollOffset--;
+        if (scrollOffset > 0)
+          scrollOffset--;
       } else if (ch == KEY_NPAGE) {
         scrollOffset = std::min(maxScroll, scrollOffset + 5);
       } else if (ch == KEY_PPAGE) {
@@ -6764,10 +7136,13 @@ public:
         if (getmouse(&mevent) == OK) {
 #if NCURSES_MOUSE_VERSION > 1
           if (mevent.bstate & BUTTON4_PRESSED) {
-            if (scrollOffset > 0) scrollOffset = std::max(0, scrollOffset - 2);
+            if (scrollOffset > 0)
+              scrollOffset = std::max(0, scrollOffset - 2);
           } else if (mevent.bstate & BUTTON5_PRESSED) {
-            if (scrollOffset < maxScroll) scrollOffset = std::min(maxScroll, scrollOffset + 2);
-          } else if (mevent.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED | BUTTON3_CLICKED | BUTTON3_PRESSED)) {
+            if (scrollOffset < maxScroll)
+              scrollOffset = std::min(maxScroll, scrollOffset + 2);
+          } else if (mevent.bstate &
+                     (BUTTON1_CLICKED | BUTTON1_PRESSED | BUTTON3_CLICKED | BUTTON3_PRESSED)) {
             break;
           }
 #else
@@ -6791,17 +7166,22 @@ public:
     clearDirectRender();
     int h = height - 4;
     int w = width - 8;
-    if (h < 18) h = 18;
-    if (w < 80) w = 80;
-    if (h > height - 2) h = height - 2;
-    if (w > width - 2) w = width - 2;
+    if (h < 18)
+      h = 18;
+    if (w < 80)
+      w = 80;
+    if (h > height - 2)
+      h = height - 2;
+    if (w > width - 2)
+      w = width - 2;
 
     int splitLine = h / 2 + 1;
     int startY = (height - h) / 2;
     int startX = (width - w) / 2;
 
     WINDOW* taskWin = newwin(h, w, startY, startX);
-    if (!taskWin) return;
+    if (!taskWin)
+      return;
 
     keypad(taskWin, TRUE);
     wtimeout(taskWin, 200);
@@ -6882,13 +7262,17 @@ public:
 
           int barW = 16;
           int prog = task->progress;
-          if (prog < 0) prog = 0;
-          if (prog > 100) prog = 100;
+          if (prog < 0)
+            prog = 0;
+          if (prog > 100)
+            prog = 100;
           std::string bar = "[";
           int filled = (prog * (barW - 2)) / 100;
           for (int b = 0; b < barW - 2; ++b) {
-            if (b < filled) bar += "■";
-            else bar += " ";
+            if (b < filled)
+              bar += "■";
+            else
+              bar += " ";
           }
           bar += "]";
 
@@ -6905,12 +7289,15 @@ public:
             if (task->totalBytes > 0 && task->bytesProcessed.load() >= task->totalBytes) {
               metrics = "[Finalizing...]";
             } else {
-              double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime).count();
+              double elapsed =
+                  std::chrono::duration<double>(std::chrono::steady_clock::now() - task->startTime)
+                      .count();
               if (elapsed > 0.1) {
                 std::stringstream ss;
                 ss << std::fixed << std::setprecision(0) << elapsed << "s";
                 metrics = "[" + ss.str() + "]";
-                if ((task->type == "Copy" || task->type == "Move") && task->bytesProcessed.load() > 0) {
+                if ((task->type == "Copy" || task->type == "Move") &&
+                    task->bytesProcessed.load() > 0) {
                   double speed = (task->bytesProcessed.load() / (1024.0 * 1024.0)) / elapsed;
                   std::stringstream ssSpeed;
                   ssSpeed << std::fixed << std::setprecision(1) << speed << " MB/s";
@@ -6922,12 +7309,15 @@ public:
                     if (speedBytesPerSec > 1.0) {
                       double remainingSeconds = (double)remainingBytes / speedBytesPerSec;
                       auto formatETA = [](double remSec) -> std::string {
-                        if (remSec < 0) return "0s";
+                        if (remSec < 0)
+                          return "0s";
                         int total_secs = (int)remSec;
-                        if (total_secs < 60) return std::to_string(total_secs) + "s";
+                        if (total_secs < 60)
+                          return std::to_string(total_secs) + "s";
                         int mins = total_secs / 60;
                         int secs = total_secs % 60;
-                        if (mins < 60) return std::to_string(mins) + "m " + std::to_string(secs) + "s";
+                        if (mins < 60)
+                          return std::to_string(mins) + "m " + std::to_string(secs) + "s";
                         int hours = mins / 60;
                         mins = mins % 60;
                         return std::to_string(hours) + "h " + std::to_string(mins) + "m";
@@ -6944,11 +7334,13 @@ public:
           int maxTotalW = w - 38;
           int metricsW = metrics.empty() ? 0 : (metrics.length() + 1);
           int maxDescW = maxTotalW - metricsW;
-          if (maxDescW < 10) maxDescW = 10;
+          if (maxDescW < 10)
+            maxDescW = 10;
 
           if (desc.length() > (size_t)maxDescW) {
             int limit = maxDescW - 3;
-            if (limit < 1) limit = 1;
+            if (limit < 1)
+              limit = 1;
             desc = utf8_safe_truncate(desc, limit) + "...";
           }
 
@@ -6996,7 +7388,8 @@ public:
         }
       }
 
-      std::string instr = "j/k: Navigate | Space/p: Pause/Resume | c: Clear logs | x/d: Kill | Esc: Close";
+      std::string instr =
+          "j/k: Navigate | Space/p: Pause/Resume | c: Clear logs | x/d: Kill | Esc: Close";
       if ((int)instr.length() > w - 4) {
         instr = "j/k: Nav | Space/p: Pause | c: Clr | x: Kill | Esc: Close";
       }
@@ -7015,11 +7408,11 @@ public:
               t->workerThread.join();
             }
           }
-          activeTasks.erase(
-            std::remove_if(activeTasks.begin(), activeTasks.end(), 
-                           [](const std::shared_ptr<AsyncTask>& t) { return t->isFinished.load(); }),
-            activeTasks.end()
-          );
+          activeTasks.erase(std::remove_if(activeTasks.begin(), activeTasks.end(),
+                                           [](const std::shared_ptr<AsyncTask>& t) {
+                                             return t->isFinished.load();
+                                           }),
+                            activeTasks.end());
           taskHistoryLogs.clear();
         } else if (ch == 'j' || ch == KEY_DOWN) {
           if (!tasksCopy.empty() && highlightedIndex < tasksCopy.size() - 1) {
@@ -7063,12 +7456,14 @@ public:
       }
       size_t rightIdx = rightTabIndex;
       if (activeTabIndex == rightIdx) {
-        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection, isSearching, isTrashMode, true, isDiskUsageMode);
+        drawPane(winPreview, currentPath, currentFiles, selectedIndex, scrollOffset, multiSelection,
+                 isSearching, isTrashMode, true, isDiskUsageMode);
       } else {
         loadInactiveTabDirectoryIfNeeded(rightIdx);
         drawPane(winPreview, tabs[rightIdx].currentPath, tabs[rightIdx].currentFiles,
                  tabs[rightIdx].selectedIndex, tabs[rightIdx].scrollOffset,
-                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching, tabs[rightIdx].isTrashMode, false, tabs[rightIdx].isDiskUsageMode);
+                 tabs[rightIdx].multiSelection, tabs[rightIdx].isSearching,
+                 tabs[rightIdx].isTrashMode, false, tabs[rightIdx].isDiskUsageMode);
       }
       return;
     }
@@ -7080,10 +7475,12 @@ public:
       const auto& nextFile = currentFiles[selectedIndex];
       std::string extLower = nextFile.extension;
       std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
-      bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
-                        extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
-      bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
-                      extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
+      bool isArchive =
+          (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" ||
+           extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
+      bool isAudio =
+          (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" ||
+           extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
       bool isCode = isCodeFile(nextFile.extension);
       bool isPdf = (extLower == ".pdf");
       bool isDoc = (extLower == ".docx" || extLower == ".doc");
@@ -7092,7 +7489,7 @@ public:
       bool isVid = VIDEO_EXTS.count(extLower);
       bool isImg = IMAGE_EXTS.count(extLower);
       bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
-      
+
       isNextImageOrVideo = (isVid || isImg) && !isTextPreviewable;
       if (isNextImageOrVideo && !lastDrawnPath.empty() && nextFile.path.string() == lastDrawnPath) {
         isSameImageAlreadyDrawn = true;
@@ -7115,7 +7512,8 @@ public:
     } else {
       if (!lastWasDirectRender || !isNextCached) {
         // If transitioning from non-image OR the next image is not yet cached (needs generation),
-        // clear previous direct render immediately so the old image never lingers and confuses the user!
+        // clear previous direct render immediately so the old image never lingers and confuses the
+        // user!
         if (lastWasDirectRender) {
           clearDirectRender();
         }
@@ -7167,10 +7565,12 @@ public:
     wattron(winPreview, A_BOLD | COLOR_PAIR(1));
     std::string dispName = file.name;
     int titleMaxW = getmaxx(winPreview) - 8;
-    if (titleMaxW < 5) titleMaxW = 5;
+    if (titleMaxW < 5)
+      titleMaxW = 5;
     if ((int)dispName.length() > titleMaxW) {
       int limit = titleMaxW - 3;
-      if (limit < 1) limit = 1;
+      if (limit < 1)
+        limit = 1;
       dispName = utf8_safe_truncate(dispName, limit);
     }
     mvwprintw(winPreview, 1, 2, " %s ", dispName.c_str());
@@ -7219,7 +7619,8 @@ public:
         if (f.is_directory) {
           std::lock_guard<std::mutex> cLock(cacheMutex);
           auto it = dirSizeCache.find(f.path.string());
-          if (it != dirSizeCache.end()) totalDir += it->second;
+          if (it != dirSizeCache.end())
+            totalDir += it->second;
         } else {
           totalDir += f.size;
         }
@@ -7228,7 +7629,8 @@ public:
       if (file.is_directory) {
         std::lock_guard<std::mutex> cLock(cacheMutex);
         auto it = dirSizeCache.find(file.path.string());
-        if (it != dirSizeCache.end()) itemSz = it->second;
+        if (it != dirSizeCache.end())
+          itemSz = it->second;
       }
       double pct = (totalDir > 0 && itemSz > 0) ? ((double)itemSz / (double)totalDir * 100.0) : 0.0;
       mvwprintw(winPreview, 2, 2, " Size: %s (%.1f%% of folder)", previewSizeStr.c_str(), pct);
@@ -7259,7 +7661,8 @@ public:
       TrashInfo ti = getTrashInfo(file.path);
       std::string orig = ti.originalPath;
       int maxPathW = getmaxx(winPreview) - 15;
-      if (maxPathW < 10) maxPathW = 10;
+      if (maxPathW < 10)
+        maxPathW = 10;
       if ((int)orig.length() > maxPathW) {
         orig = utf8_safe_truncate_left(orig, maxPathW - 3);
       }
@@ -7286,10 +7689,12 @@ public:
     bool isVid = VIDEO_EXTS.count(extLower);
     bool isImg = IMAGE_EXTS.count(extLower);
     bool isCode = isCodeFile(extLower);
-    bool isArchive = (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" || 
-                      extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
-    bool isAudio = (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" || 
-                    extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
+    bool isArchive =
+        (extLower == ".zip" || extLower == ".tar" || extLower == ".gz" || extLower == ".tgz" ||
+         extLower == ".rar" || extLower == ".bz2" || extLower == ".xz" || extLower == ".7z");
+    bool isAudio =
+        (extLower == ".mp3" || extLower == ".wav" || extLower == ".flac" || extLower == ".ogg" ||
+         extLower == ".m4a" || extLower == ".aac" || extLower == ".opus" || extLower == ".wma");
     bool isPdf = (extLower == ".pdf");
     bool isTextPreviewable = isCode || isArchive || isAudio || isPdf;
 
@@ -7305,7 +7710,8 @@ public:
       wattroff(winPreview, COLOR_PAIR(1) | A_BOLD);
       try {
         std::vector<fs::directory_entry> subEntries;
-        for (const auto& entry : fs::directory_iterator(file.path, fs::directory_options::skip_permission_denied)) {
+        for (const auto& entry :
+             fs::directory_iterator(file.path, fs::directory_options::skip_permission_denied)) {
           std::string fn = entry.path().filename().string();
           if (!showHidden && !fn.empty() && fn.front() == '.')
             continue;
@@ -7321,23 +7727,26 @@ public:
         if (previewScrollOffset >= previewDirTotalEntries) {
           previewScrollOffset = std::max(0, previewDirTotalEntries - limit);
         }
-        if (previewScrollOffset < 0) previewScrollOffset = 0;
+        if (previewScrollOffset < 0)
+          previewScrollOffset = 0;
 
         int line = contentStart + 1;
         for (size_t i = previewScrollOffset; i < subEntries.size() && line < height - 3; ++i) {
           const auto& entry = subEntries[i];
           std::string subName = entry.path().filename().string();
           int maxSubW = getmaxx(winPreview) - 8;
-          if (maxSubW < 5) maxSubW = 5;
+          if (maxSubW < 5)
+            maxSubW = 5;
           if ((int)subName.length() > maxSubW) {
             int limitW = maxSubW - 3;
-            if (limitW < 1) limitW = 1;
+            if (limitW < 1)
+              limitW = 1;
             subName = utf8_safe_truncate(subName, limitW);
           }
 
           std::string ext = entry.path().extension().string();
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-          
+
           bool isSubSym = fs::is_symlink(fs::symlink_status(entry.path()));
           bool isSubDir = false;
           if (isSubSym) {
@@ -7347,7 +7756,8 @@ public:
                 resSub = entry.path().parent_path() / resSub;
               }
               isSubDir = fs::is_directory(resSub);
-            } catch (...) {}
+            } catch (...) {
+            }
           } else {
             isSubDir = fs::is_directory(entry);
           }
@@ -7356,9 +7766,11 @@ public:
           if (isSubDir) {
             try {
               isSubDirEmpty = (fs::directory_iterator(entry.path()) == fs::directory_iterator());
-            } catch (...) {}
+            } catch (...) {
+            }
           }
-          FileStyle s = getFileStyle(entry.path().filename().string(), ext, isSubDir, isSubDirEmpty);
+          FileStyle s =
+              getFileStyle(entry.path().filename().string(), ext, isSubDir, isSubDirEmpty);
           if (isSubSym) {
             s.icon = ICON_LINK;
           }
@@ -7371,11 +7783,13 @@ public:
         if (previewDirTotalEntries > limit) {
           wattron(winPreview, COLOR_PAIR(6) | A_DIM);
           int previewW = getmaxx(winPreview);
-          std::string indicator = "[" + std::to_string(previewScrollOffset + 1) + "-" +
-                                  std::to_string(std::min(previewScrollOffset + limit, previewDirTotalEntries)) +
-                                  "/" + std::to_string(previewDirTotalEntries) + "]";
+          std::string indicator =
+              "[" + std::to_string(previewScrollOffset + 1) + "-" +
+              std::to_string(std::min(previewScrollOffset + limit, previewDirTotalEntries)) + "/" +
+              std::to_string(previewDirTotalEntries) + "]";
           if (previewW > (int)indicator.length() + 16) {
-            mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s", indicator.c_str());
+            mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s",
+                      indicator.c_str());
           }
           wattroff(winPreview, COLOR_PAIR(6) | A_DIM);
         }
@@ -7400,10 +7814,12 @@ public:
         mvwprintw(winPreview, contentStart, 2, " [Media File - No Preview on MTP] ");
         wattroff(winPreview, COLOR_PAIR(8));
         wnoutrefresh(winPreview);
-      } else if ((isVid || isImg) && (!isCommandAvailable("ffmpeg") || !isCommandAvailable("ffprobe"))) {
+      } else if ((isVid || isImg) &&
+                 (!isCommandAvailable("ffmpeg") || !isCommandAvailable("ffprobe"))) {
         clearDirectRender();
         wattron(winPreview, COLOR_PAIR(8));
-        mvwprintw(winPreview, contentStart, 2, " [Media File - Install ffmpeg & ffprobe for preview] ");
+        mvwprintw(winPreview, contentStart, 2,
+                  " [Media File - Install ffmpeg & ffprobe for preview] ");
         wattroff(winPreview, COLOR_PAIR(8));
         wnoutrefresh(winPreview);
       } else {
@@ -7414,7 +7830,8 @@ public:
           if (type == PreviewType::IMAGE) {
             auto it = sessionImageCache.find(file.path.string());
             if (it != sessionImageCache.end()) {
-              auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(), file.path.string());
+              auto kit = std::find(sessionImageCacheKeys.begin(), sessionImageCacheKeys.end(),
+                                   file.path.string());
               if (kit != sessionImageCacheKeys.end()) {
                 sessionImageCacheKeys.erase(kit);
               }
@@ -7476,7 +7893,8 @@ public:
           if (previewScrollOffset >= total) {
             previewScrollOffset = std::max(0, total - limit);
           }
-          if (previewScrollOffset < 0) previewScrollOffset = 0;
+          if (previewScrollOffset < 0)
+            previewScrollOffset = 0;
           int line = contentStart;
           for (int i = previewScrollOffset; i < total && line < height - 3; ++i) {
             mvwprintw(winPreview, line++, 2, "%s", rawLines[i].c_str());
@@ -7488,7 +7906,8 @@ public:
                                     std::to_string(std::min(previewScrollOffset + limit, total)) +
                                     "/" + std::to_string(total) + "]";
             if (previewW > (int)indicator.length() + 16) {
-              mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s", indicator.c_str());
+              mvwprintw(winPreview, 0, previewW - (int)indicator.length() - 2, "%s",
+                        indicator.c_str());
             }
             wattroff(winPreview, COLOR_PAIR(6) | A_DIM);
           }
@@ -7517,8 +7936,15 @@ public:
 
     std::vector<fs::path> pathsToOpen;
     if (!multiSelection.empty()) {
+      for (const auto& file : currentFiles) {
+        if (multiSelection.count(file.path)) {
+          pathsToOpen.push_back(file.path);
+        }
+      }
       for (const auto& p : multiSelection) {
-        pathsToOpen.push_back(p);
+        if (std::find(pathsToOpen.begin(), pathsToOpen.end(), p) == pathsToOpen.end()) {
+          pathsToOpen.push_back(p);
+        }
       }
     } else {
       pathsToOpen.push_back(currentFiles[selectedIndex].path);
@@ -7557,18 +7983,19 @@ public:
     std::vector<fs::path> otherFiles;
 
     for (const auto& p : pathsToOpen) {
-      if (fs::is_directory(p)) continue;
+      if (fs::is_directory(p))
+        continue;
       std::string ext = p.extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-      bool isKnownBinary = (ext == ".pdf" || ext == ".zip" || ext == ".7z" || ext == ".rar" || 
-                            ext == ".tar" || ext == ".gz" || ext == ".tgz" || ext == ".bz2" || 
-                            ext == ".xz" || ext == ".doc" || ext == ".docx" || ext == ".xls" || 
-                            ext == ".xlsx" || ext == ".ppt" || ext == ".pptx" || ext == ".epub" || 
-                            ext == ".odt" || ext == ".ods" || ext == ".odp" || ext == ".png" || 
-                            ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || 
-                            ext == ".bmp" || ext == ".ico" || ext == ".exe" || ext == ".dll" || 
-                            ext == ".so" || ext == ".o" || ext == ".a" || ext == ".bin");
+      bool isKnownBinary =
+          (ext == ".pdf" || ext == ".zip" || ext == ".7z" || ext == ".rar" || ext == ".tar" ||
+           ext == ".gz" || ext == ".tgz" || ext == ".bz2" || ext == ".xz" || ext == ".doc" ||
+           ext == ".docx" || ext == ".xls" || ext == ".xlsx" || ext == ".ppt" || ext == ".pptx" ||
+           ext == ".epub" || ext == ".odt" || ext == ".ods" || ext == ".odp" || ext == ".png" ||
+           ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp" ||
+           ext == ".ico" || ext == ".exe" || ext == ".dll" || ext == ".so" || ext == ".o" ||
+           ext == ".a" || ext == ".bin");
 
       if (VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
         if (isCommandAvailable("mpv")) {
@@ -7719,7 +8146,8 @@ public:
       // Proactively verify current directory and process cwd existence
       std::error_code cwdCheckEc;
       char cwdTestBuf[512];
-      if ((!isTrashMode && (!fs::exists(currentPath, cwdCheckEc) || !fs::is_directory(currentPath, cwdCheckEc))) ||
+      if ((!isTrashMode &&
+           (!fs::exists(currentPath, cwdCheckEc) || !fs::is_directory(currentPath, cwdCheckEc))) ||
           (getcwd(cwdTestBuf, sizeof(cwdTestBuf)) == nullptr)) {
         if (ensureValidCurrentPath()) {
           needsRedraw = true;
@@ -7857,7 +8285,8 @@ public:
         attron(A_DIM);
         std::string pathStr = isTrashMode ? "trash://" : currentPath.string();
         int maxPathW = width - 35;
-        if (maxPathW < 10) maxPathW = 10;
+        if (maxPathW < 10)
+          maxPathW = 10;
         if ((int)pathStr.length() > maxPathW) {
           pathStr = utf8_safe_truncate_left(pathStr, maxPathW - 3);
         }
@@ -7870,23 +8299,28 @@ public:
             if (si.capacity > 0) {
               double pct = (double)(si.capacity - si.available) / si.capacity * 100.0;
               int filled = (int)(pct / 10.0 + 0.5);
-              if (filled < 0) filled = 0;
-              if (filled > 10) filled = 10;
-              
+              if (filled < 0)
+                filled = 0;
+              if (filled > 10)
+                filled = 10;
+
               std::string bar = "";
-              for (int j = 0; j < filled; ++j) bar += "█";
-              for (int j = filled; j < 10; ++j) bar += "░";
-              
+              for (int j = 0; j < filled; ++j)
+                bar += "█";
+              for (int j = filled; j < 10; ++j)
+                bar += "░";
+
               std::string rootName = getMountPoint(currentPath).filename().string();
-              if (rootName.empty()) rootName = "Root";
-              
+              if (rootName.empty())
+                rootName = "Root";
+
               std::string freeStr = formatSize(si.available);
               std::string capStr = formatSize(si.capacity);
-              
+
               char diskBuf[128];
-              std::snprintf(diskBuf, sizeof(diskBuf), " 󰋊 %s: [%s] %.0f%% (%s/%s free)", 
+              std::snprintf(diskBuf, sizeof(diskBuf), " 󰋊 %s: [%s] %.0f%% (%s/%s free)",
                             rootName.c_str(), bar.c_str(), pct, freeStr.c_str(), capStr.c_str());
-              
+
               int currentX = getcurx(stdscr);
               if (width - currentX > (int)std::string(diskBuf).length() + 35) {
                 attron(COLOR_PAIR(6));
@@ -7894,7 +8328,8 @@ public:
                 attroff(COLOR_PAIR(6));
               }
             }
-          } catch (...) {}
+          } catch (...) {
+          }
         }
 
         int rightOffset = 2; // Right padding
@@ -7971,7 +8406,8 @@ public:
             if (c == ERR) {
               std::this_thread::sleep_for(std::chrono::milliseconds(5));
               c = getch();
-              if (c == ERR) break;
+              if (c == ERR)
+                break;
             }
             if (c == 27) {
               nodelay(stdscr, TRUE);
@@ -7985,11 +8421,16 @@ public:
                 break;
               } else {
                 pastedData += (char)c;
-                if (e1 != ERR) pastedData += (char)e1;
-                if (e2 != ERR) pastedData += (char)e2;
-                if (e3 != ERR) pastedData += (char)e3;
-                if (e4 != ERR) pastedData += (char)e4;
-                if (e5 != ERR) pastedData += (char)e5;
+                if (e1 != ERR)
+                  pastedData += (char)e1;
+                if (e2 != ERR)
+                  pastedData += (char)e2;
+                if (e3 != ERR)
+                  pastedData += (char)e3;
+                if (e4 != ERR)
+                  pastedData += (char)e4;
+                if (e5 != ERR)
+                  pastedData += (char)e5;
               }
             } else {
               pastedData += (char)c;
@@ -8018,18 +8459,18 @@ public:
       if (ch == KEY_MOUSE) {
         MEVENT event;
         if (getmouse(&event) == OK) {
-          #ifndef BUTTON4_PRESSED
-          #define BUTTON4_PRESSED 0x10000
-          #endif
-          #ifndef BUTTON4_CLICKED
-          #define BUTTON4_CLICKED 0x4000
-          #endif
-          #ifndef BUTTON5_PRESSED
-          #define BUTTON5_PRESSED 0x200000
-          #endif
-          #ifndef BUTTON5_CLICKED
-          #define BUTTON5_CLICKED 0x80000
-          #endif
+#ifndef BUTTON4_PRESSED
+#define BUTTON4_PRESSED 0x10000
+#endif
+#ifndef BUTTON4_CLICKED
+#define BUTTON4_CLICKED 0x4000
+#endif
+#ifndef BUTTON5_PRESSED
+#define BUTTON5_PRESSED 0x200000
+#endif
+#ifndef BUTTON5_CLICKED
+#define BUTTON5_CLICKED 0x80000
+#endif
           bool isScrollUp = (event.bstate & (BUTTON4_PRESSED | BUTTON4_CLICKED));
           bool isScrollDown = (event.bstate & (BUTTON5_PRESSED | BUTTON5_CLICKED));
 
@@ -8069,15 +8510,19 @@ public:
                 size_t rightIdx = rightTabIndex;
                 if (activeTabIndex == rightIdx) {
                   if (isScrollUp) {
-                    if (selectedIndex > 0) selectedIndex--;
+                    if (selectedIndex > 0)
+                      selectedIndex--;
                   } else {
-                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                      selectedIndex++;
                   }
                 } else {
                   if (isScrollUp) {
-                    if (tabs[rightIdx].selectedIndex > 0) tabs[rightIdx].selectedIndex--;
+                    if (tabs[rightIdx].selectedIndex > 0)
+                      tabs[rightIdx].selectedIndex--;
                   } else {
-                    if (!tabs[rightIdx].currentFiles.empty() && tabs[rightIdx].selectedIndex < tabs[rightIdx].currentFiles.size() - 1)
+                    if (!tabs[rightIdx].currentFiles.empty() &&
+                        tabs[rightIdx].selectedIndex < tabs[rightIdx].currentFiles.size() - 1)
                       tabs[rightIdx].selectedIndex++;
                   }
                 }
@@ -8095,9 +8540,11 @@ public:
               needsRedraw = true;
             } else if (inPinned) {
               if (isScrollUp) {
-                if (pinnedIndex > 0) pinnedIndex--;
+                if (pinnedIndex > 0)
+                  pinnedIndex--;
               } else {
-                if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
+                if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1)
+                  pinnedIndex++;
               }
               needsRedraw = true;
             } else if (inCurrent) {
@@ -8105,23 +8552,29 @@ public:
                 size_t leftIdx = leftTabIndex;
                 if (activeTabIndex == leftIdx) {
                   if (isScrollUp) {
-                    if (selectedIndex > 0) selectedIndex--;
+                    if (selectedIndex > 0)
+                      selectedIndex--;
                   } else {
-                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                      selectedIndex++;
                   }
                 } else {
                   if (isScrollUp) {
-                    if (tabs[leftIdx].selectedIndex > 0) tabs[leftIdx].selectedIndex--;
+                    if (tabs[leftIdx].selectedIndex > 0)
+                      tabs[leftIdx].selectedIndex--;
                   } else {
-                    if (!tabs[leftIdx].currentFiles.empty() && tabs[leftIdx].selectedIndex < tabs[leftIdx].currentFiles.size() - 1)
+                    if (!tabs[leftIdx].currentFiles.empty() &&
+                        tabs[leftIdx].selectedIndex < tabs[leftIdx].currentFiles.size() - 1)
                       tabs[leftIdx].selectedIndex++;
                   }
                 }
               } else {
                 if (isScrollUp) {
-                  if (selectedIndex > 0) selectedIndex--;
+                  if (selectedIndex > 0)
+                    selectedIndex--;
                 } else {
-                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                    selectedIndex++;
                 }
               }
               needsRedraw = true;
@@ -8129,15 +8582,19 @@ public:
               // Fallback scroll based on focus
               if (focusPinned) {
                 if (isScrollUp) {
-                  if (pinnedIndex > 0) pinnedIndex--;
+                  if (pinnedIndex > 0)
+                    pinnedIndex--;
                 } else {
-                  if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1) pinnedIndex++;
+                  if (!pinnedPaths.empty() && pinnedIndex < pinnedPaths.size() - 1)
+                    pinnedIndex++;
                 }
               } else {
                 if (isScrollUp) {
-                  if (selectedIndex > 0) selectedIndex--;
+                  if (selectedIndex > 0)
+                    selectedIndex--;
                 } else {
-                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1) selectedIndex++;
+                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                    selectedIndex++;
                 }
               }
               needsRedraw = true;
@@ -8152,7 +8609,8 @@ public:
           std::lock_guard<std::mutex> lock(statusMutex);
           if (!statusMessage.empty()) {
             auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() > 1800) {
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - statusTime).count() >
+                1800) {
               statusMessage = "";
               statusTimedOut = true;
             }
@@ -8215,7 +8673,8 @@ public:
       }
       if (ch == 5) { // Ctrl+E -> Scroll preview pane down
         if (!isDualPaneMode && !hidePreview) {
-          int limit = (winPreview ? getmaxy(winPreview) : height) - getPreviewContentStartLine() - 2;
+          int limit =
+              (winPreview ? getmaxy(winPreview) : height) - getPreviewContentStartLine() - 2;
           int maxScroll = std::max(0, previewTotalLines - limit);
           if (previewScrollOffset < maxScroll) {
             previewScrollOffset = std::min(maxScroll, previewScrollOffset + 3);
@@ -8280,13 +8739,16 @@ public:
           }
           updateLayout();
           reloadAll();
-          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) +
+                    " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) +
+                    " cols)");
           needsRedraw = true;
         } else {
           if (isCommandAvailable("lazygit")) {
             const char* tmuxEnv = std::getenv("TMUX");
             if (tmuxEnv && isCommandAvailable("tmux")) {
-              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) + " -w 85% -h 85% -EE lazygit";
+              std::string runCmd = "tmux display-popup -d " + escapeShellArg(currentPath.string()) +
+                                   " -w 85% -h 85% -EE lazygit";
               int res = std::system(runCmd.c_str());
               (void)res;
               reloadAll();
@@ -8313,20 +8775,40 @@ public:
           }
           updateLayout();
           reloadAll();
-          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) + " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) + " cols)");
+          setStatus("Split adjusted (left: " + std::to_string(width / 2 + dualPaneSplitOffset) +
+                    " cols, right: " + std::to_string(width - (width / 2 + dualPaneSplitOffset)) +
+                    " cols)");
           needsRedraw = true;
         }
         continue;
       }
       if (ch == '\t') {
+        if (!chooserFile.empty()) {
+          toggleSelection(true);
+          continue;
+        }
         if (isDualPaneMode) {
           size_t nextTab = (activeTabIndex == leftTabIndex) ? rightTabIndex : leftTabIndex;
           switchTab(nextTab);
           focusLeftPane = (activeTabIndex == leftTabIndex);
         } else if (!hidePinned) {
           focusPinned = !focusPinned;
+        } else {
+          toggleSelection(true);
         }
         continue;
+      }
+      if (ch == KEY_BTAB) {
+        if (!chooserFile.empty()) {
+          toggleSelection(false);
+          if (selectedIndex > 0) {
+            selectedIndex--;
+            if (activeTabIndex < tabs.size()) {
+              tabs[activeTabIndex].selectedIndex = selectedIndex;
+            }
+          }
+          continue;
+        }
       }
 
       if (ch == 't') {
@@ -8423,8 +8905,11 @@ public:
         case 'l':
         case KEY_RIGHT:
         case 10:
+        case 13:
+        case KEY_ENTER:
           openFile();
-          if (shouldExit) return;
+          if (shouldExit)
+            return;
           break;
         case 'h':
         case KEY_LEFT:
@@ -8458,8 +8943,10 @@ public:
           toggleDiskUsageMode();
           break;
         case ' ':
+        case 9: // Tab
           toggleSelection(true);
           break;
+        case KEY_BTAB: // Shift-Tab
         case 'v':
           toggleSelection(false);
           break;

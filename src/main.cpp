@@ -20,7 +20,8 @@ int main(int argc, char* argv[]) {
       std::cout << "  [path]                Directory to open, or file to select" << std::endl;
       std::cout << "\nOptions:" << std::endl;
       std::cout << "  --chooser-file <file> Write chosen files to this file on exit" << std::endl;
-      std::cout << "  --cwd-file <file>     Write the last working directory to this file on exit" << std::endl;
+      std::cout << "  --cwd-file <file>     Write the last working directory to this file on exit"
+                << std::endl;
       std::cout << "  -v, --version         Show version information" << std::endl;
       std::cout << "  -h, --help            Show this help message" << std::endl;
       return 0;

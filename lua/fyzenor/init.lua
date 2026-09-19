@@ -483,20 +483,45 @@ function M.open(target_path, opts)
           return
         end
 
-        -- Open first chosen file in target window
-        local first_file = chosen_paths[1]
-        open_file_in_nvim(first_file, open_cmd)
-
-        if cfg.hooks and cfg.hooks.on_file_opened then
-          pcall(cfg.hooks.on_file_opened, first_file)
-        end
-
-        -- Load remaining chosen files into buffer list
-        for i = 2, #chosen_paths do
-          local other_file = chosen_paths[i]
-          pcall(vim.fn.bufadd, other_file)
+        -- Open chosen file(s)
+        if #chosen_paths == 1 then
+          local first_file = chosen_paths[1]
+          open_file_in_nvim(first_file, open_cmd)
           if cfg.hooks and cfg.hooks.on_file_opened then
-            pcall(cfg.hooks.on_file_opened, other_file)
+            pcall(cfg.hooks.on_file_opened, first_file)
+          end
+        else
+          -- Multiple files selected:
+          -- 1. Ensure all chosen files are registered as listed buffers and loaded
+          for _, p in ipairs(chosen_paths) do
+            local b = vim.fn.bufadd(p)
+            vim.bo[b].buflisted = true
+            vim.fn.bufload(b)
+            if cfg.hooks and cfg.hooks.on_file_opened then
+              pcall(cfg.hooks.on_file_opened, p)
+            end
+          end
+
+          -- 2. Open them according to open_cmd
+          if open_cmd == "vsplit" then
+            open_file_in_nvim(chosen_paths[1], "edit")
+            for i = 2, #chosen_paths do
+              open_file_in_nvim(chosen_paths[i], "vsplit")
+            end
+          elseif open_cmd == "split" then
+            open_file_in_nvim(chosen_paths[1], "edit")
+            for i = 2, #chosen_paths do
+              open_file_in_nvim(chosen_paths[i], "split")
+            end
+          elseif open_cmd == "tabedit" then
+            for _, p in ipairs(chosen_paths) do
+              open_file_in_nvim(p, "tabedit")
+            end
+          else
+            -- "edit" (default): open first file and set Neovim args list
+            open_file_in_nvim(chosen_paths[1], "edit")
+            local quoted = vim.tbl_map(vim.fn.fnameescape, chosen_paths)
+            pcall(vim.cmd, "args " .. table.concat(quoted, " "))
           end
         end
       end)

@@ -58,11 +58,84 @@ end
 ---@param file_path string
 ---@param cmd string
 local function open_file_in_nvim(file_path, cmd)
+  local is_directory = vim.fn.isdirectory(file_path) == 1
+  if is_directory then
+    M.open(file_path)
+    return
+  end
+
   local escaped = vim.fn.fnameescape(file_path)
-  local ok, err = pcall(vim.cmd, cmd .. " " .. escaped)
+  local valid_cmds = {
+    edit = "edit",
+    vsplit = "vsplit",
+    split = "split",
+    tabedit = "tabedit",
+  }
+  local chosen_cmd = valid_cmds[cmd] or "edit"
+
+  local cur_buf = vim.api.nvim_get_current_buf()
+  local is_scratch = false
+  if chosen_cmd ~= "edit" and cur_buf and vim.api.nvim_buf_is_valid(cur_buf) then
+    local name = vim.api.nvim_buf_get_name(cur_buf)
+    local buftype = vim.bo[cur_buf].buftype
+    local modified = vim.bo[cur_buf].modified
+    local line_count = vim.api.nvim_buf_line_count(cur_buf)
+    if name == "" and buftype == "" and not modified and line_count <= 1 then
+      is_scratch = true
+    end
+  end
+
+  local ok, err = pcall(vim.cmd, chosen_cmd .. " " .. escaped)
   if not ok then
     vim.notify("Fyzenor: failed to open file '" .. file_path .. "': " .. tostring(err), vim.log.levels.ERROR)
+  elseif is_scratch and cur_buf and vim.api.nvim_buf_is_valid(cur_buf) then
+    pcall(vim.api.nvim_buf_delete, cur_buf, { force = true })
   end
+end
+
+--- Open Fyzenor when a directory buffer is opened (replacing netrw)
+---@param file string
+---@param bufnr integer
+local function open_in_directory(file, bufnr)
+  if not file or file == "" then
+    return
+  end
+  if vim.fn.isdirectory(file) ~= 1 then
+    return
+  end
+
+  -- Don't hijack if using special protocols (e.g. scp://, ftp://)
+  local buf_name = vim.api.nvim_buf_get_name(bufnr)
+  if buf_name:find("://") then
+    return
+  end
+
+  local winid = vim.api.nvim_get_current_win()
+  local dir_bufnr = bufnr
+
+  -- Replace directory buffer with an empty buffer or alternate buffer
+  local empty_buffer = vim.api.nvim_create_buf(true, false)
+  local next_buffer = vim.fn.bufnr("#")
+  if not next_buffer or next_buffer < 1 or next_buffer == dir_bufnr or not vim.api.nvim_buf_is_valid(next_buffer) then
+    next_buffer = empty_buffer
+  end
+
+  vim.schedule(function()
+    pcall(function()
+      vim.api.nvim_win_set_buf(winid, next_buffer)
+    end)
+
+    local deletion_successful = false
+    if vim.api.nvim_buf_is_valid(dir_bufnr) then
+      deletion_successful = pcall(vim.api.nvim_buf_delete, dir_bufnr, { force = true })
+    end
+    if next_buffer ~= empty_buffer and vim.api.nvim_buf_is_valid(empty_buffer) then
+      pcall(vim.api.nvim_buf_delete, empty_buffer, { force = true })
+    end
+    if deletion_successful then
+      M.open(file)
+    end
+  end)
 end
 
 --- Setup user options and optional directory hijacking
@@ -74,26 +147,31 @@ function M.setup(user_opts)
     -- Disable default netrw to prevent conflicts
     vim.g.loaded_netrw = 1
     vim.g.loaded_netrwPlugin = 1
+    vim.cmd("silent! autocmd! FileExplorer *")
 
     local group = vim.api.nvim_create_augroup("FyzenorDirectoryHijack", { clear = true })
-    vim.api.nvim_create_autocmd({ "BufEnter", "BufReadCmd" }, {
+    vim.api.nvim_create_autocmd("BufAdd", {
       group = group,
+      pattern = "*",
       desc = "Open Fyzenor when opening a directory",
       callback = function(args)
+        if vim.g.SessionLoad == 1 then
+          return
+        end
         local path = args.file
         if path == "" then
           path = vim.api.nvim_buf_get_name(args.buf)
         end
-        if path and path ~= "" and vim.fn.isdirectory(path) == 1 then
-          vim.schedule(function()
-            if vim.api.nvim_buf_is_valid(args.buf) then
-              pcall(vim.api.nvim_buf_delete, args.buf, { force = true })
-            end
-            M.open(path)
-          end)
-        end
+        open_in_directory(path, args.buf)
       end,
     })
+
+    -- Check if Neovim was launched with a directory argument (e.g. `nvim .` or `nvim /path/to/dir`)
+    local current_buf = vim.api.nvim_get_current_buf()
+    local initial_path = vim.b[current_buf].netrw_curdir or vim.fn.expand("%:p")
+    if initial_path and initial_path ~= "" then
+      open_in_directory(initial_path, current_buf)
+    end
   end
 
   return opts
@@ -311,116 +389,117 @@ function M.open(target_path, opts)
   -- Spawn terminal job
   local job_id = vim.fn.termopen(cmd, {
     on_exit = function(_, exit_code, _)
-      -- Close floating window
-      if vim.api.nvim_win_is_valid(win) then
-        pcall(vim.api.nvim_win_close, win, true)
-      end
-      if vim.api.nvim_buf_is_valid(buf) then
-        pcall(vim.api.nvim_buf_delete, buf, { force = true })
-      end
+      vim.schedule(function()
+        -- Close floating window
+        if vim.api.nvim_win_is_valid(win) then
+          pcall(vim.api.nvim_win_close, win, true)
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+          pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        end
 
-      state.active_win = nil
-      state.active_buf = nil
-      state.active_job = nil
+        state.active_win = nil
+        state.active_buf = nil
+        state.active_job = nil
 
-      -- Restore focus to previous window
-      if state.prev_win and vim.api.nvim_win_is_valid(state.prev_win) then
-        vim.api.nvim_set_current_win(state.prev_win)
-      end
+        -- Restore focus to previous window
+        if state.prev_win and vim.api.nvim_win_is_valid(state.prev_win) then
+          vim.api.nvim_set_current_win(state.prev_win)
+        end
 
-      -- Read chosen files and final cwd
-      local chosen_paths = read_lines(chooser_file)
-      local final_cwds = read_lines(cwd_file)
-      local last_cwd = #final_cwds > 0 and final_cwds[1] or nil
+        -- Read chosen files and final cwd
+        local chosen_paths = read_lines(chooser_file)
+        local final_cwds = read_lines(cwd_file)
+        local last_cwd = #final_cwds > 0 and final_cwds[1] or nil
 
-      -- Clean up temp files
-      pcall(os.remove, chooser_file)
-      pcall(os.remove, cwd_file)
+        -- Clean up temp files
+        pcall(os.remove, chooser_file)
+        pcall(os.remove, cwd_file)
 
-      -- Change Neovim working directory if requested
-      if cfg.change_neovim_cwd_on_close and last_cwd and vim.fn.isdirectory(last_cwd) == 1 then
-        pcall(vim.api.nvim_set_current_dir, last_cwd)
-      end
+        -- Change Neovim working directory if requested
+        if cfg.change_neovim_cwd_on_close and last_cwd and vim.fn.isdirectory(last_cwd) == 1 then
+          pcall(vim.api.nvim_set_current_dir, last_cwd)
+        end
 
-      -- Handle grep action
-      if open_cmd == "grep" then
-        local target_dir = last_cwd or (resolved_target and vim.fn.isdirectory(resolved_target) == 1 and resolved_target) or vim.fn.getcwd()
-        if cfg.integrations and type(cfg.integrations.grep) == "function" then
-          cfg.integrations.grep(target_dir)
-        else
-          local has_telescope, telescope = pcall(require, "telescope.builtin")
-          if has_telescope then
-            telescope.live_grep({ cwd = target_dir })
+        -- Handle grep action
+        if open_cmd == "grep" then
+          local target_dir = last_cwd or (resolved_target and vim.fn.isdirectory(resolved_target) == 1 and resolved_target) or vim.fn.getcwd()
+          if cfg.integrations and type(cfg.integrations.grep) == "function" then
+            cfg.integrations.grep(target_dir)
           else
-            local has_fzf, fzf = pcall(require, "fzf-lua")
-            if has_fzf then
-              fzf.live_grep({ cwd = target_dir })
+            local has_telescope, telescope = pcall(require, "telescope.builtin")
+            if has_telescope then
+              telescope.live_grep({ cwd = target_dir })
             else
-              vim.cmd("silent grep! -r '' " .. vim.fn.fnameescape(target_dir))
-              vim.cmd("copen")
+              local has_fzf, fzf = pcall(require, "fzf-lua")
+              if has_fzf then
+                fzf.live_grep({ cwd = target_dir })
+              else
+                vim.cmd("silent grep! -r '' " .. vim.fn.fnameescape(target_dir))
+                vim.cmd("copen")
+              end
             end
           end
+          return
         end
-        return
-      end
 
-      -- If no files chosen, exit cleanly
-      if #chosen_paths == 0 then
-        return
-      end
-
-      -- Trigger fyzenor_closed_successfully hook
-      if cfg.hooks and cfg.hooks.fyzenor_closed_successfully then
-        pcall(cfg.hooks.fyzenor_closed_successfully, chosen_paths)
-      end
-
-      -- Handle copy_path action
-      if open_cmd == "copy_path" then
-        local rel_paths = {}
-        local nvim_cwd = vim.fn.getcwd()
-        for _, p in ipairs(chosen_paths) do
-          local rel = vim.fn.fnamemodify(p, ":~:.")
-          table.insert(rel_paths, rel)
+        -- If no files chosen, exit cleanly
+        if #chosen_paths == 0 then
+          return
         end
-        local result = table.concat(rel_paths, "\n")
-        vim.fn.setreg("+", result)
-        vim.fn.setreg('"', result)
-        vim.notify("Copied to clipboard: " .. result, vim.log.levels.INFO, { title = "Fyzenor" })
-        return
-      end
 
-      -- Handle quickfix action
-      if open_cmd == "quickfix" then
-        local qf_items = {}
-        for _, p in ipairs(chosen_paths) do
-          table.insert(qf_items, {
-            filename = p,
-            lnum = 1,
-            col = 1,
-            text = vim.fn.fnamemodify(p, ":t"),
-          })
+        -- Trigger fyzenor_closed_successfully hook
+        if cfg.hooks and cfg.hooks.fyzenor_closed_successfully then
+          pcall(cfg.hooks.fyzenor_closed_successfully, chosen_paths)
         end
-        vim.fn.setqflist(qf_items, "r")
-        vim.cmd("copen")
-        return
-      end
 
-      -- Open first chosen file in target window
-      local first_file = chosen_paths[1]
-      open_file_in_nvim(first_file, open_cmd)
+        -- Handle copy_path action
+        if open_cmd == "copy_path" then
+          local rel_paths = {}
+          for _, p in ipairs(chosen_paths) do
+            local rel = vim.fn.fnamemodify(p, ":~:.")
+            table.insert(rel_paths, rel)
+          end
+          local result = table.concat(rel_paths, "\n")
+          vim.fn.setreg("+", result)
+          vim.fn.setreg('"', result)
+          vim.notify("Copied to clipboard: " .. result, vim.log.levels.INFO, { title = "Fyzenor" })
+          return
+        end
 
-      if cfg.hooks and cfg.hooks.on_file_opened then
-        pcall(cfg.hooks.on_file_opened, first_file)
-      end
+        -- Handle quickfix action
+        if open_cmd == "quickfix" then
+          local qf_items = {}
+          for _, p in ipairs(chosen_paths) do
+            table.insert(qf_items, {
+              filename = p,
+              lnum = 1,
+              col = 1,
+              text = vim.fn.fnamemodify(p, ":t"),
+            })
+          end
+          vim.fn.setqflist(qf_items, "r")
+          vim.cmd("copen")
+          return
+        end
 
-      -- Load remaining chosen files into buffer list
-      for i = 2, #chosen_paths do
-        local other_file = chosen_paths[i]
-        pcall(vim.fn.bufadd, other_file)
+        -- Open first chosen file in target window
+        local first_file = chosen_paths[1]
+        open_file_in_nvim(first_file, open_cmd)
+
         if cfg.hooks and cfg.hooks.on_file_opened then
-          pcall(cfg.hooks.on_file_opened, other_file)
+          pcall(cfg.hooks.on_file_opened, first_file)
         end
-      end
+
+        -- Load remaining chosen files into buffer list
+        for i = 2, #chosen_paths do
+          local other_file = chosen_paths[i]
+          pcall(vim.fn.bufadd, other_file)
+          if cfg.hooks and cfg.hooks.on_file_opened then
+            pcall(cfg.hooks.on_file_opened, other_file)
+          end
+        end
+      end)
     end,
   })
 

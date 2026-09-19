@@ -20,6 +20,7 @@ struct AsyncTask {
   bool notified = false;
   std::string statusMessage = "Running";
   fs::path destPath;
+  std::string pidFile;
   std::thread workerThread;
 
   std::mutex pauseMutex;

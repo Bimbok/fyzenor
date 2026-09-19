@@ -1,7 +1,9 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#define _XOPEN_SOURCE_EXTENDED
+#ifndef _XOPEN_SOURCE_EXTENDED
+#define _XOPEN_SOURCE_EXTENDED 1
+#endif
 #include <string>
 #include <vector>
 #include <set>
@@ -31,7 +33,9 @@ extern bool configHidePreview;
 extern bool configHideParent;
 extern bool configHidePinned;
 extern std::chrono::steady_clock::time_point globalStartTime;
+extern const std::string FYZENOR_VERSION;
 void loadConfiguration();
+std::string keyToName(int ch);
 
 extern const char* ICON_DIR;
 extern const char* ICON_VIDEO;
@@ -47,6 +51,7 @@ extern const char* ICON_MUSIC;
 extern const char* ICON_PIN;
 extern const char* ICON_ZIP;
 extern const char* ICON_LINK;
+extern const char* ICON_SELECTED;
 
 extern const std::string PREVIEW_TEMP;
 extern const uintmax_t SIZE_CALCULATING;
@@ -87,5 +92,7 @@ void initColors();
 bool isCommandAvailable(const std::string& cmd);
 std::string urlDecode(const std::string& str);
 std::vector<fs::path> parsePastedPaths(const std::string& data);
+std::string getSecureRuntimeDir();
+std::string getSecureTaskPidPath(int taskId, const std::string& prefix);
 
 #endif // UTILS_H

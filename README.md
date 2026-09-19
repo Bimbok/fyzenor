@@ -14,8 +14,11 @@
 [![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
 [![ncurses](https://img.shields.io/badge/UI-ncurses-2C8C3C?style=flat)](https://invisible-island.net/ncurses/)
 [![Kitty Graphics](https://img.shields.io/badge/Preview-Kitty%20Graphics-ff69b4?style=flat&logo=linux&logoColor=white)](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
+[![Kitty](https://img.shields.io/badge/Terminal-Kitty-111111?style=flat&logo=kitty&logoColor=white)](https://sw.kovidgoyal.net/kitty/)
+[![Ghostty](https://img.shields.io/badge/Terminal-Ghostty-black?style=flat&logo=ghostery&logoColor=white)](https://ghostty.org/)
+[![WezTerm](https://img.shields.io/badge/Terminal-WezTerm-4e2a84?style=flat&logo=wezterm&logoColor=white)](https://wezfurlong.org/wezterm/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat)](#-quick-start)
-[![Version](https://img.shields.io/badge/Version-4.2.0-blue?style=flat)](#-cli-usage)
+[![Version](https://img.shields.io/badge/Version-4.3.0-brightgreen?style=flat)](#-cli-usage)
 [![Documentation](https://img.shields.io/badge/Documentation-Vercel-success?style=flat&logo=vercel)](https://fyzenor.vercel.app/)
 
 ### Maintainer
@@ -89,7 +92,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Simultaneous Multi-Open**        | Open all selected files simultaneously; code/text files load in a single editor, media in an `mpv` playlist, others in background launchers.         |
 | **Robust Symlink Management**     | Custom link icons (`󰌹`), detailed resolution preview (detects broken paths), and quick absolute symlink pasting with Shift+Y (`Y`).                 |
 | **Dynamic Sorting Modes**          | Toggle sorting order dynamically by pressing `s`, cycling between **Name**, **Size (Desc)**, and **Date Modified (Desc)**.                             |
-| **Async Media Preview**            | Generate image and video previews in the background using the Kitty Graphics Protocol and `ffmpeg`, without freezing navigation.                      |
+| **Async Media Preview**            | Generate high-resolution image and video previews asynchronously using the Kitty Graphics Protocol with zero flicker across **Kitty**, **Ghostty**, and **WezTerm**. |
 | **Modern & Polished UI**           | A clean, minimal interface featuring rounded corners, optimized spacing, and an elegant color palette designed for long-term readability and comfort. |
 | **Syntax-Aware Text Preview**      | Preview code and text files with `bat` or `batcat`, with fallback to plain text when needed.                                                          |
 | **Background Folder Sizing**       | Directory sizes are calculated asynchronously and update in place while you keep moving.                                                              |
@@ -107,6 +110,8 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | **Content Search (ripgrep)**       | Search for file contents under the current directory using `ripgrep`, displaying relative paths and supporting vim-like navigation.                   |
 | **Manual Cache Refresh**           | Refresh directory contents and invalidate sizes/previews cache instantly using `F5` / `Ctrl+R`.                                                      |
 | **Dual-Pane Mode**                 | Toggle (`F2`) side-by-side active file listings for drag-free copying, with easy tab focus switching (`Tab`).                                         |
+| **Visual Disk Usage Mode (`U`)**   | Interactive **ncdu / gdu-style** disk usage visualizer with dynamic proportional bar meters (`[████████░░] 74.2%`), folder percentage, and auto-sorting. |
+| **Context-Aware Mouse Scrolling** | Hover and scroll your mouse wheel over any pane: middle pane scrolls files, preview pane scrolls long code/text/archives/directories with live indicators (`[1-40/350]`), and pinned pane scrolls bookmarks. |
 | **Device Detection & Mounts**      | Detect, mount, unmount, and navigate connected USB block drives and mobile phones (Android MTP) natively without needing Nautilus.                     |
 | **Live Auto-Updates (inotify)**    | Automatically detects filesystem changes (creations, deletions, renames) in the current directory and refreshes the TUI instantly.                    |
 
@@ -138,8 +143,14 @@ To unleash the full power of Fyzenor, especially image previews, your system nee
 
 ### 1. A Compatible Terminal
 
-- **Recommended:** [Kitty](https://sw.kovidgoyal.net/kitty/) with native Kitty Graphics Protocol support.
-- **Others:** [WezTerm](https://wezfurlong.org/wezterm/) or [Konsole](https://konsole.kde.org/) may work, but Kitty is the primary development and testing target.
+To enjoy high-resolution image and video previews, use a modern terminal emulator that supports the Kitty Graphics Protocol:
+
+- **[Kitty](https://sw.kovidgoyal.net/kitty/)**: First-class support with native Kitty Graphics Protocol, synchronized frame updates (DEC Mode 2026), and smart cell preservation for a zero-flicker experience.
+- **[Ghostty](https://ghostty.org/)**: Native Kitty Graphics Protocol support with GPU-accelerated tear-free rendering.
+- **[WezTerm](https://wezfurlong.org/wezterm/)**: Full native support with memory-safe GPU texture pruning (`d=A`) and atomic in-place image swapping (`a=T,i=1`).
+- **[Konsole](https://konsole.kde.org/)**: Compatible with Kitty graphics protocol.
+
+> **Note for other terminals:** If you use Alacritty, GNOME Terminal, Foot, xterm, or another terminal without Kitty Graphics support, Fyzenor works out-of-the-box! Media previews gracefully fall back to detailed file metadata and syntax-highlighted text previews without any visual artifacts.
 
 ### 2. System Dependencies
 
@@ -204,13 +215,13 @@ You can check your compiler version using:
 g++ --version
 ```
 
-### Smart Installer (Stable vs Beta Channels)
+### Smart Installer
 
 ```bash
-# 📦 Install Stable Release (v4.2.0 - Default)
-curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --stable
+# 📦 Install Stable Release (v4.3.0 - Default)
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash
 
-# 🧪 Install Beta Channel (v4.3.0-beta.1 - Lua Plugins & Cutting-edge features)
+# 🧪 Install Development Channel (Beta)
 curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/install.sh | bash -s -- --beta
 ```
 
@@ -223,16 +234,34 @@ git clone https://github.com/Bimbok/fyzenor.git
 # 2. Enter the repository
 cd fyzenor
 
-# 3. Run the installer
+# 3. Run the installer (supports --beta, --stable, --uninstall, --purge)
 ./install.sh
+```
+
+### 🗑️ Uninstallation
+
+To uninstall Fyzenor cleanly at any time:
+
+```bash
+# Standard uninstallation (removes binary, 'fm' symlink, desktop entry, and icon)
+./uninstall.sh
+# Or via curl:
+curl -fsSL https://raw.githubusercontent.com/Bimbok/fyzenor/main/uninstall.sh | bash
+
+# Complete purge (also removes ~/.config/fyzenor and ~/.fm_pins)
+./uninstall.sh --purge
+# Or using the universal installer:
+./install.sh --uninstall --purge
 ```
 
 The installer:
 
-1. Compiles the C++ source into an optimized binary.
-2. Installs `fyzenor` into `/usr/local/bin/`.
-3. Creates an `fm` symlink for faster access.
-4. Installs the desktop application shortcut and branding icon globally.
+1. Checks required build tools (compiler, CMake, Ncurses, Lua) and runtime dependencies.
+2. Compiles the C++ source using all available CPU cores in parallel (`-j$(nproc)`).
+3. Installs `fyzenor` into `/usr/local/bin/` (or Termux `$PREFIX/bin`).
+4. Creates an `fm` symlink for rapid terminal access.
+5. Installs the desktop application shortcut and branding icon globally.
+6. Initializes default configuration files in `~/.config/fyzenor/` if missing.
 
 ---
 
@@ -270,6 +299,84 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 - **TMUX Floating Popup Modal**: If Fyzenor is running inside a active `tmux` session, it leverages `tmux display-popup` to spawn `lazygit` as a centered, floating overlay window (taking up 85% of screen width and height). This creates a gorgeous desktop-like modal experience without leaving your TUI layout.
 - **Clean Full-Screen Fallback**: Outside of tmux, the terminal is safely suspended, `lazygit` takes over full-screen, and upon exiting, control is handed back to Fyzenor.
 - **State Auto-Reloading**: Once you close `lazygit`, Fyzenor instantly reloads all directory files and statuses, ensuring checkout changes, branch updates, or resets reflect immediately in the browser pane.
+
+## 🚀 What's New in v4.3.0
+
+### 🌌 Native Neovim Integration (`fyzenor.nvim`)
+Fyzenor now includes a dedicated Neovim plugin inspired by *yazi.nvim*! Run Fyzenor directly inside Neovim in a centered floating terminal window:
+* **Floating Window**: Centered modal with background dimming and customizable borders.
+* **Netrw Directory Hijacking**: Automatically replaces netrw when opening directory buffers (`nvim .` or `:edit dir/`).
+* **Multi-Buffer & Split Loading**: Select multiple files with <kbd>Tab</kbd> or <kbd>Space</kbd> and open them across splits (`<c-v>`, `<c-x>`), tabs (`<c-t>`), or buffer lists (`:args`).
+* **CWD Synchronization**: Automatically updates Neovim's `:cd` when closing Fyzenor.
+* **Quick Install (`lazy.nvim`)**:
+  ```lua
+  {
+    "Bimbok/fyzenor",
+    event = "VeryLazy",
+    opts = { open_for_directories = true, change_neovim_cwd_on_close = true },
+    keys = {
+      { "<leader>e", "<cmd>Fyzenor<cr>", desc = "Open Fyzenor (current file)" },
+      { "<leader>E", "<cmd>Fyzenor cwd<cr>", desc = "Open Fyzenor (project root)" },
+      { "<leader>fe", "<cmd>FyzenorToggle<cr>", desc = "Toggle Fyzenor" },
+    },
+  }
+  ```
+
+### 📊 Visual Disk Usage & Bar Graph Mode (`U`)
+* **Single-Key Storage Analysis**: Press <kbd>U</kbd> in normal mode to turn any directory listing into a visual storage visualizer (like `ncdu`).
+* **Proportional Bar Graphs**: Unicode proportional bars (e.g. `██████░░░░ 60%`) rendered alongside directory sizes.
+* **Non-Blocking Background Scanning**: Deep directory calculations happen asynchronously on worker threads with zero UI latency.
+* **Circular Symlink Protection**: Inode-level cycle detection prevents infinite recursion hangs.
+
+### 🖱️ Mouse Controls & Pane-Aware Scrolling
+* **Pane-Aware Hover Scrolling**: Hover your mouse over the parent, current, pinned, or preview pane and scroll the wheel to scroll that specific pane directly without clicking or changing focus!
+* **Preview Scrolling**: Smoothly scroll long text, code, or directory previews with the mouse wheel or <kbd>Ctrl+E</kbd> (down) / <kbd>Ctrl+Y</kbd> (up).
+
+### 🎯 Yazi-like Cursor Tracking Across Sorting (`s`)
+* **Locked-in Item Tracking**: When you hover over a file or folder and press <kbd>s</kbd> to change sort modes (Alphabetical ➔ Size ➔ Date), the file list is rearranged, but your cursor **automatically tracks and stays locked onto that exact file or folder**, adjusting scroll offsets smoothly without jumping to the top.
+* **Stable Background Size Computation**: As directory sizes compute asynchronously in the background, your active selection never flutters or switches items when the list re-orders.
+
+### 🧭 Per-Directory Cursor Memory (`dirCursorHistory`)
+* **Folder Entry & Exit Memory**: When you enter a subfolder and return back to the parent directory (<kbd>h</kbd> / <kbd>Left</kbd> / <kbd>Backspace</kbd>), Fyzenor remembers and focuses the directory you just came from.
+* **Deep Directory State Memory**: Every visited directory retains its last active cursor position and scroll offset. Navigating back and forward across history (<kbd>Ctrl+O</kbd> / <kbd>Ctrl+P</kbd>) restores your cursor directly to the file you were inspecting.
+
+### 🎨 Universal 256-Color Engine (`hexTo256`)
+* **TMUX & Neovim Terminal Native**: Uses exact Euclidean RGB matching to map hex themes (`theme.toml`) into 256-color ANSI space. Renders identically inside `tmux`, Neovim terminal (`:terminal`), Kitty, Alacritty, and Foot without washed-out colors or crude 8-color fallbacks.
+* **Immune to Dynamic Palette Reloads**: 256-color cube indices are fixed and immune to terminal theme reloads (e.g. Matugen wallpaper changes). Press <kbd>Ctrl+R</kbd> or <kbd>F5</kbd> to re-read `theme.toml` and refresh the screen instantly.
+
+### 📋 Modal Clipboard Pasting & Input Enhancements
+* **Full Clipboard Paste Support**: Supports <kbd>Ctrl+V</kbd>, <kbd>Ctrl+Shift+V</kbd>, and terminal bracketed paste (`\033[200~`) inside all modal text fields (Rename <kbd>r</kbd>, Create Item <kbd>n</kbd>, Search, and Zip).
+* **Readline Shortcuts**: Includes <kbd>Ctrl+U</kbd> (clear line) and <kbd>Ctrl+W</kbd> (delete word backwards).
+* **UTF-8 Codepoint Navigation**: Codepoint-aware multi-byte Backspace, Delete, and arrow keys preventing UTF-8 character corruption.
+* **Terminal Resize Adaptation**: Prompts automatically re-center and adapt dynamically when the terminal is resized (`KEY_RESIZE`).
+
+### ✨ Dynamic Nerd Font Type & Extension Indicator (`n` & `r`)
+* **Unified Shortcut**: Press <kbd>n</kbd> to create files and directories from a single hotkey (creates a file if `name`, or a folder if `name/` ending with `/`).
+* **Real-time Extension & Type Confirmation**: As you type into the centered prompt, the bottom-right corner dynamically switches both glyph and syntax accent color in real time:
+  - **Dynamic File Extensions**: Generic file icon (``) dynamically switches to specific language glyphs as you type extensions (e.g. `hello.c` ➔ `` C icon, `hello.cc`/`.cpp` ➔ `` C++ icon, `hello.py` ➔ `` Python icon, `hello.rs` ➔ `` Rust icon, `hello.go` ➔ `` Go icon, `hello.zig` ➔ `` Zig icon, `hello.json` ➔ ``, `hello.sh` ➔ ``, `hello.md` ➔ ``, `hello.zip` ➔ ``, etc.).
+  - **Special Files & Configs**: Recognizes files like `Makefile` (``), `Dockerfile` (`󰡨`), `.gitignore` (``), `.bashrc`/`.zshrc` (``), etc.
+  - **Dynamic Folder Indicator**: Switches instantly to folder icon (`` / configured directory glyph) the moment `/` or `\` is appended.
+* **Active Accent Coloring**: Input dialog borders, headers, and dynamic type icons are uniformly styled with the active theme accent color (`active_border` / `pin_border` in `theme.toml`).
+* **Nested Path Creation & Smart Focus**: Supports recursive paths (e.g., `nested/sub/dir/` or `sub/folder/file.txt`), automatically selecting the newly created item in the listing.
+
+### ⚡ Robust 12GB+ Directory Size Engine
+* Non-throwing filesystem traversal engine that skips unreadable files or recursive symlink loops cleanly without cutting size calculation short on large multi-gigabyte directories.
+
+### 🧩 Embedded Lua Plugin Engine
+Fyzenor features an embedded **Lua Plugin Engine** (inspired by *Yazi* and *Neovim*), allowing you to create custom keybindings, interactive fast-jumps, status bar extensions, and custom file previewers without modifying C++ code!
+
+Plugins are loaded automatically from `~/.config/fyzenor/plugins/*/init.lua` on boot.
+
+#### 📦 Official Plugins Repository
+Install all official plugins via single-command clone:
+```bash
+git clone https://github.com/Bimbok/fyzenor-plugins.git ~/.config/fyzenor/plugins
+```
+
+#### Included Official Plugins:
+- **Git Status & Staging** (`plugins/git/init.lua`): <kbd>Ctrl+B</kbd> (Branch status summary), <kbd>Ctrl+S</kbd> (Smart stage/unstage toggle), <kbd>Ctrl+K</kbd> (Git diff stats).
+- **Zoxide Smart Jump** (`plugins/zoxide/init.lua`): <kbd>z</kbd> / <kbd>Alt+Z</kbd> interactive modal jump prompt.
+- **JSON Custom Previewer** (`plugins/json_previewer/init.lua`): Custom formatted previewer for `.json` files.
 
 ## ⚙️ External Configuration (`config.toml`)
 
@@ -429,14 +536,118 @@ When a custom key is pressed inside the browser panel (e.g. `v`), Fyzenor suspen
 
 Fyzenor supports the following command-line arguments:
 
-| Option            | Description                            |
-| :---------------- | :------------------------------------- |
-| `-v`, `--version` | Display the current version of Fyzenor. |
-| `-h`, `--help`    | Show the help message and exit.        |
+```bash
+fyzenor [options] [path]
+```
+
+| Argument / Option      | Description                                                    |
+| :--------------------- | :------------------------------------------------------------- |
+| `[path]`               | Directory to open, or file to highlight and select on startup.  |
+| `--chooser-file <file>`| Write chosen files to this file upon exit (file chooser mode). |
+| `--cwd-file <file>`    | Write the final current working directory to this file on exit.|
+| `-v`, `--version`      | Display the current version of Fyzenor.                         |
+| `-h`, `--help`         | Show the help message and exit.                                |
 
 ```bash
-fyzenor --version
+# Open Fyzenor at a specific directory
+fyzenor ~/Projects
+
+# Open Fyzenor hovering on a specific file
+fyzenor src/main.cpp
+
+# Use as a file chooser
+fyzenor --chooser-file=/tmp/selected.txt
 ```
+
+---
+
+## 🔌 Neovim Integration (`fyzenor.nvim`)
+
+Fyzenor integrates directly into Neovim as an ultra-fast floating file manager, file picker, and netrw replacement (modeled after `yazi.nvim`).
+
+### 📦 Installation
+
+#### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
+
+```lua
+{
+  "Bimbok/fyzenor",
+  branch = "beta",
+  cmd = { "Fyzenor", "FyzenorToggle", "FyzenorCwd" },
+  keys = {
+    { "<leader>-", "<cmd>Fyzenor<cr>", desc = "Open Fyzenor at current file" },
+    { "<leader>cw", "<cmd>FyzenorCwd<cr>", desc = "Open Fyzenor in Neovim CWD" },
+  },
+  opts = {
+    -- Hijack netrw when opening directories (e.g. `nvim .` or `:edit dir/`)
+    open_for_directories = true,
+    -- Synchronize Neovim's current working directory with Fyzenor on close
+    change_neovim_cwd_on_close = false,
+    -- Floating window scaling factor (0.1 to 1.0)
+    floating_window_scaling_factor = 0.9,
+    -- Window border style ("rounded", "single", "double", "none")
+    border = "rounded",
+    -- Keymaps active inside the Fyzenor floating terminal
+    keymaps = {
+      open_file_in_vertical_split = "<c-v>",
+      open_file_in_horizontal_split = "<c-x>",
+      open_file_in_tab = "<c-t>",
+      send_to_quickfix_list = "<c-q>",
+      copy_relative_path_to_selected_files = "<c-y>",
+      grep_in_directory = "<c-f>",
+      show_help = "<f1>",
+    },
+  },
+}
+```
+
+#### Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
+
+```lua
+use({
+  "Bimbok/fyzenor",
+  config = function()
+    require("fyzenor").setup({
+      open_for_directories = true,
+    })
+  end,
+})
+```
+
+#### Using [vim-plug](https://github.com/junegunn/vim-plug)
+
+```vim
+Plug 'Bimbok/fyzenor'
+
+" In your init.lua / init.vim
+lua require("fyzenor").setup()
+```
+
+### 🎮 Neovim Commands & Lua API
+
+| Command / Lua API            | Description                                                |
+| :--------------------------- | :--------------------------------------------------------- |
+| `:Fyzenor [path]`            | Opens Fyzenor focused on `[path]` (or current file/cwd).   |
+| `:Fyzenor cwd`               | Opens Fyzenor directly in Neovim's working directory.      |
+| `:FyzenorToggle [path]`      | Toggles the Fyzenor floating window.                       |
+| `:FyzenorCwd`                | Shortcut to open Fyzenor in CWD.                           |
+| `require("fyzenor").open()`  | Lua function to open Fyzenor programmatically.            |
+| `require("fyzenor").toggle()`| Lua function to toggle Fyzenor.                            |
+
+### ⌨️ Terminal Keybindings (Inside Floating Fyzenor)
+
+| Keybinding | Action                                                               |
+| :--------- | :------------------------------------------------------------------- |
+| `<Enter>`  | Choose selected file(s) and open in current window                   |
+| `<C-v>`    | Open selected file(s) in a **vertical split**                        |
+| `<C-x>`    | Open selected file(s) in a **horizontal split**                      |
+| `<C-t>`    | Open selected file(s) in a **new tab**                               |
+| `<C-q>`    | Send selected file(s) to Neovim's **quickfix list**                  |
+| `<C-y>`    | Copy relative path of selected file(s) to clipboard (`+` register)   |
+| `<C-f>`    | Live grep / search inside the browsed directory                     |
+| `C`        | Choose current working directory as selection                        |
+| `q`        | Cancel selection and close floating window                           |
+| `<F1>`     | Display floating keymap help modal                                   |
 
 ---
 
@@ -446,9 +657,10 @@ Fyzenor is structured as a compact terminal application with asynchronous jobs h
 
 ```text
 fyzenor/
-├── file_manager.cpp   # Core application logic, UI rendering, preview pipeline
-├── install.sh         # Installer and shell integration bootstrap
-├── fyzenor.png        # Branding asset used in the README
+├── src/               # Core C++ source files (file_manager, utils, plugins)
+├── install.sh         # Universal installer, updater, and manager
+├── uninstall.sh       # Standalone uninstaller script
+├── fyzenor.png        # Branding asset used in desktop entry and README
 └── Sample/            # Showcase screenshots
 ```
 
@@ -501,6 +713,8 @@ flowchart TD
 | `Ctrl+O`              | Go back in directory navigation history |
 | `Ctrl+P`              | Go forward in directory navigation history |
 | `H`                   | **History Overlay** (jump to recently visited directories) |
+| `Ctrl+E` / `Ctrl+Y`   | **Scroll Preview Pane** down / up without changing file selection |
+| `Mouse Wheel`         | **Hover-Aware Pane Scrolling** (hover middle pane to scroll files, hover preview to scroll content, hover pins to scroll bookmarks) |
 
 > **Note on Opening Files:** Fyzenor automatically detects text and code files and opens them using your terminal-based editor, respecting `$EDITOR`, `$VISUAL`, `nvim`, `nano`, then `vi`. Media files are opened with `mpv` if available, and other files use your system's default opener.
 
@@ -517,8 +731,7 @@ flowchart TD
 | `T`             | **Toggle Trash Manager**                             |
 | `u`             | **Undo** last move-to-trash action                   |
 | `r`             | **Rename** current item (acts as **Restore** if inside Trash Manager) |
-| `n`             | Create **New File**                                  |
-| `N`             | Create **New Folder**                                |
+| `n`             | **Create Item** (`name` for file, `name/` for folder, with dynamic extension/type Nerd Font icon) |
 | `z`             | **Zip** selected items into an archive               |
 | `e`             | **Extract** archive (acts as **Empty Trash** if inside Trash Manager) |
 | `c`             | **Copy Absolute Path** to system clipboard           |
@@ -529,11 +742,12 @@ flowchart TD
 
 | Key            | Action                                      |
 | :------------- | :------------------------------------------ |
-| `Space` or `v` | Toggle selection of current file            |
+| `Space` / `v`  | Toggle selection (`Space` advances to next item, `v` stays on current) |
 | `a`            | Select **All** files in current directory   |
 | `Esc`          | **Clear** all active selections             |
 | `.`            | Toggle hidden files                         |
 | `s`            | Cycle sorting (**Name** $\rightarrow$ **Size** $\rightarrow$ **Date Modified**) |
+| `U`            | Toggle **Visual Disk Usage & Bar Graph Mode** (ncdu / gdu view with live proportional meters) |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |
 | `F2`           | Toggle **Dual-Pane mode** (split-screen side-by-side files lists) |
@@ -546,6 +760,7 @@ flowchart TD
 | `i`            | Show **File Details** (permissions, owner, size, times) |
 | `m`            | Show **Devices & Mounts** overlay (detect, mount, unmount USB drives & Android phones) |
 | `:`            | **Execute Shell Command** (suspend TUI / background `&`) |
+| `?`            | Show **Interactive Keybindings Modal** (spacious scrollable 2-column shortcut overlay) |
 | `q`            | Quit Fyzenor                                |
 
 ### Tab Controls
@@ -568,9 +783,15 @@ flowchart TD
 
 ## 🎨 Visuals & Protocols
 
-### Kitty Graphics Protocol
+### Kitty Graphics Protocol & Multi-Terminal Media Engine
 
-Fyzenor uses the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) for high-resolution image and video previews. Previews are generated asynchronously so the UI remains fluid during navigation.
+Fyzenor incorporates a high-performance, asynchronous media preview engine built on the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/), delivering crisp image and video thumbnails without compromising navigation responsiveness:
+
+* **Zero-Flicker Synchronized Updates**: Leverages DEC Mode 2026 (`\033[?2026h` / `\033[?2026l`) to batch terminal draw operations into single atomic frames. This completely eliminates cursor jumping and visual tearing across fast terminals like **Kitty** and **Ghostty**.
+* **Memory-Safe Texture Lifecycle**: Uses targeted Kitty graphics commands (`a=T,i=1`) to swap media previews directly in-place, and explicit ID-based deletion (`d=A`) to prune stale textures from GPU memory. This prevents memory leaks and terminal freezes during rapid navigation in memory-strict emulators like **WezTerm**.
+* **Selective Cell Preservation**: Intelligently preserves unaffected TUI regions (directory trees, breadcrumbs, status bars) while updating the preview viewport, delivering smooth 60fps-like browsing.
+* **Non-Blocking Worker Pipeline**: Media thumbnails are extracted and scaled asynchronously in worker threads via `ffmpeg`, caching rendered frames in an LRU session cache for instantaneous recall.
+* **Tested Across Top Modern Emulators**: Hardened and verified on **Kitty**, **Ghostty**, and **WezTerm**, with graceful fallback to file metadata and syntax-highlighted text previews on terminals without graphics protocol support.
 
 ### Nerd Fonts
 

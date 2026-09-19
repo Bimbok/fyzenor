@@ -67,8 +67,9 @@ FileEntry::FileEntry(const fs::path& p) : path(p) {
   is_empty_directory = false;
   if (is_directory) {
     try {
+      std::error_code ec;
       if (!isGvfs) {
-        is_empty_directory = (fs::directory_iterator(p) == fs::directory_iterator());
+        is_empty_directory = (fs::directory_iterator(p, fs::directory_options::skip_permission_denied, ec) == fs::directory_iterator());
       }
     } catch (...) {}
   }
@@ -81,10 +82,14 @@ FileEntry::FileEntry(const fs::path& p) : path(p) {
       auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
           modified_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
       std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
-      std::tm* ltime = std::localtime(&ctime);
-      char buf[32];
-      std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", ltime);
-      modified_time_str = std::string(buf);
+      std::tm ltime{};
+      if (localtime_r(&ctime, &ltime) != nullptr) {
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &ltime);
+        modified_time_str = std::string(buf);
+      } else {
+        modified_time_str = "Unknown";
+      }
     } catch (...) {
       modified_time_str = "Unknown";
     }
@@ -156,8 +161,9 @@ FileEntry::FileEntry(const fs::directory_entry& entry) : path(entry.path()) {
   is_empty_directory = false;
   if (is_directory) {
     try {
+      std::error_code ec;
       if (!isGvfs) {
-        is_empty_directory = (fs::directory_iterator(path) == fs::directory_iterator());
+        is_empty_directory = (fs::directory_iterator(path, fs::directory_options::skip_permission_denied, ec) == fs::directory_iterator());
       }
     } catch (...) {}
   }
@@ -170,10 +176,14 @@ FileEntry::FileEntry(const fs::directory_entry& entry) : path(entry.path()) {
       auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
           modified_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
       std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
-      std::tm* ltime = std::localtime(&ctime);
-      char buf[32];
-      std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", ltime);
-      modified_time_str = std::string(buf);
+      std::tm ltime{};
+      if (localtime_r(&ctime, &ltime) != nullptr) {
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &ltime);
+        modified_time_str = std::string(buf);
+      } else {
+        modified_time_str = "Unknown";
+      }
     } catch (...) {
       modified_time_str = "Unknown";
     }

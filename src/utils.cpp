@@ -61,6 +61,7 @@ bool configHidePreview = false;
 bool configHideParent = false;
 bool configHidePinned = false;
 std::chrono::steady_clock::time_point globalStartTime;
+extern const std::string FYZENOR_VERSION = "4.3.0";
 
 std::string g_icon_dir = " ";
 std::string g_icon_video = " ";
@@ -76,6 +77,7 @@ std::string g_icon_music = " ";
 std::string g_icon_pin = " ";
 std::string g_icon_zip = "󰿺 ";
 std::string g_icon_link = "󰌹 ";
+std::string g_icon_selected = "✓";
 
 const char* ICON_DIR = g_icon_dir.c_str();
 const char* ICON_VIDEO = g_icon_video.c_str();
@@ -91,6 +93,7 @@ const char* ICON_MUSIC = g_icon_music.c_str();
 const char* ICON_PIN = g_icon_pin.c_str();
 const char* ICON_ZIP = g_icon_zip.c_str();
 const char* ICON_LINK = g_icon_link.c_str();
+const char* ICON_SELECTED = g_icon_selected.c_str();
 
 const std::string PREVIEW_TEMP = "/tmp/fm_preview_thumb.png";
 const uintmax_t SIZE_CALCULATING = UINTMAX_MAX;
@@ -120,10 +123,6 @@ std::string getCachePath(const fs::path& p, int w, int h) {
     return pStr;
   }
 
-  if (pStr.find("Trash/files/") != std::string::npos || pStr.find(".Trash-") != std::string::npos) {
-    return "/tmp/fm_preview_thumb.png";
-  }
-
   uintmax_t mtime = 0;
   try {
     mtime = fs::last_write_time(p).time_since_epoch().count();
@@ -143,23 +142,79 @@ std::string getCachePath(const fs::path& p, int w, int h) {
     snprintf(hex, sizeof(hex), "%lx", hash);
     return (fs::path(getCacheDir()) / (std::string(hex) + ".png")).string();
   } catch (...) {
-    return "/tmp/fm_preview_thumb.png";
+    return (fs::path(getCacheDir()) / "thumb.png").string();
   }
+}
+
+std::string getSecureRuntimeDir() {
+  const char* xdg = getenv("XDG_RUNTIME_DIR");
+  std::string baseDir;
+  if (xdg && *xdg) {
+    baseDir = std::string(xdg) + "/fyzenor";
+  } else {
+    baseDir = "/tmp/fyzenor-" + std::to_string(getuid());
+  }
+
+  struct stat st;
+  if (lstat(baseDir.c_str(), &st) == 0) {
+    if (S_ISLNK(st.st_mode)) {
+      unlink(baseDir.c_str());
+      std::error_code ec;
+      fs::create_directories(baseDir, ec);
+      chmod(baseDir.c_str(), 0700);
+    } else if (!S_ISDIR(st.st_mode) || st.st_uid != getuid()) {
+      const char* home = getenv("HOME");
+      if (home && *home) {
+        baseDir = std::string(home) + "/.cache/fyzenor/run";
+      } else {
+        baseDir = "/tmp/fyzenor-safe-" + std::to_string(getuid());
+      }
+      std::error_code ec;
+      fs::create_directories(baseDir, ec);
+      chmod(baseDir.c_str(), 0700);
+    } else {
+      chmod(baseDir.c_str(), 0700);
+    }
+  } else {
+    std::error_code ec;
+    fs::create_directories(baseDir, ec);
+    chmod(baseDir.c_str(), 0700);
+  }
+  return baseDir;
+}
+
+std::string getSecureTaskPidPath(int taskId, const std::string& prefix) {
+  std::string dir = getSecureRuntimeDir();
+  std::string filePath = dir + "/" + prefix + "_" + std::to_string(taskId) + ".pid";
+  unlink(filePath.c_str());
+  return filePath;
+}
+
+static size_t get_utf8_char_length(const std::string& str, size_t i) {
+  if (i >= str.length()) return 0;
+  unsigned char c = static_cast<unsigned char>(str[i]);
+  if (c < 0x80) return 1;
+  size_t char_len = 1;
+  if ((c & 0xE0) == 0xC0) char_len = 2;
+  else if ((c & 0xF0) == 0xE0) char_len = 3;
+  else if ((c & 0xF8) == 0xF0) char_len = 4;
+  else return 1;
+
+  if (i + char_len > str.length()) return 1;
+  for (size_t k = 1; k < char_len; ++k) {
+    if ((static_cast<unsigned char>(str[i + k]) & 0xC0) != 0x80) {
+      return 1;
+    }
+  }
+  return char_len;
 }
 
 size_t utf8_length(const std::string& str) {
   size_t len = 0;
   size_t i = 0;
   while (i < str.length()) {
-    unsigned char c = str[i];
-    size_t char_len = 1;
-    if (c >= 0xf0)
-      char_len = 4;
-    else if (c >= 0xe0)
-      char_len = 3;
-    else if (c >= 0xc0)
-      char_len = 2;
-    i += char_len;
+    size_t char_len = get_utf8_char_length(str, i);
+    i += (char_len > 0 ? char_len : 1);
     len++;
   }
   return len;
@@ -169,15 +224,8 @@ std::string utf8_safe_truncate(const std::string& str, size_t max_cols) {
   size_t cols = 0;
   size_t bytes = 0;
   while (bytes < str.length() && cols < max_cols) {
-    unsigned char c = str[bytes];
-    size_t char_len = 1;
-    if (c >= 0xf0)
-      char_len = 4;
-    else if (c >= 0xe0)
-      char_len = 3;
-    else if (c >= 0xc0)
-      char_len = 2;
-    if (bytes + char_len > str.length()) {
+    size_t char_len = get_utf8_char_length(str, bytes);
+    if (char_len == 0 || bytes + char_len > str.length()) {
       break;
     }
     cols++;
@@ -199,7 +247,7 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
   while (bytes > 0 && cols < max_cols) {
     size_t char_len = 1;
     while (char_len <= bytes) {
-      unsigned char c = str[bytes - char_len];
+      unsigned char c = static_cast<unsigned char>(str[bytes - char_len]);
       if ((c & 0xC0) != 0x80) {
         break;
       }
@@ -324,6 +372,11 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
   if (lowerName == "eslint.config.js" || lowerName == ".eslintrc" || lowerName == ".eslintrc.js" ||
       lowerName == ".eslintrc.json" || lowerName == ".eslintignore")
     return {25, " "};
+  if (lowerName == ".bashrc" || lowerName == ".bash_profile" || lowerName == ".bash_logout" ||
+      lowerName == ".zshrc" || lowerName == ".zshenv" || lowerName == ".zprofile")
+    return {26, " "};
+  if (lowerName == ".vimrc" || lowerName == ".nvimrc" || lowerName == "init.vim")
+    return {25, " "};
 
   if (ext == ".py" || ext == ".pyw" || ext == ".ipynb" || ext == ".pyc" || ext == ".pyd")
     return {16, " "};
@@ -331,10 +384,22 @@ FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isD
     return {16, " "};
   if (ext == ".go")
     return {16, " "};
-  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx" || ext == ".ixx")
+  if (ext == ".cpp" || ext == ".cxx" || ext == ".cc" || ext == ".hpp" || ext == ".hxx" || ext == ".ixx" || ext == ".c++" || ext == ".h++")
     return {16, " "};
   if (ext == ".c" || ext == ".h")
     return {16, " "};
+  if (ext == ".zig")
+    return {16, " "};
+  if (ext == ".cmake")
+    return {16, " "};
+  if (ext == ".nim")
+    return {16, " "};
+  if (ext == ".ex" || ext == ".exs")
+    return {16, " "};
+  if (ext == ".erl" || ext == ".hrl")
+    return {16, " "};
+  if (ext == ".ml" || ext == ".mli")
+    return {16, " "};
   if (ext == ".java" || ext == ".class" || ext == ".jar" || ext == ".war")
     return {16, " "};
   if (ext == ".js" || ext == ".mjs" || ext == ".cjs")
@@ -508,10 +573,13 @@ std::string getFileModifiedTime(const fs::path& path) {
     auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
         ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     std::time_t ctime = std::chrono::system_clock::to_time_t(sctp);
-    std::tm* ltime = std::localtime(&ctime);
-    char buffer[64];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", ltime);
-    return std::string(buffer);
+    std::tm ltime{};
+    if (localtime_r(&ctime, &ltime) != nullptr) {
+      char buffer[64];
+      std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S %p", &ltime);
+      return std::string(buffer);
+    }
+    return "Unknown";
   } catch (...) {
     return "Unknown";
   }
@@ -566,6 +634,7 @@ bool fuzzyMatch(const std::string& str, const std::string& query) {
 }
 
 bool isCommandAvailable(const std::string& cmd) {
+  if (cmd.empty()) return false;
   static std::unordered_map<std::string, bool> cache;
   static std::mutex cacheMutex;
 
@@ -575,11 +644,73 @@ bool isCommandAvailable(const std::string& cmd) {
     return it->second;
   }
 
-  std::string checkCmd = "which " + cmd + " > /dev/null 2>&1";
-  int res = std::system(checkCmd.c_str());
-  bool available = (res == 0);
+  bool available = false;
+  if (cmd.find('/') != std::string::npos) {
+    available = (access(cmd.c_str(), X_OK) == 0);
+  } else {
+    const char* pathEnv = getenv("PATH");
+    if (pathEnv) {
+      std::string pStr(pathEnv);
+      std::stringstream ss(pStr);
+      std::string dir;
+      while (std::getline(ss, dir, ':')) {
+        if (dir.empty()) dir = ".";
+        std::error_code ec;
+        fs::path fullPath = fs::path(dir) / cmd;
+        if (access(fullPath.c_str(), X_OK) == 0) {
+          available = true;
+          break;
+        }
+      }
+    }
+  }
+
   cache[cmd] = available;
   return available;
+}
+
+short hexTo256(const std::string& hex) {
+  if (hex.length() < 7 || hex[0] != '#') return -1;
+  int r = 0, g = 0, b = 0;
+  if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) != 3) return -1;
+
+  static const int cubeSteps[6] = {0, 95, 135, 175, 215, 255};
+  int bestDist = 100000000;
+  short bestIdx = 16;
+
+  // 6x6x6 color cube (indices 16..231)
+  for (int r6 = 0; r6 < 6; ++r6) {
+    int cr = cubeSteps[r6];
+    for (int g6 = 0; g6 < 6; ++g6) {
+      int cg = cubeSteps[g6];
+      for (int b6 = 0; b6 < 6; ++b6) {
+        int cb = cubeSteps[b6];
+        int dr = r - cr;
+        int dg = g - cg;
+        int db = b - cb;
+        int dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx = static_cast<short>(16 + 36 * r6 + 6 * g6 + b6);
+        }
+      }
+    }
+  }
+
+  // 24-step grayscale ramp (indices 232..255)
+  for (int i = 0; i < 24; ++i) {
+    int gray = 8 + i * 10;
+    int dr = r - gray;
+    int dg = g - gray;
+    int db = b - gray;
+    int dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = static_cast<short>(232 + i);
+    }
+  }
+
+  return bestIdx;
 }
 
 void initColors() {
@@ -650,105 +781,43 @@ void initColors() {
           }
         }
       }
-    } else {
-      std::ofstream f(colorFile);
-      f << "# Fyzenor Theme Configuration File\n"
-        << "# Catppuccin Mocha colors\n\n"
-        << "[colors]\n"
-        << "dir = \"#89b4fa\"\n"
-        << "file = \"#cdd6f4\"\n"
-        << "sel_bg = \"#585b70\"\n"
-        << "media = \"#f9e2af\"\n"
-        << "image = \"#f5c2e7\"\n"
-        << "border = \"#b4befe\"\n"
-        << "success = \"#a6e3a1\"\n"
-        << "error = \"#f38ba8\"\n"
-        << "multi = \"#f5e0dc\"\n"
-        << "pin_bg = \"#cba6f7\"\n"
-        << "pin_border = \"#89b4fa\"\n"
-        << "sec_sel_bg = \"#313244\"\n"
-        << "core = \"#a6e3a1\"\n"
-        << "archive = \"#eba0ac\"\n"
-        << "frontend = \"#fab387\"\n"
-        << "config = \"#94e2d5\"\n"
-        << "script = \"#f9e2af\"\n"
-        << "docs = \"#f2cdcd\"\n"
-        << "font = \"#cba6f7\"\n";
     }
   }
 
-  auto setHex = [](short id, const std::string& hex) {
-    if (hex.length() < 7 || hex[0] != '#')
-      return;
-    int r, g, b;
-    if (sscanf(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
-      init_color(id, (short)(r * 1000 / 255), (short)(g * 1000 / 255), (short)(b * 1000 / 255));
+  // Ensure MULTI selection foreground has sufficient luminance and contrast
+  if (colors.count("MULTI")) {
+    std::string multiHex = colors["MULTI"];
+    if (multiHex.length() >= 7 && multiHex[0] == '#') {
+      int r = 0, g = 0, b = 0;
+      if (sscanf(multiHex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        if (lum < 165.0 && lum > 0) {
+          double factor = 175.0 / lum;
+          r = std::min(255, (int)(r * factor + 0.5));
+          g = std::min(255, (int)(g * factor + 0.5));
+          b = std::min(255, (int)(b * factor + 0.5));
+          char buf[16];
+          snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
+          colors["MULTI"] = std::string(buf);
+        } else if (lum <= 0) {
+          colors["MULTI"] = "#f5e0dc";
+        }
+      }
     }
+  }
+
+  auto getC = [&](const std::string& key) -> short {
+    auto it = colors.find(key);
+    if (it != colors.end()) {
+      short idx = hexTo256(it->second);
+      if (idx != -1) return idx;
+    }
+    return -1;
   };
 
-  if (can_change_color()) {
-    setHex(20, colors["DIR"]);
-    setHex(21, colors["FILE"]);
-    setHex(22, colors["SEL_BG"]);
-    setHex(23, colors["MEDIA"]);
-    setHex(24, colors["IMAGE"]);
-    setHex(25, colors["BORDER"]);
-    setHex(26, colors["SUCCESS"]);
-    setHex(27, colors["ERROR"]);
-    setHex(28, colors["MULTI"]);
-    setHex(29, colors["PIN_BG"]);
-    setHex(30, colors["PIN_BORDER"]);
-    setHex(31, colors["SEC_SEL_BG"]);
-    setHex(32, colors["CORE"]);
-    setHex(33, colors["ARCHIVE"]);
-    setHex(34, colors["FRONTEND"]);
-    setHex(35, colors["CONFIG"]);
-    setHex(36, colors["SCRIPT"]);
-    setHex(37, colors["DOCS"]);
-    setHex(38, colors["FONT"]);
-    init_pair(1, 20, -1);   // DIR
-    init_pair(2, 21, -1);   // FILE
-    init_pair(4, 23, -1);   // MEDIA
-    init_pair(5, 24, -1);   // IMAGE
-    init_pair(16, 32, -1);  // CORE
-    init_pair(17, 33, -1);  // ARCHIVE
-    init_pair(24, 34, -1);  // FRONTEND
-    init_pair(25, 35, -1);  // CONFIG
-    init_pair(26, 36, -1);  // SCRIPT
-    init_pair(27, 37, -1);  // DOCS
-    init_pair(28, 38, -1);  // FONT
-    init_pair(41, 20, 22);  // SEL_DIR
-    init_pair(42, 21, 22);  // SEL_FILE
-    init_pair(44, 23, 22);  // SEL_MEDIA
-    init_pair(45, 24, 22);  // SEL_IMAGE
-    init_pair(56, 32, 22);  // SEL_CORE
-    init_pair(57, 33, 22);  // SEL_ARCHIVE
-    init_pair(64, 34, 22);  // SEL_FRONTEND
-    init_pair(65, 35, 22);  // SEL_CONFIG
-    init_pair(66, 36, 22);  // SEL_SCRIPT
-    init_pair(67, 37, 22);  // SEL_DOCS
-    init_pair(68, 38, 22);  // SEL_FONT
-    init_pair(81, 20, 31);  // SEC_SEL_DIR
-    init_pair(82, 21, 31);  // SEC_SEL_FILE
-    init_pair(84, 23, 31);  // SEC_SEL_MEDIA
-    init_pair(85, 24, 31);  // SEC_SEL_IMAGE
-    init_pair(96, 32, 31);  // SEC_SEL_CORE
-    init_pair(97, 33, 31);  // SEC_SEL_ARCHIVE
-    init_pair(104, 34, 31); // SEC_SEL_FRONTEND
-    init_pair(105, 35, 31); // SEC_SEL_CONFIG
-    init_pair(106, 36, 31); // SEC_SEL_SCRIPT
-    init_pair(107, 37, 31); // SEC_SEL_DOCS
-    init_pair(108, 38, 31); // SEC_SEL_FONT
-    init_pair(6, 25, -1);   // BORDER
-    init_pair(7, 26, -1);   // SUCCESS
-    init_pair(8, 27, -1);   // ERROR
-    init_pair(9, 28, -1);   // MULTI
-    init_pair(15, 30, -1);  // PIN_BORDER
-    init_pair(10, 31, 29);  // SEL_PIN (foreground SEC_SEL_BG, background PIN_BG)
-  } else {
+  if (COLORS < 256) {
     init_pair(1, COLOR_CYAN, -1);
     init_pair(2, COLOR_WHITE, -1);
-    init_pair(3, COLOR_BLACK, COLOR_CYAN);
     init_pair(4, COLOR_YELLOW, -1);
     init_pair(5, COLOR_MAGENTA, -1);
     init_pair(16, COLOR_GREEN, -1);
@@ -765,26 +834,16 @@ void initColors() {
     std::vector<int> bases = {1, 2, 4, 5, 16, 17, 24, 25, 26, 27, 28};
     for (int base : bases) {
       short fg = COLOR_WHITE;
-      if (base == 1)
-        fg = COLOR_CYAN;
-      else if (base == 4)
-        fg = COLOR_YELLOW;
-      else if (base == 5)
-        fg = COLOR_MAGENTA;
-      else if (base == 16)
-        fg = COLOR_GREEN;
-      else if (base == 17)
-        fg = COLOR_RED;
-      else if (base == 24)
-        fg = COLOR_YELLOW;
-      else if (base == 25)
-        fg = COLOR_WHITE;
-      else if (base == 26)
-        fg = COLOR_CYAN;
-      else if (base == 27)
-        fg = COLOR_RED;
-      else if (base == 28)
-        fg = COLOR_MAGENTA;
+      if (base == 1) fg = COLOR_CYAN;
+      else if (base == 4) fg = COLOR_YELLOW;
+      else if (base == 5) fg = COLOR_MAGENTA;
+      else if (base == 16) fg = COLOR_GREEN;
+      else if (base == 17) fg = COLOR_RED;
+      else if (base == 24) fg = COLOR_YELLOW;
+      else if (base == 25) fg = COLOR_WHITE;
+      else if (base == 26) fg = COLOR_CYAN;
+      else if (base == 27) fg = COLOR_RED;
+      else if (base == 28) fg = COLOR_MAGENTA;
 
       if (base + 40 < COLOR_PAIRS)
         init_pair(base + 40, fg, selBg);
@@ -796,8 +855,107 @@ void initColors() {
     init_pair(7, COLOR_GREEN, -1);
     init_pair(8, COLOR_RED, -1);
     init_pair(9, COLOR_YELLOW, -1);
+    init_pair(15, COLOR_CYAN, -1);
     init_pair(10, COLOR_WHITE, COLOR_BLUE);
+    init_pair(18, COLOR_YELLOW, -1);
+    return;
   }
+
+  short cDir = getC("DIR");
+  short cFile = getC("FILE");
+  short cSelBg = getC("SEL_BG");
+  short cMedia = getC("MEDIA");
+  short cImage = getC("IMAGE");
+  short cBorder = getC("BORDER");
+  short cSuccess = getC("SUCCESS");
+  short cError = getC("ERROR");
+  short cMulti = getC("MULTI");
+  short cPinBg = getC("PIN_BG");
+  short cPinBorder = getC("PIN_BORDER");
+  short cSecSelBg = getC("SEC_SEL_BG");
+  short cCore = getC("CORE");
+  short cArchive = getC("ARCHIVE");
+  short cFrontend = getC("FRONTEND");
+  short cConfig = getC("CONFIG");
+  short cScript = getC("SCRIPT");
+  short cDocs = getC("DOCS");
+  short cFont = getC("FONT");
+  if (colors.find("ACTIVE_BORDER") == colors.end()) {
+    auto pIt = colors.find("PIN_BORDER");
+    if (pIt != colors.end()) {
+      colors["ACTIVE_BORDER"] = pIt->second;
+    } else {
+      auto dIt = colors.find("DIR");
+      colors["ACTIVE_BORDER"] = (dIt != colors.end()) ? dIt->second : "#e5c36c";
+    }
+  }
+  short cActiveBorder = getC("ACTIVE_BORDER");
+
+  // Fallback to ANSI / 256-color cube indices if getC returned -1
+  if (cDir < 0) cDir = COLOR_CYAN;
+  if (cFile < 0) cFile = COLOR_WHITE;
+  if (cSelBg < 0) cSelBg = 241;
+  if (cMedia < 0) cMedia = COLOR_YELLOW;
+  if (cImage < 0) cImage = COLOR_MAGENTA;
+  if (cBorder < 0) cBorder = COLOR_BLUE;
+  if (cSuccess < 0) cSuccess = COLOR_GREEN;
+  if (cError < 0) cError = COLOR_RED;
+  if (cMulti < 0) cMulti = COLOR_YELLOW;
+  if (cPinBg < 0) cPinBg = 238;
+  if (cPinBorder < 0) cPinBorder = COLOR_CYAN;
+  if (cSecSelBg < 0) cSecSelBg = 236;
+  if (cCore < 0) cCore = COLOR_GREEN;
+  if (cArchive < 0) cArchive = COLOR_RED;
+  if (cFrontend < 0) cFrontend = COLOR_YELLOW;
+  if (cConfig < 0) cConfig = COLOR_CYAN;
+  if (cScript < 0) cScript = COLOR_YELLOW;
+  if (cDocs < 0) cDocs = COLOR_WHITE;
+  if (cFont < 0) cFont = COLOR_MAGENTA;
+  if (cActiveBorder < 0) cActiveBorder = COLOR_YELLOW;
+
+  init_pair(1, cDir, -1);          // DIR
+  init_pair(2, cFile, -1);         // FILE
+  init_pair(4, cMedia, -1);        // MEDIA
+  init_pair(5, cImage, -1);        // IMAGE
+  init_pair(16, cCore, -1);        // CORE
+  init_pair(17, cArchive, -1);     // ARCHIVE
+  init_pair(24, cFrontend, -1);    // FRONTEND
+  init_pair(25, cConfig, -1);      // CONFIG
+  init_pair(26, cScript, -1);      // SCRIPT
+  init_pair(27, cDocs, -1);        // DOCS
+  init_pair(28, cFont, -1);        // FONT
+
+  init_pair(41, cDir, cSelBg);     // SEL_DIR
+  init_pair(42, cFile, cSelBg);    // SEL_FILE
+  init_pair(44, cMedia, cSelBg);   // SEL_MEDIA
+  init_pair(45, cImage, cSelBg);   // SEL_IMAGE
+  init_pair(56, cCore, cSelBg);    // SEL_CORE
+  init_pair(57, cArchive, cSelBg); // SEL_ARCHIVE
+  init_pair(64, cFrontend, cSelBg);// SEL_FRONTEND
+  init_pair(65, cConfig, cSelBg);  // SEL_CONFIG
+  init_pair(66, cScript, cSelBg);  // SEL_SCRIPT
+  init_pair(67, cDocs, cSelBg);    // SEL_DOCS
+  init_pair(68, cFont, cSelBg);    // SEL_FONT
+
+  init_pair(81, cDir, cSecSelBg);     // SEC_SEL_DIR
+  init_pair(82, cFile, cSecSelBg);    // SEC_SEL_FILE
+  init_pair(84, cMedia, cSecSelBg);   // SEC_SEL_MEDIA
+  init_pair(85, cImage, cSecSelBg);   // SEC_SEL_IMAGE
+  init_pair(96, cCore, cSecSelBg);    // SEC_SEL_CORE
+  init_pair(97, cArchive, cSecSelBg); // SEC_SEL_ARCHIVE
+  init_pair(104, cFrontend, cSecSelBg);// SEC_SEL_FRONTEND
+  init_pair(105, cConfig, cSecSelBg);  // SEC_SEL_CONFIG
+  init_pair(106, cScript, cSecSelBg);  // SEC_SEL_SCRIPT
+  init_pair(107, cDocs, cSecSelBg);    // SEC_SEL_DOCS
+  init_pair(108, cFont, cSecSelBg);    // SEC_SEL_FONT
+
+  init_pair(6, cBorder, -1);       // BORDER
+  init_pair(7, cSuccess, -1);      // SUCCESS
+  init_pair(8, cError, -1);        // ERROR
+  init_pair(9, cMulti, -1);        // MULTI
+  init_pair(15, cPinBorder, -1);   // PIN_BORDER
+  init_pair(10, cSecSelBg, cPinBg); // SEL_PIN
+  init_pair(18, cActiveBorder, -1); // ACTIVE_BORDER
 }
 
 void loadConfiguration() {
@@ -954,6 +1112,7 @@ void loadConfiguration() {
       else if (key == "pin") g_icon_pin = icon_val;
       else if (key == "zip") g_icon_zip = icon_val;
       else if (key == "link") g_icon_link = icon_val;
+      else if (key == "selected") g_icon_selected = icon_val;
     } else if (section == "categories") {
       std::set<std::string> ext_set = parse_list(val);
       if (!ext_set.empty()) {
@@ -986,6 +1145,7 @@ void loadConfiguration() {
   ICON_PIN = g_icon_pin.c_str();
   ICON_ZIP = g_icon_zip.c_str();
   ICON_LINK = g_icon_link.c_str();
+  ICON_SELECTED = g_icon_selected.c_str();
 }
 
 std::string urlDecode(const std::string& str) {
@@ -1052,5 +1212,30 @@ std::vector<fs::path> parsePastedPaths(const std::string& data) {
   }
   addPath(current);
   return paths;
+}
+
+std::string keyToName(int ch) {
+  if (ch >= 1 && ch <= 26 && ch != 9 && ch != 10 && ch != 13) {
+    char c = 'A' + ch - 1;
+    return "Ctrl+" + std::string(1, c);
+  }
+  if (ch == 9) return "Tab";
+  if (ch == 10 || ch == 13) return "Enter";
+  if (ch == 127 || ch == 8) return "Backspace";
+#ifdef KEY_F0
+  if (ch >= KEY_F(1) && ch <= KEY_F(12)) {
+    return "F" + std::to_string(ch - KEY_F(0));
+  }
+#endif
+#ifdef KEY_DC
+  if (ch == KEY_DC) return "Delete";
+#endif
+#ifdef KEY_BACKSPACE
+  if (ch == KEY_BACKSPACE) return "Backspace";
+#endif
+  if (ch >= 32 && ch <= 126) {
+    return std::string(1, (char)ch);
+  }
+  return "";
 }
 

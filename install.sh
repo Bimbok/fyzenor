@@ -161,12 +161,6 @@ fi
 # -------------------------------------------------------------
 # INSTALLATION / UPDATE ROUTINE
 # -------------------------------------------------------------
-if [ "$TARGET_BRANCH" = "beta" ]; then
-    echo -e "${YELLOW}Installing Channel: BETA (Cutting-edge preview on beta branch)${NC}\n"
-else
-    echo -e "${GREEN}Installing Channel: STABLE (v4.3.0 - Tested production release)${NC}\n"
-fi
-
 # Function to check command dependency
 check_dep() {
     command -v "$1" &>/dev/null
@@ -226,27 +220,88 @@ print_distro_instructions() {
 # 1. Handle "Run from anywhere" (curl | bash)
 if [ ! -f "src/main.cpp" ]; then
     echo -e "${YELLOW}Source code not found in current directory.${NC}"
-    echo -e "${BLUE}Cloning Fyzenor ($TARGET_BRANCH channel) from GitHub...${NC}"
 
     if ! check_dep "git"; then
-        echo -e "${RED}Error: git is required to clone the repository.${NC}"
+        echo -e "${RED}Error: git is required to clone and install Fyzenor.${NC}"
         print_distro_instructions
         exit 1
     fi
 
+    # Smart Beta Channel Detection for Remote
+    if [ "$TARGET_BRANCH" = "beta" ]; then
+        echo -e "${BLUE}Inspecting beta channel availability on remote...${NC}"
+        BETA_HASH=$(git ls-remote --heads "$REPO_URL" beta 2>/dev/null | awk '{print $1}' || true)
+        MAIN_HASH=$(git ls-remote --heads "$REPO_URL" main 2>/dev/null | awk '{print $1}' || true)
+
+        if [ -z "$BETA_HASH" ]; then
+            echo -e "${YELLOW}Notice: 'beta' branch not found on remote repository.${NC}"
+            echo -e "${CYAN}→ Automatically falling back to latest STABLE release (v4.3.0)...${NC}\n"
+            TARGET_BRANCH="main"
+        elif [ -n "$MAIN_HASH" ] && [ "$BETA_HASH" = "$MAIN_HASH" ]; then
+            echo -e "${YELLOW}Notice: The 'beta' channel is currently identical to / merged into stable (v4.3.0).${NC}"
+            echo -e "${YELLOW}        There are no newer preview commits ahead of stable at this time.${NC}"
+            echo -e "${CYAN}→ Automatically installing the latest tested STABLE release (v4.3.0)...${NC}\n"
+            TARGET_BRANCH="main"
+        fi
+    fi
+
+    echo -e "${BLUE}Cloning Fyzenor ($TARGET_BRANCH channel) from GitHub...${NC}"
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TEMP_DIR"' EXIT
-    git clone --depth 1 -b "$TARGET_BRANCH" "$REPO_URL" "$TEMP_DIR"
+    git clone --depth 50 -b "$TARGET_BRANCH" "$REPO_URL" "$TEMP_DIR"
     cd "$TEMP_DIR" || exit 1
-    echo -e "${GREEN}Repository ($TARGET_BRANCH) cloned to temporary directory.${NC}"
-fi
+
+    # Secondary depth verification if still targeting beta
+    if [ "$TARGET_BRANCH" = "beta" ]; then
+        git fetch origin main --depth 50 2>/dev/null || true
+        COMMITS_AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+        if [ "$COMMITS_AHEAD" -le 0 ]; then
+            echo -e "${YELLOW}Notice: The 'beta' branch has 0 commits ahead of 'main' (already merged into stable).${NC}"
+            echo -e "${CYAN}→ Switching to STABLE release (main)...${NC}\n"
+            git checkout main 2>/dev/null || true
+            TARGET_BRANCH="main"
+        else
+            echo -e "${GREEN}✓ Active beta preview found (${COMMITS_AHEAD} commit(s) ahead of stable).${NC}\n"
+        fi
+    fi
+
+    echo -e "${GREEN}Repository ready on channel: $TARGET_BRANCH${NC}\n"
 
 # 2. Handle "Update" if already in a git repository
-if [ -d ".git" ]; then
+elif [ -d ".git" ]; then
+    if [ "$TARGET_BRANCH" = "beta" ]; then
+        echo -e "${BLUE}Inspecting beta channel status...${NC}"
+        git fetch origin main beta 2>/dev/null || true
+
+        if ! git show-ref --verify --quiet refs/remotes/origin/beta; then
+            echo -e "${YELLOW}Notice: No remote 'beta' branch found.${NC}"
+            echo -e "${CYAN}→ Automatically falling back to STABLE channel (main)...${NC}\n"
+            TARGET_BRANCH="main"
+        else
+            COMMITS_AHEAD=$(git rev-list --count origin/main..origin/beta 2>/dev/null || echo 0)
+            if [ "$COMMITS_AHEAD" -le 0 ]; then
+                echo -e "${YELLOW}Notice: The 'beta' channel has no new commits ahead of stable (v4.3.0 is up to date).${NC}"
+                echo -e "${YELLOW}        All beta features have been merged into the official stable release.${NC}"
+                echo -e "${CYAN}→ Automatically installing the latest STABLE release (v4.3.0)...${NC}\n"
+                TARGET_BRANCH="main"
+            else
+                echo -e "${GREEN}✓ Active beta preview detected (${COMMITS_AHEAD} commit(s) ahead of stable).${NC}\n"
+            fi
+        fi
+    fi
+
     echo -e "${BLUE}Checking for updates on branch '$TARGET_BRANCH'...${NC}"
     git fetch origin "$TARGET_BRANCH" 2>/dev/null || true
     git checkout "$TARGET_BRANCH" 2>/dev/null || git checkout -b "$TARGET_BRANCH" "origin/$TARGET_BRANCH" 2>/dev/null || true
     git pull origin "$TARGET_BRANCH" 2>/dev/null || true
+    echo ""
+fi
+
+# Announce final active installation channel
+if [ "$TARGET_BRANCH" = "beta" ]; then
+    echo -e "${YELLOW}Installing Channel: BETA (Cutting-edge preview on beta branch)${NC}\n"
+else
+    echo -e "${GREEN}Installing Channel: STABLE (v4.3.0 - Tested production release)${NC}\n"
 fi
 
 # 3. Dependencies Check
@@ -475,6 +530,18 @@ music = " "
 pin = " "
 zip = "󰿺 "
 link = "󰌹 "
+
+[categories]
+video = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"]
+image = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico", ".psd", ".ai"]
+frontend = [".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".styl", ".vue", ".html", ".svelte", ".htm", ".astro", ".mjx", ".dart", ".swift"]
+scripts = [".sh", ".bash", ".zsh", ".fish", ".ksh", ".command", ".pl", ".pm", ".t", ".awk", ".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf"]
+config = [".json", ".json5", ".jsonc", ".xml", ".xsd", ".xsl", ".gpx", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".prefs", ".properties", ".lock", ".env", ".dockerfile", ".gitignore", ".gitconfig", ".gitattributes", ".gitmodules"]
+documentation = [".md", ".markdown", ".txt", ".text", ".log", ".pdf", ".doc", ".docx", ".odt", ".rtf", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods", ".csv"]
+core = [".py", ".pyw", ".ipynb", ".pyc", ".pyd", ".rb", ".ru", ".gemspec", ".php", ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".ixx", ".c", ".h", ".rs", ".java", ".class", ".jar", ".war", ".go", ".lua", ".sql", ".db", ".sqlite", ".sqlite3", ".db3", ".mdb", ".accdb", ".cmake", ".make", ".diff", ".patch", ".kt", ".kts", ".cs", ".csx", ".scala", ".sc", ".hs", ".lhs", ".clj", ".cljs", ".cljc", ".edn", ".r", ".rmd", ".jl", ".fs", ".fsi", ".fsx"]
+font = [".woff", ".woff2", ".ttf", ".eot", ".otf"]
+audio = [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus", ".mid", ".midi"]
+archive = [".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".xz", ".bz2", ".tbz2", ".lzma", ".cab"]
 EOF
         fi
         echo -e "${GREEN}✓ Default preferences initialized: $CONFIG_FILE${NC}"

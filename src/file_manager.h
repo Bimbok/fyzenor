@@ -6483,6 +6483,7 @@ public:
           style.icon = ICON_LINK;
         }
         int finalPair = getFinalPair(style.pair, false, false);
+        int selPair = getFinalPair(style.pair, true, false);
 
         int borderPair = 15;
         if (isSelected) {
@@ -6533,17 +6534,37 @@ public:
 
         // Row 0: Top card border
         wattron(win, borderAttr);
-        mvwprintw(win, cy, cx, "%s", isSelected ? "┏" : "╭");
-        for (int b = 1; b < cardW - 1; ++b) {
-          wprintw(win, "%s", isSelected ? "━" : "─");
+        if (isSelected) {
+          mvwprintw(win, cy, cx, "╔");
+          for (int b = 1; b < cardW - 1; ++b) {
+            wprintw(win, "═");
+          }
+          wprintw(win, "╗");
+        } else {
+          mvwprintw(win, cy, cx, "╭");
+          for (int b = 1; b < cardW - 1; ++b) {
+            wprintw(win, "─");
+          }
+          wprintw(win, "╮");
         }
-        wprintw(win, "%s", isSelected ? "┓" : "╮");
         wattroff(win, borderAttr);
 
         if (isVid && cardW >= 8) {
           wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
           mvwprintw(win, cy, cx + 2, "");
           wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
+        }
+
+        if (isSelected && cardW >= 8) {
+          int diamondX = cx + cardW / 2;
+          if (isVid && diamondX <= cx + 3) {
+            diamondX = cx + 5;
+          }
+          if (!isMultiSelected || diamondX < cx + cardW - 6) {
+            wattron(win, COLOR_PAIR(18) | A_BOLD);
+            mvwprintw(win, cy, diamondX, "◆");
+            wattroff(win, COLOR_PAIR(18) | A_BOLD);
+          }
         }
 
         if (isMultiSelected && cardW >= 8) {
@@ -6553,15 +6574,20 @@ public:
         }
 
         // Rows 1-4: Left & Right border + inner space clearing
+        int innerPair = (isSelected && !hasThumbnail) ? selPair : 0;
+        int innerAttr = innerPair ? COLOR_PAIR(innerPair) : 0;
+
         for (int cr = 1; cr <= 4; ++cr) {
           wattron(win, borderAttr);
-          mvwprintw(win, cy + cr, cx, "%s", isSelected ? "┃" : "│");
-          mvwprintw(win, cy + cr, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+          mvwprintw(win, cy + cr, cx, "%s", isSelected ? "║" : "│");
+          mvwprintw(win, cy + cr, cx + cardW - 1, "%s", isSelected ? "║" : "│");
           wattroff(win, borderAttr);
 
+          if (innerAttr) wattron(win, innerAttr);
           for (int s = 0; s < innerW; ++s) {
             mvwaddch(win, cy + cr, cx + 1 + s, ' ');
           }
+          if (innerAttr) wattroff(win, innerAttr);
         }
 
         if (hasThumbnail) {
@@ -6582,10 +6608,11 @@ public:
           // Row 2: Icon line (centered)
           size_t iconLen = utf8_length(style.icon);
           int iconX = cx + 1 + (innerW > (int)iconLen ? (innerW - (int)iconLen) / 2 : 0);
-          wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
+          int iconPair = isSelected ? selPair : style.pair;
+          wattron(win, COLOR_PAIR(iconPair) | A_BOLD);
           if (isDimmed) wattron(win, A_DIM);
           mvwprintw(win, cy + 2, iconX, "%s", style.icon);
-          wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
+          wattroff(win, COLOR_PAIR(iconPair) | A_BOLD);
           if (isDimmed) wattroff(win, A_DIM);
 
           // Row 3: Secondary info line (centered)
@@ -6611,41 +6638,53 @@ public:
           }
           std::string dispInfo = utf8_safe_truncate(infoStr, innerW);
           int infoX = cx + 1 + (innerW > (int)utf8_length(dispInfo) ? (innerW - (int)utf8_length(dispInfo)) / 2 : 0);
-          wattron(win, COLOR_PAIR(2) | A_DIM);
+          int infoPair = isSelected ? selPair : 2;
+          wattron(win, COLOR_PAIR(infoPair) | (isSelected ? A_BOLD : A_DIM));
           mvwprintw(win, cy + 3, infoX, "%s", dispInfo.c_str());
-          wattroff(win, COLOR_PAIR(2) | A_DIM);
+          wattroff(win, COLOR_PAIR(infoPair) | (isSelected ? A_BOLD : A_DIM));
         }
 
         // Row 5: Filename line
         wattron(win, borderAttr);
-        mvwprintw(win, cy + 5, cx, "%s", isSelected ? "┃" : "│");
-        mvwprintw(win, cy + 5, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 5, cx, "%s", isSelected ? "║" : "│");
+        mvwprintw(win, cy + 5, cx + cardW - 1, "%s", isSelected ? "║" : "│");
         wattroff(win, borderAttr);
 
+        int namePair = isSelected ? selPair : finalPair;
+        int nameAttr = COLOR_PAIR(namePair) | (isSelected ? A_BOLD : 0);
+
+        wattron(win, nameAttr);
         for (int s = 0; s < innerW; ++s) {
           mvwaddch(win, cy + 5, cx + 1 + s, ' ');
         }
         std::string dispName = utf8_safe_truncate_middle(file.name, innerW);
-        int nameX = cx + 1 + (innerW > (int)utf8_length(dispName) ? (innerW - (int)utf8_length(dispName)) / 2 : 0);
-        if (isSelected) {
-          wattron(win, COLOR_PAIR(10) | A_BOLD);
-          mvwprintw(win, cy + 5, nameX, "%s", dispName.c_str());
-          wattroff(win, COLOR_PAIR(10) | A_BOLD);
-        } else {
-          wattron(win, COLOR_PAIR(finalPair));
-          if (isDimmed) wattron(win, A_DIM);
-          mvwprintw(win, cy + 5, nameX, "%s", dispName.c_str());
-          wattroff(win, COLOR_PAIR(finalPair));
-          if (isDimmed) wattroff(win, A_DIM);
+        std::string selDisp = dispName;
+        if (isSelected && (int)utf8_length(dispName) + 4 <= innerW) {
+          selDisp = "▸ " + dispName + " ◂";
+        } else if (isSelected && (int)utf8_length(dispName) + 2 <= innerW) {
+          selDisp = "▸" + dispName + "◂";
         }
+        int nameX = cx + 1 + (innerW > (int)utf8_length(selDisp) ? (innerW - (int)utf8_length(selDisp)) / 2 : 0);
+        if (isDimmed) wattron(win, A_DIM);
+        mvwprintw(win, cy + 5, nameX, "%s", selDisp.c_str());
+        if (isDimmed) wattroff(win, A_DIM);
+        wattroff(win, nameAttr);
 
         // Row 6: Bottom card border
         wattron(win, borderAttr);
-        mvwprintw(win, cy + 6, cx, "%s", isSelected ? "┗" : "╰");
-        for (int b = 1; b < cardW - 1; ++b) {
-          wprintw(win, "%s", isSelected ? "━" : "─");
+        if (isSelected) {
+          mvwprintw(win, cy + 6, cx, "╚");
+          for (int b = 1; b < cardW - 1; ++b) {
+            wprintw(win, "═");
+          }
+          wprintw(win, "╝");
+        } else {
+          mvwprintw(win, cy + 6, cx, "╰");
+          for (int b = 1; b < cardW - 1; ++b) {
+            wprintw(win, "─");
+          }
+          wprintw(win, "╯");
         }
-        wprintw(win, "%s", isSelected ? "┛" : "╯");
         wattroff(win, borderAttr);
       }
     }

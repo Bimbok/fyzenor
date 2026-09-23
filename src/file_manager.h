@@ -2757,14 +2757,16 @@ public:
         if (job->reqId != requestID)
           continue;
 
-        if (cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
+        bool inCache = isFyzenorCachePath(job->path);
+
+        if (!inCache && cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
           try {
             fs::remove(cachePath);
           } catch (...) {
           }
         }
 
-        if (!fs::exists(cachePath)) {
+        if (!inCache && !fs::exists(cachePath)) {
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
                                     std::to_string(targetH) +
                                     ":force_original_aspect_ratio=decrease";
@@ -3080,6 +3082,13 @@ public:
 
       if (filePath.empty())
         continue;
+
+      // Do not process or generate thumbnails for fyzenor cache paths or cache files
+      if (isFyzenorCachePath(filePath)) {
+        std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+        gridThumbnailMap[filePath] = {"", {}, false, true};
+        continue;
+      }
 
       // Check if already in cache
       {
@@ -6508,7 +6517,8 @@ public:
         int innerW = cardW - 2;
         int thumbW = 14;
         int thumbH = 4;
-        bool canShowThumb = configGridThumbnails && (innerW >= thumbW);
+        bool inFyzenorCache = isFyzenorCachePath(panePath) || isFyzenorCachePath(file.path);
+        bool canShowThumb = configGridThumbnails && (innerW >= thumbW) && !inFyzenorCache;
         bool hasThumbnail = false;
         std::string thumbB64;
         std::vector<std::string> thumbLines;

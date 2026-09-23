@@ -78,6 +78,7 @@ struct FileStyle {
 
 // Declarations of utility functions
 std::string getCacheDir();
+bool isFyzenorCachePath(const fs::path& p);
 std::string getCachePath(const fs::path& p, int w, int h);
 size_t utf8_length(const std::string& str);
 std::string utf8_safe_truncate(const std::string& str, size_t max_cols);

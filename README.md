@@ -78,6 +78,7 @@ With its asynchronous architecture, Fyzenor ensures that heavy operations like d
 | Feature                            | Description                                                                                                                                           |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Three-Column Layout**            | Navigate with a Miller-style layout showing pinned items, parent/current directories, and a live preview pane.                                        |
+| **2D Grid View Mode (`V`)**        | Switch dynamically between 3-column Miller mode and a modern 2D card grid with high-res thumbnails, 2D directional navigation, and aspect-ratio letterboxing. |
 | **Asynchronous Tabs**              | Open multiple directories in native tabs, navigating easily with `[`/`]` and number keys `1`-`9`, preserving your selections.                       |
 | **Interactive Shell Commands**     | Execute shell commands globally with `:`. Supports foreground utilities, background tasks (`&`), and path placeholders (`$f`/`$s`).                 |
 | **Bulk Rename via Editor**         | Select multiple files and press `r` to rename them all at once inside your default text editor (e.g. `nvim`, `nano`).                                 |
@@ -302,6 +303,16 @@ Fyzenor features native integration with `lazygit` to make repository staging an
 
 ## 🚀 What's New in v4.3.0
 
+### 🖼️ 2D Grid View & Visual Media Explorer (`Shift+V` / `V`)
+Fyzenor introduces a native **2D Grid View** designed for fast, beautiful visual exploration of photos, wallpapers, video clips, and directories:
+* **Dynamic Card Grid Layout**: Press <kbd>V</kbd> (Shift+V) or click the `[󰕰 Grid: V]` header badge to instantly switch between 3-column Miller mode and an adaptive 2D thumbnail card grid that automatically packs cards into rows and columns based on your terminal width (`cardW = 16`, `cardH = 7`).
+* **True Aspect-Ratio Letterboxing**: Generates high-resolution 280x160 RGBA letterboxed Kitty image thumbnails with automatic padding. Eliminates stretched or squished thumbnails across portrait, landscape (16:9, 4:3), and square media.
+* **Universal 24-Bit TrueColor ANSI Fallback**: In terminals without Kitty graphics support, Fyzenor generates a 4-row Unicode half-block (`▀`) fallback with TrueColor fidelity (`\033[38;2;...;48;2;...m`).
+* **High-Visibility Selection Prominence**: Active cards feature bold double-line borders (`╔═◆═╗`), a centered selection diamond (`◆`), and a full-width filename pill (`▸ name ◂`) with high-contrast background highlights.
+* **Zero-Flicker Focus Transitions**: Direct Kitty graphics placements are tracked per terminal cell, eliminating premature clearing or blanking when jumping focus between the Pinned menu and Grid View.
+* **Safe In-Memory Generation for Cache & Trash**: Viewing `~/.cache/fyzenor/previews` or `~/.local/share/Trash` generates and renders thumbnails completely in memory (or directly reads existing cache files) without creating recursive disk cache files or triggering inotify reload loops.
+* **2D Directional Navigation**: Intuitive navigation with <kbd>h</kbd> (left), <kbd>j</kbd> (down), <kbd>k</kbd> (up), <kbd>l</kbd> (right), arrow keys, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>PgUp</kbd>/<kbd>PgDn</kbd>, and mouse clicks.
+
 ### 🌌 Native Neovim Integration (`fyzenor.nvim`)
 Fyzenor now includes a dedicated Neovim plugin inspired by *yazi.nvim*! Run Fyzenor directly inside Neovim in a centered floating terminal window:
 * **Floating Window**: Centered modal with background dimming and customizable borders.
@@ -393,6 +404,12 @@ show_hidden = false
 
 # Default sorting mode: "name", "size" (descending), or "date" (descending)
 sort_mode = "name"
+
+# Default view mode: "columns" (Miller 3-column) or "grid" (2D thumbnail card grid)
+view_mode = "columns"
+
+# Enable or disable high-resolution media thumbnails in 2D Grid View
+grid_thumbnails = true
 
 [layout]
 # Proportional width of the left parent/pinned column in normal mode (ratio between 0.0 and 1.0)
@@ -747,6 +764,7 @@ flowchart TD
 | `Esc`          | **Clear** all active selections             |
 | `.`            | Toggle hidden files                         |
 | `s`            | Cycle sorting (**Name** $\rightarrow$ **Size** $\rightarrow$ **Date Modified**) |
+| `V` / `Shift+V` | Toggle **2D Grid View Mode** (switch between 3-column Miller mode and 2D visual thumbnail card grid) |
 | `U`            | Toggle **Visual Disk Usage & Bar Graph Mode** (ncdu / gdu view with live proportional meters) |
 | `P`            | Pin current directory                       |
 | `Tab`          | Toggle focus between **Files** and **Pins** (or switch active panes in Dual-Pane mode) |

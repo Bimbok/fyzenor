@@ -170,13 +170,15 @@ bool isFyzenorCachePath(const fs::path& p) {
 }
 
 std::string getCachePath(const fs::path& p, int w, int h) {
-  if (isFyzenorCachePath(p)) {
+  std::string ext = p.extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+  if (isFyzenorCachePath(p) && (IMAGE_EXTS.count(ext) > 0)) {
     return p.string();
   }
 
   std::string pStr = p.string();
   std::string cDir = getCacheDir();
-  if (!cDir.empty() && pStr.rfind(cDir, 0) == 0) {
+  if (!cDir.empty() && pStr.rfind(cDir, 0) == 0 && (IMAGE_EXTS.count(ext) > 0)) {
     return pStr;
   }
 

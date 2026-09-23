@@ -2748,8 +2748,6 @@ public:
         if (targetH < 10)
           targetH = 10;
 
-        std::string cachePath = getCachePath(job->path, targetW, targetH);
-
         std::string ext = fs::path(job->path).extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         bool isVid = VIDEO_EXTS.count(ext);
@@ -2758,6 +2756,14 @@ public:
           continue;
 
         bool inCache = isFyzenorCachePath(job->path);
+        std::string cachePath;
+        if (inCache && (IMAGE_EXTS.count(ext) > 0) && fs::exists(job->path)) {
+          cachePath = job->path;
+        } else if (inCache) {
+          cachePath = PREVIEW_TEMP;
+        } else {
+          cachePath = getCachePath(job->path, targetW, targetH);
+        }
 
         if (!inCache && cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
           try {
@@ -2766,7 +2772,7 @@ public:
           }
         }
 
-        if (!inCache && !fs::exists(cachePath)) {
+        if (!fs::exists(cachePath) || (inCache && cachePath == PREVIEW_TEMP)) {
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
                                     std::to_string(targetH) +
                                     ":force_original_aspect_ratio=decrease";
@@ -3083,13 +3089,6 @@ public:
       if (filePath.empty())
         continue;
 
-      // Do not process or generate thumbnails for fyzenor cache paths or cache files
-      if (isFyzenorCachePath(filePath)) {
-        std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-        gridThumbnailMap[filePath] = {"", {}, false, true};
-        continue;
-      }
-
       // Check if already in cache
       {
         std::lock_guard<std::mutex> lock(gridThumbnailMutex);
@@ -3107,42 +3106,70 @@ public:
         continue;
       }
 
-      // Disk cache check
-      uintmax_t mtime = 0;
-      try {
-        mtime = fs::last_write_time(filePath).time_since_epoch().count();
-      } catch (...) {
-        mtime = 0;
-      }
-
-      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_v4";
-      unsigned long hash = 5381;
-      for (char c : to_hash)
-        hash = ((hash << 5) + hash) + (unsigned char)c;
-      char hex[32];
-      snprintf(hex, sizeof(hex), "%lx", hash);
-      std::string diskCachePng = (fs::path(getCacheDir()) / (std::string(hex) + "_grid.png")).string();
-      std::string diskCacheAnsi = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
-
       std::string b64;
       std::vector<std::string> lines;
       bool loadedFromDisk = false;
 
-      std::ifstream pf(diskCachePng, std::ios::binary);
-      if (pf) {
-        std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
-        pf.close();
-        if (!pbuf.empty()) {
-          b64 = base64_encode(pbuf.data(), pbuf.size());
-          std::ifstream df(diskCacheAnsi);
-          if (df) {
-            std::string l;
-            while (std::getline(df, l)) {
-              lines.push_back(l);
+      // 1. If filePath is already a fyzenor grid thumbnail (*_grid.png), load directly without ffmpeg or disk cache
+      if (filePath.length() >= 9 && filePath.rfind("_grid.png") == filePath.length() - 9) {
+        std::ifstream pf(filePath, std::ios::binary);
+        if (pf) {
+          std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
+          pf.close();
+          if (!pbuf.empty()) {
+            b64 = base64_encode(pbuf.data(), pbuf.size());
+            std::string gthumb = filePath.substr(0, filePath.length() - 9) + ".gthumb";
+            std::ifstream df(gthumb);
+            if (df) {
+              std::string l;
+              while (std::getline(df, l)) {
+                lines.push_back(l);
+              }
+              df.close();
             }
-            df.close();
+            loadedFromDisk = true;
           }
-          loadedFromDisk = true;
+        }
+      }
+
+      bool inCache = isFyzenorCachePath(filePath);
+      std::string diskCachePng;
+      std::string diskCacheAnsi;
+
+      if (!loadedFromDisk && !inCache) {
+        // Disk cache check for normal files outside the cache
+        uintmax_t mtime = 0;
+        try {
+          mtime = fs::last_write_time(filePath).time_since_epoch().count();
+        } catch (...) {
+          mtime = 0;
+        }
+
+        std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_v4";
+        unsigned long hash = 5381;
+        for (char c : to_hash)
+          hash = ((hash << 5) + hash) + (unsigned char)c;
+        char hex[32];
+        snprintf(hex, sizeof(hex), "%lx", hash);
+        diskCachePng = (fs::path(getCacheDir()) / (std::string(hex) + "_grid.png")).string();
+        diskCacheAnsi = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
+
+        std::ifstream pf(diskCachePng, std::ios::binary);
+        if (pf) {
+          std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
+          pf.close();
+          if (!pbuf.empty()) {
+            b64 = base64_encode(pbuf.data(), pbuf.size());
+            std::ifstream df(diskCacheAnsi);
+            if (df) {
+              std::string l;
+              while (std::getline(df, l)) {
+                lines.push_back(l);
+              }
+              df.close();
+            }
+            loadedFromDisk = true;
+          }
         }
       }
 
@@ -3160,16 +3187,18 @@ public:
         std::string scaleHi = "scale=280:160:force_original_aspect_ratio=decrease,pad=280:160:(ow-iw)/2:(oh-ih)/2:color=black@0.0,setsar=1";
         std::string scaleLo = "scale=14:8:force_original_aspect_ratio=decrease,pad=14:8:(ow-iw)/2:(oh-ih)/2:black,setsar=1";
         std::string filterComplex = "[0:v]" + scaleHi + "[hi];[0:v]" + scaleLo + "[lo]";
+
+        std::string targetPng = inCache ? ("/tmp/fyzenor_grid_tmp_" + std::to_string(getpid()) + ".png") : diskCachePng;
         std::string cmd;
         if (isVid) {
           cmd = "ffmpeg -y -v error -ss 00:00:00 -i " + escapeShellArg(filePath) +
                 " -filter_complex " + escapeShellArg(filterComplex) +
-                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(diskCachePng) +
+                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(targetPng) +
                 " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         } else {
           cmd = "ffmpeg -y -v error -i " + escapeShellArg(filePath) +
                 " -filter_complex " + escapeShellArg(filterComplex) +
-                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(diskCachePng) +
+                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(targetPng) +
                 " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         }
 
@@ -3204,22 +3233,29 @@ public:
             }
             line += "\033[0m";
           }
-          std::ofstream out(diskCacheAnsi);
-          if (out) {
-            for (const auto& l : lines) {
-              out << l << "\n";
+          if (!inCache && !diskCacheAnsi.empty()) {
+            std::ofstream out(diskCacheAnsi);
+            if (out) {
+              for (const auto& l : lines) {
+                out << l << "\n";
+              }
+              out.close();
             }
-            out.close();
           }
         }
 
-        std::ifstream pf(diskCachePng, std::ios::binary);
+        std::ifstream pf(targetPng, std::ios::binary);
         if (pf) {
           std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
           pf.close();
           if (!pbuf.empty()) {
             b64 = base64_encode(pbuf.data(), pbuf.size());
           }
+        }
+
+        if (inCache) {
+          std::error_code rmEc;
+          fs::remove(targetPng, rmEc);
         }
       }
 
@@ -6517,8 +6553,7 @@ public:
         int innerW = cardW - 2;
         int thumbW = 14;
         int thumbH = 4;
-        bool inFyzenorCache = isFyzenorCachePath(panePath) || isFyzenorCachePath(file.path);
-        bool canShowThumb = configGridThumbnails && (innerW >= thumbW) && !inFyzenorCache;
+        bool canShowThumb = configGridThumbnails && (innerW >= thumbW);
         bool hasThumbnail = false;
         std::string thumbB64;
         std::vector<std::string> thumbLines;
@@ -8619,8 +8654,12 @@ public:
           std::string lineStr;
           while (std::getline(f, lineStr) && rawLines.size() < 3000) {
             std::replace(lineStr.begin(), lineStr.end(), '\t', ' ');
-            for (size_t i = 0; i < lineStr.length(); i += maxW) {
-              rawLines.push_back(lineStr.substr(i, maxW));
+            if (extLower == ".gthumb") {
+              rawLines.push_back(lineStr);
+            } else {
+              for (size_t i = 0; i < lineStr.length(); i += maxW) {
+                rawLines.push_back(lineStr.substr(i, maxW));
+              }
             }
           }
           int total = (int)rawLines.size();
@@ -8633,7 +8672,11 @@ public:
             previewScrollOffset = 0;
           int line = contentStart;
           for (int i = previewScrollOffset; i < total && line < height - 3; ++i) {
-            mvwprintw(winPreview, line++, 2, "%s", rawLines[i].c_str());
+            if (extLower == ".gthumb") {
+              wprintw_ansi(winPreview, line++, 2, rawLines[i], maxW);
+            } else {
+              mvwprintw(winPreview, line++, 2, "%s", rawLines[i].c_str());
+            }
           }
           if (total > limit) {
             wattron(winPreview, COLOR_PAIR(6) | A_DIM);

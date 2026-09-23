@@ -2756,23 +2756,25 @@ public:
           continue;
 
         bool inCache = isFyzenorCachePath(job->path);
+        bool inTrash = isTrashPath(job->path);
+        bool noDiskCache = inCache || inTrash;
         std::string cachePath;
         if (inCache && (IMAGE_EXTS.count(ext) > 0) && fs::exists(job->path)) {
           cachePath = job->path;
-        } else if (inCache) {
+        } else if (noDiskCache) {
           cachePath = PREVIEW_TEMP;
         } else {
           cachePath = getCachePath(job->path, targetW, targetH);
         }
 
-        if (!inCache && cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
+        if (!noDiskCache && cachePath == (fs::path(getCacheDir()) / "thumb.png").string()) {
           try {
             fs::remove(cachePath);
           } catch (...) {
           }
         }
 
-        if (!fs::exists(cachePath) || (inCache && cachePath == PREVIEW_TEMP)) {
+        if (!fs::exists(cachePath) || (noDiskCache && cachePath == PREVIEW_TEMP)) {
           std::string scaleFilter = "scale=" + std::to_string(targetW) + ":" +
                                     std::to_string(targetH) +
                                     ":force_original_aspect_ratio=decrease";
@@ -3133,10 +3135,12 @@ public:
       }
 
       bool inCache = isFyzenorCachePath(filePath);
+      bool inTrash = isTrashPath(filePath);
+      bool noDiskCache = inCache || inTrash;
       std::string diskCachePng;
       std::string diskCacheAnsi;
 
-      if (!loadedFromDisk && !inCache) {
+      if (!loadedFromDisk && !noDiskCache) {
         // Disk cache check for normal files outside the cache
         uintmax_t mtime = 0;
         try {
@@ -3188,7 +3192,7 @@ public:
         std::string scaleLo = "scale=14:8:force_original_aspect_ratio=decrease,pad=14:8:(ow-iw)/2:(oh-ih)/2:black,setsar=1";
         std::string filterComplex = "[0:v]" + scaleHi + "[hi];[0:v]" + scaleLo + "[lo]";
 
-        std::string targetPng = inCache ? ("/tmp/fyzenor_grid_tmp_" + std::to_string(getpid()) + ".png") : diskCachePng;
+        std::string targetPng = noDiskCache ? ("/tmp/fyzenor_grid_tmp_" + std::to_string(getpid()) + ".png") : diskCachePng;
         std::string cmd;
         if (isVid) {
           cmd = "ffmpeg -y -v error -ss 00:00:00 -i " + escapeShellArg(filePath) +
@@ -3233,7 +3237,7 @@ public:
             }
             line += "\033[0m";
           }
-          if (!inCache && !diskCacheAnsi.empty()) {
+          if (!noDiskCache && !diskCacheAnsi.empty()) {
             std::ofstream out(diskCacheAnsi);
             if (out) {
               for (const auto& l : lines) {
@@ -3253,7 +3257,7 @@ public:
           }
         }
 
-        if (inCache) {
+        if (noDiskCache) {
           std::error_code rmEc;
           fs::remove(targetPng, rmEc);
         }

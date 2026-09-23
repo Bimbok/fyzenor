@@ -169,11 +169,48 @@ bool isFyzenorCachePath(const fs::path& p) {
   return false;
 }
 
+bool isTrashPath(const fs::path& p) {
+  if (p.empty()) {
+    return false;
+  }
+
+  std::string pStr;
+  try {
+    pStr = fs::absolute(p).lexically_normal().string();
+  } catch (...) {
+    pStr = p.string();
+  }
+
+  // 1. Direct path check for standard FreeDesktop and system Trash locations
+  if (pStr.find("/.local/share/Trash") != std::string::npos ||
+      pStr.find("/.Trash-") != std::string::npos ||
+      pStr.find("/.Trash/") != std::string::npos ||
+      pStr.rfind("trash://", 0) == 0) {
+    return true;
+  }
+
+  // 2. Dynamic check for HOME/.local/share/Trash
+  const char* home = std::getenv("HOME");
+  if (home) {
+    try {
+      std::string homeTrash = (fs::path(home) / ".local/share/Trash").lexically_normal().string();
+      if (!homeTrash.empty() && (pStr == homeTrash || pStr.rfind(homeTrash + "/", 0) == 0)) {
+        return true;
+      }
+    } catch (...) {}
+  }
+
+  return false;
+}
+
 std::string getCachePath(const fs::path& p, int w, int h) {
   std::string ext = p.extension().string();
   std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
   if (isFyzenorCachePath(p) && (IMAGE_EXTS.count(ext) > 0)) {
     return p.string();
+  }
+  if (isTrashPath(p)) {
+    return PREVIEW_TEMP;
   }
 
   std::string pStr = p.string();

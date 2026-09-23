@@ -175,8 +175,7 @@ private:
   // 2D Grid Visual Thumbnails State
   struct GridThumbnail {
     std::string b64Data;
-    std::string line1;
-    std::string line2;
+    std::vector<std::string> lines;
     bool isReady = false;
     bool isFailed = false;
   };
@@ -3084,7 +3083,7 @@ public:
       std::error_code ec;
       if (!fs::exists(filePath, ec)) {
         std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-        gridThumbnailMap[filePath] = {"", "", "", false, true};
+        gridThumbnailMap[filePath] = {"", {}, false, true};
         continue;
       }
 
@@ -3096,7 +3095,7 @@ public:
         mtime = 0;
       }
 
-      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_v3";
+      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_v4";
       unsigned long hash = 5381;
       for (char c : to_hash)
         hash = ((hash << 5) + hash) + (unsigned char)c;
@@ -3106,7 +3105,7 @@ public:
       std::string diskCacheAnsi = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
 
       std::string b64;
-      std::string l1, l2;
+      std::vector<std::string> lines;
       bool loadedFromDisk = false;
 
       std::ifstream pf(diskCachePng, std::ios::binary);
@@ -3117,8 +3116,10 @@ public:
           b64 = base64_encode(pbuf.data(), pbuf.size());
           std::ifstream df(diskCacheAnsi);
           if (df) {
-            std::getline(df, l1);
-            std::getline(df, l2);
+            std::string l;
+            while (std::getline(df, l)) {
+              lines.push_back(l);
+            }
             df.close();
           }
           loadedFromDisk = true;
@@ -3128,7 +3129,7 @@ public:
       if (!loadedFromDisk) {
         if (!isCommandAvailable("ffmpeg")) {
           std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-          gridThumbnailMap[filePath] = {"", "", "", false, true};
+          gridThumbnailMap[filePath] = {"", {}, false, true};
           continue;
         }
 
@@ -3136,28 +3137,28 @@ public:
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         bool isVid = (VIDEO_EXTS.count(ext) > 0);
 
-        std::string scaleHi = "scale=160:60:force_original_aspect_ratio=decrease";
-        std::string scaleLo = "scale=14:4:force_original_aspect_ratio=decrease,pad=14:4:(ow-iw)/2:(oh-ih)/2:black";
+        std::string scaleHi = "scale=280:160:force_original_aspect_ratio=decrease,pad=280:160:(ow-iw)/2:(oh-ih)/2:color=black@0.0,setsar=1";
+        std::string scaleLo = "scale=14:8:force_original_aspect_ratio=decrease,pad=14:8:(ow-iw)/2:(oh-ih)/2:black,setsar=1";
         std::string filterComplex = "[0:v]" + scaleHi + "[hi];[0:v]" + scaleLo + "[lo]";
         std::string cmd;
         if (isVid) {
           cmd = "ffmpeg -y -v error -ss 00:00:00 -i " + escapeShellArg(filePath) +
                 " -filter_complex " + escapeShellArg(filterComplex) +
-                " -map \"[hi]\" -frames:v 1 -f image2 " + escapeShellArg(diskCachePng) +
+                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(diskCachePng) +
                 " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         } else {
           cmd = "ffmpeg -y -v error -i " + escapeShellArg(filePath) +
                 " -filter_complex " + escapeShellArg(filterComplex) +
-                " -map \"[hi]\" -frames:v 1 -f image2 " + escapeShellArg(diskCachePng) +
+                " -map \"[hi]\" -frames:v 1 -pix_fmt rgba -c:v png " + escapeShellArg(diskCachePng) +
                 " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         }
 
         FILE* pipe = popen(cmd.c_str(), "r");
-        std::vector<unsigned char> buf(168);
+        std::vector<unsigned char> buf(336);
         size_t bytesRead = 0;
         if (pipe) {
-          while (bytesRead < 168) {
-            size_t n = fread(buf.data() + bytesRead, 1, 168 - bytesRead, pipe);
+          while (bytesRead < 336) {
+            size_t n = fread(buf.data() + bytesRead, 1, 336 - bytesRead, pipe);
             if (n == 0)
               break;
             bytesRead += n;
@@ -3165,9 +3166,11 @@ public:
           pclose(pipe);
         }
 
-        if (bytesRead >= 168) {
-          for (int y = 0; y < 2; ++y) {
-            std::string& line = (y == 0) ? l1 : l2;
+        if (bytesRead >= 336) {
+          lines.resize(4);
+          for (int y = 0; y < 4; ++y) {
+            std::string& line = lines[y];
+            line.clear();
             int topRow = y * 2;
             int botRow = y * 2 + 1;
             for (int x = 0; x < 14; ++x) {
@@ -3183,7 +3186,9 @@ public:
           }
           std::ofstream out(diskCacheAnsi);
           if (out) {
-            out << l1 << "\n" << l2 << "\n";
+            for (const auto& l : lines) {
+              out << l << "\n";
+            }
             out.close();
           }
         }
@@ -3203,8 +3208,8 @@ public:
         if (gridThumbnailMap.size() >= 1000) {
           gridThumbnailMap.clear();
         }
-        bool ready = (!b64.empty() || !l1.empty());
-        gridThumbnailMap[filePath] = {b64, l1, l2, ready, !ready};
+        bool ready = (!b64.empty() || !lines.empty());
+        gridThumbnailMap[filePath] = {b64, lines, ready, !ready};
         gridThumbnailReady = true;
       }
     }
@@ -6400,8 +6405,8 @@ public:
       cardW = std::max(10, usableW);
     }
     int gapX = 1;
-    int cardH = 5;
-    int gapY = (usableH >= 28) ? 1 : 0;
+    int cardH = 7;
+    int gapY = (usableH >= 32) ? 1 : 0;
 
     int numCols = std::max(1, (usableW + gapX) / (cardW + gapX));
     int totalGridW = numCols * cardW + (numCols - 1) * gapX;
@@ -6490,9 +6495,11 @@ public:
         bool isMedia = (isImg || isVid);
         int innerW = cardW - 2;
         int thumbW = 14;
+        int thumbH = 4;
         bool canShowThumb = configGridThumbnails && (innerW >= thumbW);
         bool hasThumbnail = false;
-        std::string thumbB64, thumbLine1, thumbLine2;
+        std::string thumbB64;
+        std::vector<std::string> thumbLines;
 
         if (isMedia && canShowThumb) {
           std::string fPath = file.path.string();
@@ -6502,8 +6509,7 @@ public:
             if (it->second.isReady) {
               hasThumbnail = true;
               thumbB64 = it->second.b64Data;
-              thumbLine1 = it->second.line1;
-              thumbLine2 = it->second.line2;
+              thumbLines = it->second.lines;
             }
           } else {
             if (gridThumbnailPending.find(fPath) == gridThumbnailPending.end()) {
@@ -6535,30 +6541,23 @@ public:
           wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
 
-        // Row 1: Left & Right border
-        wattron(win, borderAttr);
-        mvwprintw(win, cy + 1, cx, "%s", isSelected ? "┃" : "│");
-        mvwprintw(win, cy + 1, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
-        wattroff(win, borderAttr);
+        // Rows 1-4: Left & Right border + inner space clearing
+        for (int cr = 1; cr <= 4; ++cr) {
+          wattron(win, borderAttr);
+          mvwprintw(win, cy + cr, cx, "%s", isSelected ? "┃" : "│");
+          mvwprintw(win, cy + cr, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+          wattroff(win, borderAttr);
 
-        for (int s = 0; s < innerW; ++s) {
-          mvwaddch(win, cy + 1, cx + 1 + s, ' ');
-        }
-
-        // Row 2: Left & Right border
-        wattron(win, borderAttr);
-        mvwprintw(win, cy + 2, cx, "%s", isSelected ? "┃" : "│");
-        mvwprintw(win, cy + 2, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
-        wattroff(win, borderAttr);
-
-        for (int s = 0; s < innerW; ++s) {
-          mvwaddch(win, cy + 2, cx + 1 + s, ' ');
+          for (int s = 0; s < innerW; ++s) {
+            mvwaddch(win, cy + cr, cx + 1 + s, ' ');
+          }
         }
 
         if (hasThumbnail) {
           int thumbX = cx + 1 + (innerW > thumbW ? (innerW - thumbW) / 2 : 0);
-          wprintw_ansi(win, cy + 1, thumbX, thumbLine1, thumbW);
-          wprintw_ansi(win, cy + 2, thumbX, thumbLine2, thumbW);
+          for (size_t l = 0; l < thumbLines.size() && (int)l < thumbH; ++l) {
+            wprintw_ansi(win, cy + 1 + (int)l, thumbX, thumbLines[l], thumbW);
+          }
 
           if (!thumbB64.empty()) {
             int winY, winX;
@@ -6566,19 +6565,19 @@ public:
             int termY = winY + cy + 1 + 1; // 1-indexed for terminal (Row 1 of card)
             int termX = winX + thumbX + 1; // 1-indexed for terminal
             uint32_t imgId = 100 + (uint32_t)visibleGridKittyItems.size();
-            visibleGridKittyItems.push_back({thumbB64, termY, termX, thumbW, 2, imgId});
+            visibleGridKittyItems.push_back({thumbB64, termY, termX, thumbW, thumbH, imgId});
           }
         } else {
-          // Row 1: Icon line
+          // Row 2: Icon line (centered)
           size_t iconLen = utf8_length(style.icon);
           int iconX = cx + 1 + (innerW > (int)iconLen ? (innerW - (int)iconLen) / 2 : 0);
           wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
           if (isDimmed) wattron(win, A_DIM);
-          mvwprintw(win, cy + 1, iconX, "%s", style.icon);
+          mvwprintw(win, cy + 2, iconX, "%s", style.icon);
           wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
           if (isDimmed) wattroff(win, A_DIM);
 
-          // Row 2: Secondary info line
+          // Row 3: Secondary info line (centered)
           std::string infoStr;
           if (file.is_directory) {
             if (file.is_empty_directory) {
@@ -6602,36 +6601,36 @@ public:
           std::string dispInfo = utf8_safe_truncate(infoStr, innerW);
           int infoX = cx + 1 + (innerW > (int)utf8_length(dispInfo) ? (innerW - (int)utf8_length(dispInfo)) / 2 : 0);
           wattron(win, COLOR_PAIR(2) | A_DIM);
-          mvwprintw(win, cy + 2, infoX, "%s", dispInfo.c_str());
+          mvwprintw(win, cy + 3, infoX, "%s", dispInfo.c_str());
           wattroff(win, COLOR_PAIR(2) | A_DIM);
         }
 
-        // Row 3: Filename line
+        // Row 5: Filename line
         wattron(win, borderAttr);
-        mvwprintw(win, cy + 3, cx, "%s", isSelected ? "┃" : "│");
-        mvwprintw(win, cy + 3, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 5, cx, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 5, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
         wattroff(win, borderAttr);
 
         for (int s = 0; s < innerW; ++s) {
-          mvwaddch(win, cy + 3, cx + 1 + s, ' ');
+          mvwaddch(win, cy + 5, cx + 1 + s, ' ');
         }
         std::string dispName = utf8_safe_truncate_middle(file.name, innerW);
         int nameX = cx + 1 + (innerW > (int)utf8_length(dispName) ? (innerW - (int)utf8_length(dispName)) / 2 : 0);
         if (isSelected) {
           wattron(win, COLOR_PAIR(10) | A_BOLD);
-          mvwprintw(win, cy + 3, nameX, "%s", dispName.c_str());
+          mvwprintw(win, cy + 5, nameX, "%s", dispName.c_str());
           wattroff(win, COLOR_PAIR(10) | A_BOLD);
         } else {
           wattron(win, COLOR_PAIR(finalPair));
           if (isDimmed) wattron(win, A_DIM);
-          mvwprintw(win, cy + 3, nameX, "%s", dispName.c_str());
+          mvwprintw(win, cy + 5, nameX, "%s", dispName.c_str());
           wattroff(win, COLOR_PAIR(finalPair));
           if (isDimmed) wattroff(win, A_DIM);
         }
 
-        // Row 4: Bottom card border
+        // Row 6: Bottom card border
         wattron(win, borderAttr);
-        mvwprintw(win, cy + 4, cx, "%s", isSelected ? "┗" : "╰");
+        mvwprintw(win, cy + 6, cx, "%s", isSelected ? "┗" : "╰");
         for (int b = 1; b < cardW - 1; ++b) {
           wprintw(win, "%s", isSelected ? "━" : "─");
         }
@@ -9337,8 +9336,8 @@ public:
                     int usableH = cH - 2;
                     int cardW = (usableW < 18) ? std::max(10, usableW) : 18;
                     int gapX = 1;
-                    int cardH = 5;
-                    int gapY = (usableH >= 28) ? 1 : 0;
+                    int cardH = 7;
+                    int gapY = (usableH >= 32) ? 1 : 0;
                     int numCols = getGridNumCols();
                     int totalGridW = numCols * cardW + (numCols - 1) * gapX;
                     int startX = 1 + (usableW - totalGridW) / 2;

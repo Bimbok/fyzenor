@@ -56,6 +56,7 @@ std::set<std::string> ARCHIVE_EXTS = {
 bool configShowHidden = false;
 std::string configSortMode = "name";
 std::string configViewMode = "columns";
+bool configGridThumbnails = true;
 double configParentWidth = 0.18;
 double configCurrentWidth = 0.32;
 bool configHidePreview = false;
@@ -1149,6 +1150,8 @@ void loadConfiguration() {
         configSortMode = parse_string(val);
       } else if (key == "view_mode") {
         configViewMode = parse_string(val);
+      } else if (key == "grid_thumbnails" || key == "thumbnails") {
+        configGridThumbnails = (val == "true");
       }
     } else if (section == "layout") {
       if (key == "parent_width") {
@@ -1163,6 +1166,8 @@ void loadConfiguration() {
         configHidePinned = (val == "true");
       } else if (key == "view_mode") {
         configViewMode = parse_string(val);
+      } else if (key == "grid_thumbnails" || key == "thumbnails") {
+        configGridThumbnails = (val == "true");
       }
     } else if (section == "icons") {
       std::string icon_val = parse_string(val);

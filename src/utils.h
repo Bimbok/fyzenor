@@ -28,6 +28,7 @@ extern std::set<std::string> ARCHIVE_EXTS;
 extern bool configShowHidden;
 extern std::string configSortMode;
 extern std::string configViewMode;
+extern bool configGridThumbnails;
 extern double configParentWidth;
 extern double configCurrentWidth;
 extern bool configHidePreview;

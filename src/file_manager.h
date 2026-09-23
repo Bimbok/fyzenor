@@ -172,6 +172,22 @@ private:
   std::condition_variable previewCv;
   std::thread previewWorker;
 
+  // 2D Grid Visual Thumbnails State
+  struct GridThumbnail {
+    std::string line1;
+    std::string line2;
+    bool isReady = false;
+    bool isFailed = false;
+  };
+  std::unordered_map<std::string, GridThumbnail> gridThumbnailMap;
+  std::mutex gridThumbnailMutex;
+  std::deque<std::string> gridThumbnailQueue;
+  std::set<std::string> gridThumbnailPending;
+  std::condition_variable gridThumbnailCv;
+  std::thread gridThumbnailWorker;
+  std::atomic<bool> stopGridThumbnailWorker{false};
+  std::atomic<bool> gridThumbnailReady{false};
+
   std::thread searchThread;
   FILE* searchPipe = nullptr;
   std::mutex searchMutex;
@@ -354,6 +370,11 @@ private:
     multiSelection.clear();
     if (activeTabIndex < tabs.size()) {
       tabs[activeTabIndex].multiSelection.clear();
+    }
+    {
+      std::lock_guard<std::mutex> tLock(gridThumbnailMutex);
+      gridThumbnailQueue.clear();
+      gridThumbnailPending.clear();
     }
     syncProcessWorkingDir(currentPath);
     reloadAll();
@@ -1381,6 +1402,14 @@ private:
       init_pair(nextPairId, fg, bg);
       pairCache[key] = nextPairId;
       return nextPairId++;
+    } else if (COLOR_PAIRS > 110) {
+      static int wrapPairId = 110;
+      init_pair(wrapPairId, fg, bg);
+      pairCache[key] = wrapPairId;
+      int ret = wrapPairId++;
+      if (wrapPairId >= COLOR_PAIRS)
+        wrapPairId = 110;
+      return ret;
     }
     return 0;
   }
@@ -1540,8 +1569,24 @@ private:
           }
           i++;
         } else {
-          waddch(win, (unsigned char)c);
-          i++;
+          size_t charLen = 1;
+          unsigned char uc = (unsigned char)c;
+          if ((uc & 0x80) != 0) {
+            if ((uc & 0xE0) == 0xC0)
+              charLen = 2;
+            else if ((uc & 0xF0) == 0xE0)
+              charLen = 3;
+            else if ((uc & 0xF8) == 0xF0)
+              charLen = 4;
+          }
+          if (charLen > 1 && i + charLen <= line.size()) {
+            std::string mb = line.substr(i, charLen);
+            waddstr(win, mb.c_str());
+            i += charLen;
+          } else {
+            waddch(win, (unsigned char)c);
+            i++;
+          }
         }
       }
     }
@@ -1595,6 +1640,7 @@ public:
 
     sizeWorker = std::thread(&FileManager::processSizeQueue, this);
     previewWorker = std::thread(&FileManager::processPreviewWorker, this);
+    gridThumbnailWorker = std::thread(&FileManager::processGridThumbnailWorker, this);
     initInotify();
 
     std::string targetSelection = "";
@@ -1753,8 +1799,10 @@ public:
     }
 
     stopWorker = true;
+    stopGridThumbnailWorker = true;
     queueCv.notify_all();
     previewCv.notify_all();
+    gridThumbnailCv.notify_all();
 
     cancelSearch();
 
@@ -1762,6 +1810,8 @@ public:
       sizeWorker.join();
     if (previewWorker.joinable())
       previewWorker.join();
+    if (gridThumbnailWorker.joinable())
+      gridThumbnailWorker.join();
 
     stopInotify = true;
     if (inotifyFd >= 0) {
@@ -2984,6 +3034,149 @@ public:
             imageReady = true;
           }
         }
+      }
+    }
+  }
+
+  void processGridThumbnailWorker() {
+    while (!stopGridThumbnailWorker) {
+      std::string filePath;
+      {
+        std::unique_lock<std::mutex> lock(gridThumbnailMutex);
+        gridThumbnailCv.wait(lock, [this] {
+          return !gridThumbnailQueue.empty() || stopGridThumbnailWorker;
+        });
+        if (stopGridThumbnailWorker)
+          break;
+        filePath = gridThumbnailQueue.front();
+        gridThumbnailQueue.pop_front();
+        gridThumbnailPending.erase(filePath);
+      }
+
+      if (filePath.empty())
+        continue;
+
+      // Check if already in cache
+      {
+        std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+        auto it = gridThumbnailMap.find(filePath);
+        if (it != gridThumbnailMap.end() && (it->second.isReady || it->second.isFailed)) {
+          continue;
+        }
+      }
+
+      // Check if file exists
+      std::error_code ec;
+      if (!fs::exists(filePath, ec)) {
+        std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+        gridThumbnailMap[filePath] = {"", "", false, true};
+        continue;
+      }
+
+      // Disk cache check
+      uintmax_t mtime = 0;
+      try {
+        mtime = fs::last_write_time(filePath).time_since_epoch().count();
+      } catch (...) {
+        mtime = 0;
+      }
+
+      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_12x4";
+      unsigned long hash = 5381;
+      for (char c : to_hash)
+        hash = ((hash << 5) + hash) + (unsigned char)c;
+      char hex[32];
+      snprintf(hex, sizeof(hex), "%lx", hash);
+      std::string diskCachePath = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
+
+      std::string l1, l2;
+      bool loadedFromDisk = false;
+      std::ifstream df(diskCachePath);
+      if (df) {
+        if (std::getline(df, l1) && std::getline(df, l2)) {
+          if (!l1.empty() && !l2.empty()) {
+            loadedFromDisk = true;
+          }
+        }
+        df.close();
+      }
+
+      if (!loadedFromDisk) {
+        if (!isCommandAvailable("ffmpeg")) {
+          std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+          gridThumbnailMap[filePath] = {"", "", false, true};
+          continue;
+        }
+
+        std::string ext = fs::path(filePath).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        bool isVid = (VIDEO_EXTS.count(ext) > 0);
+
+        std::string scaleFilter = "scale=12:4:force_original_aspect_ratio=decrease,pad=12:4:(ow-iw)/2:(oh-ih)/2:black";
+        std::string cmd;
+        if (isVid) {
+          cmd = "ffmpeg -y -v error -ss 00:00:00 -i " + escapeShellArg(filePath) +
+                " -vf " + escapeShellArg(scaleFilter) +
+                " -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
+        } else {
+          cmd = "ffmpeg -y -v error -i " + escapeShellArg(filePath) +
+                " -vf " + escapeShellArg(scaleFilter) +
+                " -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
+        }
+
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) {
+          std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+          gridThumbnailMap[filePath] = {"", "", false, true};
+          continue;
+        }
+
+        std::vector<unsigned char> buf(144);
+        size_t bytesRead = 0;
+        while (bytesRead < 144) {
+          size_t n = fread(buf.data() + bytesRead, 1, 144 - bytesRead, pipe);
+          if (n == 0)
+            break;
+          bytesRead += n;
+        }
+        pclose(pipe);
+
+        if (bytesRead < 144) {
+          std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+          gridThumbnailMap[filePath] = {"", "", false, true};
+          continue;
+        }
+
+        for (int y = 0; y < 2; ++y) {
+          std::string& line = (y == 0) ? l1 : l2;
+          int topRow = y * 2;
+          int botRow = y * 2 + 1;
+          for (int x = 0; x < 12; ++x) {
+            int topIdx = (topRow * 12 + x) * 3;
+            int botIdx = (botRow * 12 + x) * 3;
+            int tr = buf[topIdx], tg = buf[topIdx + 1], tb = buf[topIdx + 2];
+            int br = buf[botIdx], bg = buf[botIdx + 1], bb = buf[botIdx + 2];
+            line += "\033[38;2;" + std::to_string(tr) + ";" + std::to_string(tg) + ";" +
+                    std::to_string(tb) + ";48;2;" + std::to_string(br) + ";" +
+                    std::to_string(bg) + ";" + std::to_string(bb) + "m▀";
+          }
+          line += "\033[0m";
+        }
+
+        std::ofstream out(diskCachePath);
+        if (out) {
+          out << l1 << "\n" << l2 << "\n";
+          out.close();
+        }
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(gridThumbnailMutex);
+        if (gridThumbnailMap.size() >= 1000) {
+          gridThumbnailMap.clear();
+        }
+        gridThumbnailMap[filePath] = {l1, l2, true, false};
+        gridThumbnailReady = true;
       }
     }
   }
@@ -6218,6 +6411,35 @@ public:
           borderAttr |= A_DIM;
         }
 
+        std::string extLower = file.extension;
+        std::transform(extLower.begin(), extLower.end(), extLower.begin(), ::tolower);
+        bool isImg = (IMAGE_EXTS.count(extLower) > 0);
+        bool isVid = (VIDEO_EXTS.count(extLower) > 0);
+        bool isMedia = (isImg || isVid);
+        int innerW = cardW - 2;
+        bool canShowThumb = configGridThumbnails && (innerW >= 12);
+        bool hasThumbnail = false;
+        std::string thumbLine1, thumbLine2;
+
+        if (isMedia && canShowThumb) {
+          std::string fPath = file.path.string();
+          std::lock_guard<std::mutex> tLock(gridThumbnailMutex);
+          auto it = gridThumbnailMap.find(fPath);
+          if (it != gridThumbnailMap.end()) {
+            if (it->second.isReady) {
+              hasThumbnail = true;
+              thumbLine1 = it->second.line1;
+              thumbLine2 = it->second.line2;
+            }
+          } else {
+            if (gridThumbnailPending.find(fPath) == gridThumbnailPending.end()) {
+              gridThumbnailPending.insert(fPath);
+              gridThumbnailQueue.push_back(fPath);
+              gridThumbnailCv.notify_one();
+            }
+          }
+        }
+
         // Row 0: Top card border
         wattron(win, borderAttr);
         mvwprintw(win, cy, cx, "%s", isSelected ? "┏" : "╭");
@@ -6227,15 +6449,19 @@ public:
         wprintw(win, "%s", isSelected ? "┓" : "╮");
         wattroff(win, borderAttr);
 
+        if (isVid && cardW >= 8) {
+          wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
+          mvwprintw(win, cy, cx + 2, "");
+          wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
+        }
+
         if (isMultiSelected && cardW >= 8) {
           wattron(win, COLOR_PAIR(9) | A_BOLD);
           mvwprintw(win, cy, cx + cardW - 5, "[✔]");
           wattroff(win, COLOR_PAIR(9) | A_BOLD);
         }
 
-        int innerW = cardW - 2;
-
-        // Row 1: Icon line
+        // Row 1: Left & Right border
         wattron(win, borderAttr);
         mvwprintw(win, cy + 1, cx, "%s", isSelected ? "┃" : "│");
         mvwprintw(win, cy + 1, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
@@ -6244,15 +6470,8 @@ public:
         for (int s = 0; s < innerW; ++s) {
           mvwaddch(win, cy + 1, cx + 1 + s, ' ');
         }
-        size_t iconLen = utf8_length(style.icon);
-        int iconX = cx + 1 + (innerW > (int)iconLen ? (innerW - (int)iconLen) / 2 : 0);
-        wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
-        if (isDimmed) wattron(win, A_DIM);
-        mvwprintw(win, cy + 1, iconX, "%s", style.icon);
-        wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
-        if (isDimmed) wattroff(win, A_DIM);
 
-        // Row 2: Secondary info line
+        // Row 2: Left & Right border
         wattron(win, borderAttr);
         mvwprintw(win, cy + 2, cx, "%s", isSelected ? "┃" : "│");
         mvwprintw(win, cy + 2, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
@@ -6261,31 +6480,48 @@ public:
         for (int s = 0; s < innerW; ++s) {
           mvwaddch(win, cy + 2, cx + 1 + s, ' ');
         }
-        std::string infoStr;
-        if (file.is_directory) {
-          if (file.is_empty_directory) {
-            infoStr = "empty";
-          } else {
-            uintmax_t dsz = file.size;
-            if (dsz == SIZE_CALCULATING) {
-              std::lock_guard<std::mutex> cLock(cacheMutex);
-              auto it = dirSizeCache.find(file.path.string());
-              if (it != dirSizeCache.end()) dsz = it->second;
-            }
-            if (dsz != SIZE_CALCULATING && dsz > 0) {
-              infoStr = formatSize(dsz);
-            } else {
-              infoStr = "folder";
-            }
-          }
+
+        if (hasThumbnail) {
+          int thumbX = cx + 1 + (innerW > 12 ? (innerW - 12) / 2 : 0);
+          wprintw_ansi(win, cy + 1, thumbX, thumbLine1, 12);
+          wprintw_ansi(win, cy + 2, thumbX, thumbLine2, 12);
         } else {
-          infoStr = formatSize(file.size);
+          // Row 1: Icon line
+          size_t iconLen = utf8_length(style.icon);
+          int iconX = cx + 1 + (innerW > (int)iconLen ? (innerW - (int)iconLen) / 2 : 0);
+          wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
+          if (isDimmed) wattron(win, A_DIM);
+          mvwprintw(win, cy + 1, iconX, "%s", style.icon);
+          wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
+          if (isDimmed) wattroff(win, A_DIM);
+
+          // Row 2: Secondary info line
+          std::string infoStr;
+          if (file.is_directory) {
+            if (file.is_empty_directory) {
+              infoStr = "empty";
+            } else {
+              uintmax_t dsz = file.size;
+              if (dsz == SIZE_CALCULATING) {
+                std::lock_guard<std::mutex> cLock(cacheMutex);
+                auto it = dirSizeCache.find(file.path.string());
+                if (it != dirSizeCache.end()) dsz = it->second;
+              }
+              if (dsz != SIZE_CALCULATING && dsz > 0) {
+                infoStr = formatSize(dsz);
+              } else {
+                infoStr = "folder";
+              }
+            }
+          } else {
+            infoStr = formatSize(file.size);
+          }
+          std::string dispInfo = utf8_safe_truncate(infoStr, innerW);
+          int infoX = cx + 1 + (innerW > (int)utf8_length(dispInfo) ? (innerW - (int)utf8_length(dispInfo)) / 2 : 0);
+          wattron(win, COLOR_PAIR(2) | A_DIM);
+          mvwprintw(win, cy + 2, infoX, "%s", dispInfo.c_str());
+          wattroff(win, COLOR_PAIR(2) | A_DIM);
         }
-        std::string dispInfo = utf8_safe_truncate(infoStr, innerW);
-        int infoX = cx + 1 + (innerW > (int)utf8_length(dispInfo) ? (innerW - (int)utf8_length(dispInfo)) / 2 : 0);
-        wattron(win, COLOR_PAIR(2) | A_DIM);
-        mvwprintw(win, cy + 2, infoX, "%s", dispInfo.c_str());
-        wattroff(win, COLOR_PAIR(2) | A_DIM);
 
         // Row 3: Filename line
         wattron(win, borderAttr);
@@ -8469,6 +8705,12 @@ public:
       sessionImageCache.clear();
       sessionImageCacheKeys.clear();
     }
+    {
+      std::lock_guard<std::mutex> tLock(gridThumbnailMutex);
+      gridThumbnailMap.clear();
+      gridThumbnailQueue.clear();
+      gridThumbnailPending.clear();
+    }
     clearok(curscr, TRUE);
     redrawwin(stdscr);
     reloadAll();
@@ -9056,10 +9298,11 @@ public:
             }
           }
         }
-        if (imageReady || searchReady || statusTimedOut) {
+        if (imageReady || searchReady || gridThumbnailReady || statusTimedOut) {
           needsRedraw = true;
           imageReady = false;
           searchReady = false;
+          gridThumbnailReady = false;
         }
         continue;
       }
@@ -9338,15 +9581,17 @@ public:
           if (viewMode == ViewMode::VIEW_GRID) {
             int numCols = getGridNumCols();
             size_t N = currentFiles.size();
-            if (N > 0) {
-              if (selectedIndex + numCols < N) {
-                selectedIndex += numCols;
+            if (N > 0 && numCols > 0) {
+              size_t curRow = selectedIndex / numCols;
+              size_t totalRows = (N + numCols - 1) / numCols;
+              if (curRow + 1 < totalRows) {
+                size_t nextIdx = (curRow + 1) * numCols + (selectedIndex % numCols);
+                if (nextIdx >= N)
+                  nextIdx = N - 1;
+                selectedIndex = nextIdx;
               } else {
                 size_t col = selectedIndex % numCols;
-                if (col < N)
-                  selectedIndex = col;
-                else
-                  selectedIndex = N - 1;
+                selectedIndex = (col < N) ? col : 0;
               }
             }
           } else {
@@ -9363,12 +9608,13 @@ public:
           if (viewMode == ViewMode::VIEW_GRID) {
             int numCols = getGridNumCols();
             size_t N = currentFiles.size();
-            if (N > 0) {
-              if (selectedIndex >= (size_t)numCols) {
-                selectedIndex -= numCols;
+            if (N > 0 && numCols > 0) {
+              size_t curRow = selectedIndex / numCols;
+              size_t totalRows = (N + numCols - 1) / numCols;
+              if (curRow > 0) {
+                selectedIndex = (curRow - 1) * numCols + (selectedIndex % numCols);
               } else {
                 size_t col = selectedIndex % numCols;
-                size_t totalRows = (N + numCols - 1) / numCols;
                 size_t target = (totalRows - 1) * numCols + col;
                 if (target >= N)
                   target = N - 1;

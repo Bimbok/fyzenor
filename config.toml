@@ -8,6 +8,9 @@ show_hidden = false
 # Default sorting mode: "name", "size" (descending), or "date" (descending)
 sort_mode = "name"
 
+# Default view mode: "columns" (classic Miller columns) or "grid" (2D horizontal icon grid)
+view_mode = "columns"
+
 [layout]
 # Width percentages for the parent and current columns in normal mode (must sum to < 1.0)
 parent_width = 0.18

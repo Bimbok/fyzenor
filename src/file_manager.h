@@ -57,11 +57,19 @@ struct SizeResult {
 class FileManager {
   friend class PluginManager;
 
+public:
+  enum ViewMode {
+    VIEW_COLUMNS = 0,
+    VIEW_GRID = 1
+  };
+
 private:
   struct Tab {
     fs::path currentPath;
     size_t selectedIndex = 0;
     size_t scrollOffset = 0;
+    size_t gridScrollRow = 0;
+    ViewMode viewMode = ViewMode::VIEW_COLUMNS;
     bool isSearching = false;
     bool isTrashMode = false;
     bool isDiskUsageMode = false;
@@ -81,6 +89,18 @@ private:
   bool hidePreview = false;
   bool hideParent = false;
   bool hidePinned = false;
+  ViewMode viewMode = ViewMode::VIEW_COLUMNS;
+  size_t gridScrollRow = 0;
+
+  int getGridNumCols() const {
+    int usableW = (winCurrent ? getmaxx(winCurrent) : width) - 2;
+    int cardW = 18;
+    if (usableW < 18) {
+      cardW = std::max(10, usableW);
+    }
+    int gapX = 1;
+    return std::max(1, (usableW + gapX) / (cardW + gapX));
+  }
 
   // WARNING: The following TUI state fields (currentPath, currentFiles, parentFiles, selectedIndex)
   // are NOT thread-safe and must ONLY be read/written by the main UI thread.
@@ -195,6 +215,7 @@ private:
     fs::path selectedPath;
     size_t selectedIndex = 0;
     size_t scrollOffset = 0;
+    size_t gridScrollRow = 0;
   };
   std::unordered_map<std::string, DirCursorState> dirCursorHistory;
 
@@ -204,6 +225,7 @@ private:
     DirCursorState state;
     state.selectedIndex = selectedIndex;
     state.scrollOffset = scrollOffset;
+    state.gridScrollRow = gridScrollRow;
     if (selectedIndex < currentFiles.size()) {
       state.selectedPath = currentFiles[selectedIndex].path;
     }
@@ -266,6 +288,7 @@ private:
       } else {
         scrollOffset = 0;
       }
+      gridScrollRow = state.gridScrollRow;
       return;
     }
 
@@ -1561,6 +1584,11 @@ public:
     else
       sortMode = SortMode::NAME;
 
+    if (configViewMode == "grid" || configViewMode == "horizontal")
+      viewMode = ViewMode::VIEW_GRID;
+    else
+      viewMode = ViewMode::VIEW_COLUMNS;
+
     setlocale(LC_ALL, "");
     loadPins();
     loadCustomMacros();
@@ -2498,7 +2526,7 @@ public:
 
     // Adjusted widths dynamically from layout configuration values and visibility states
     int w1 = (hideParent && hidePinned) ? 0 : static_cast<int>(width * configParentWidth);
-    int w3 = hidePreview ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
+    int w3 = (viewMode == ViewMode::VIEW_GRID || hidePreview) ? 0 : (width - w1 - static_cast<int>(width * configCurrentWidth));
     if (w3 < 0)
       w3 = 0;
     int w2 = width - w1 - w3;
@@ -2550,11 +2578,28 @@ public:
 
     winCurrent = newwin(height - 2, w2, 1, w1);
 
-    if (!hidePreview) {
+    if (!hidePreview && viewMode != ViewMode::VIEW_GRID) {
       winPreview = newwin(height - 2, w3, 1, w1 + w2);
     }
 
     refresh();
+  }
+
+  void toggleViewMode() {
+    clearDirectRender();
+    if (viewMode == ViewMode::VIEW_COLUMNS) {
+      if (isDualPaneMode) {
+        isDualPaneMode = false;
+        focusLeftPane = true;
+      }
+      viewMode = ViewMode::VIEW_GRID;
+      setStatus("Switched to 2D Grid View");
+    } else {
+      viewMode = ViewMode::VIEW_COLUMNS;
+      setStatus("Switched to Miller Columns View");
+    }
+    updateLayout();
+    reloadAll();
   }
 
   // --- Async Preview Logic (Image & Bat Text) ---
@@ -5107,6 +5152,9 @@ public:
     clearDirectRender();
     isDualPaneMode = !isDualPaneMode;
     if (isDualPaneMode) {
+      if (viewMode == ViewMode::VIEW_GRID) {
+        viewMode = ViewMode::VIEW_COLUMNS;
+      }
       if (tabs.size() < 2) {
         Tab newTab;
         newTab.currentPath = currentPath;
@@ -5368,6 +5416,14 @@ public:
       mvprintw(0, x, "»");
       attroff(COLOR_PAIR(6) | A_BOLD);
     }
+
+    std::string viewBadge = (viewMode == ViewMode::VIEW_GRID) ? " [󰕰 Grid: V] " : " [󰈹 Columns: V] ";
+    int badgeW = (int)viewBadge.length();
+    if (width - badgeW - 2 > x + 2) {
+      attron(COLOR_PAIR(viewMode == ViewMode::VIEW_GRID ? 5 : 6) | A_BOLD);
+      mvprintw(0, width - badgeW - 2, "%s", viewBadge.c_str());
+      attroff(COLOR_PAIR(viewMode == ViewMode::VIEW_GRID ? 5 : 6) | A_BOLD);
+    }
   }
 
   void createTab() {
@@ -5378,6 +5434,8 @@ public:
     tabs[activeTabIndex].currentPath = currentPath;
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
+    tabs[activeTabIndex].gridScrollRow = gridScrollRow;
+    tabs[activeTabIndex].viewMode = viewMode;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].isTrashMode = isTrashMode;
     tabs[activeTabIndex].isDiskUsageMode = isDiskUsageMode;
@@ -5388,6 +5446,8 @@ public:
     newTab.currentPath = currentPath;
     newTab.selectedIndex = selectedIndex;
     newTab.scrollOffset = scrollOffset;
+    newTab.gridScrollRow = 0;
+    newTab.viewMode = viewMode;
     newTab.isSearching = false;
     newTab.isTrashMode = false;
     newTab.isDiskUsageMode = false;
@@ -5433,10 +5493,13 @@ public:
     currentPath = tabs[activeTabIndex].currentPath;
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
+    gridScrollRow = tabs[activeTabIndex].gridScrollRow;
+    viewMode = tabs[activeTabIndex].viewMode;
     isSearching = tabs[activeTabIndex].isSearching;
     isTrashMode = tabs[activeTabIndex].isTrashMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
 
+    updateLayout();
     auto savedSelection = tabs[activeTabIndex].multiSelection;
     reloadAll();
     multiSelection = savedSelection;
@@ -5453,6 +5516,8 @@ public:
     tabs[activeTabIndex].currentPath = currentPath;
     tabs[activeTabIndex].selectedIndex = selectedIndex;
     tabs[activeTabIndex].scrollOffset = scrollOffset;
+    tabs[activeTabIndex].gridScrollRow = gridScrollRow;
+    tabs[activeTabIndex].viewMode = viewMode;
     tabs[activeTabIndex].isSearching = isSearching;
     tabs[activeTabIndex].isTrashMode = isTrashMode;
     tabs[activeTabIndex].isDiskUsageMode = isDiskUsageMode;
@@ -5463,11 +5528,14 @@ public:
     currentPath = tabs[activeTabIndex].currentPath;
     selectedIndex = tabs[activeTabIndex].selectedIndex;
     scrollOffset = tabs[activeTabIndex].scrollOffset;
+    gridScrollRow = tabs[activeTabIndex].gridScrollRow;
+    viewMode = tabs[activeTabIndex].viewMode;
     isSearching = tabs[activeTabIndex].isSearching;
     isTrashMode = tabs[activeTabIndex].isTrashMode;
     isDiskUsageMode = tabs[activeTabIndex].isDiskUsageMode;
     currentFiles = tabs[activeTabIndex].currentFiles;
 
+    updateLayout();
     auto savedSelection = tabs[activeTabIndex].multiSelection;
     reloadAll();
     multiSelection = savedSelection;
@@ -5984,6 +6052,286 @@ public:
     wnoutrefresh(win);
   }
 
+  void drawGridPane(WINDOW* win, const fs::path& panePath, const std::vector<FileEntry>& paneFiles,
+                    size_t paneSelectedIndex, size_t& paneGridScrollRow,
+                    const std::set<fs::path>& paneMultiSelection, bool paneIsSearching,
+                    bool paneIsTrashMode, bool hasFocus, bool paneIsDiskUsageMode = false) {
+    if (!win)
+      return;
+    werase(win);
+    if (hasFocus)
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
+    else
+      wattron(win, COLOR_PAIR(6));
+    drawRoundedBox(win);
+    wattroff(win, A_BOLD | COLOR_PAIR(18) | COLOR_PAIR(6));
+
+    // Title rendering on top border
+    wattron(win, A_BOLD | COLOR_PAIR(1));
+    if (paneIsSearching) {
+      mvwprintw(win, 0, 2, "  Search Results [GRID] ");
+    } else if (paneIsTrashMode) {
+      mvwprintw(win, 0, 2, " 󰩹 Trash [GRID] ");
+    } else if (paneIsDiskUsageMode) {
+      std::string usageTitle = " 󰈐 Disk Usage [GRID] ";
+      mvwprintw(win, 0, 2, "%s", usageTitle.c_str());
+    } else {
+      std::string title = " 󰉖 " + panePath.filename().string() + " ";
+      int maxTitleW = getmaxx(win) - 4;
+      if (maxTitleW < 5) maxTitleW = 5;
+      if ((int)title.length() > maxTitleW) {
+        std::string filename = panePath.filename().string();
+        int maxFilenameW = maxTitleW - 6;
+        if (maxFilenameW < 3) maxFilenameW = 3;
+        if ((int)filename.length() > maxFilenameW) {
+          filename = utf8_safe_truncate(filename, maxFilenameW - 3) + "...";
+        }
+        title = " 󰉖 " + filename + " ";
+      }
+      mvwprintw(win, 0, 2, "%s", title.c_str());
+    }
+    wattroff(win, A_BOLD | COLOR_PAIR(1));
+
+    // Multi-selection badge and view badge on top border right
+    if (!paneMultiSelection.empty()) {
+      std::string rightBadge = " [ MULTI-SELECT: " + std::to_string(paneMultiSelection.size()) + " ] ";
+      wattron(win, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
+      mvwprintw(win, 0, getmaxx(win) - rightBadge.length() - 2, "%s", rightBadge.c_str());
+      wattroff(win, COLOR_PAIR(9) | A_BOLD | A_REVERSE);
+    } else {
+      std::string gridBadge = " [2D GRID] ";
+      if (getmaxx(win) > (int)gridBadge.length() + 15) {
+        wattron(win, COLOR_PAIR(6) | A_DIM);
+        mvwprintw(win, 0, getmaxx(win) - gridBadge.length() - 2, "%s", gridBadge.c_str());
+        wattroff(win, COLOR_PAIR(6) | A_DIM);
+      }
+    }
+
+    int my = getmaxy(win);
+    int mx = getmaxx(win);
+    int usableH = my - 2;
+    int usableW = mx - 2;
+    if (usableH <= 0 || usableW <= 0) {
+      wnoutrefresh(win);
+      return;
+    }
+
+    if (paneFiles.empty()) {
+      if (paneIsSearching) {
+        wattron(win, COLOR_PAIR(7) | A_BOLD);
+        mvwprintw(win, my / 2, std::max(1, (mx - 15) / 2), "  Searching... ");
+        wattroff(win, COLOR_PAIR(7) | A_BOLD);
+      } else {
+        wattron(win, COLOR_PAIR(6) | A_DIM);
+        mvwprintw(win, my / 2, std::max(1, (mx - 18) / 2), " 󰉖 Empty Directory ");
+        wattroff(win, COLOR_PAIR(6) | A_DIM);
+      }
+      wnoutrefresh(win);
+      return;
+    }
+
+    int cardW = 18;
+    if (usableW < 18) {
+      cardW = std::max(10, usableW);
+    }
+    int gapX = 1;
+    int cardH = 5;
+    int gapY = (usableH >= 28) ? 1 : 0;
+
+    int numCols = std::max(1, (usableW + gapX) / (cardW + gapX));
+    int totalGridW = numCols * cardW + (numCols - 1) * gapX;
+    int startX = 1 + (usableW - totalGridW) / 2;
+    if (startX < 1) startX = 1;
+    int startY = 1;
+
+    int visibleRows = (usableH + gapY) / (cardH + gapY);
+    if (visibleRows < 1) visibleRows = 1;
+
+    size_t safeSelectedIndex = paneSelectedIndex;
+    if (safeSelectedIndex >= paneFiles.size()) {
+      safeSelectedIndex = paneFiles.size() - 1;
+    }
+
+    size_t selectedRow = safeSelectedIndex / numCols;
+    if (selectedRow < paneGridScrollRow) {
+      paneGridScrollRow = selectedRow;
+    }
+    if (selectedRow >= paneGridScrollRow + visibleRows) {
+      paneGridScrollRow = selectedRow - visibleRows + 1;
+    }
+
+    // Scroll indicators on window borders
+    if (paneGridScrollRow > 0) {
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
+      mvwprintw(win, 0, (mx - 7) / 2, " ▲ ▲ ▲ ");
+      wattroff(win, COLOR_PAIR(18) | A_BOLD);
+    }
+    if ((paneGridScrollRow + visibleRows) * numCols < paneFiles.size()) {
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
+      mvwprintw(win, my - 1, (mx - 7) / 2, " ▼ ▼ ▼ ");
+      wattroff(win, COLOR_PAIR(18) | A_BOLD);
+    }
+
+    for (int r = 0; r < visibleRows; ++r) {
+      size_t fileRow = paneGridScrollRow + r;
+      for (int c = 0; c < numCols; ++c) {
+        size_t fileIdx = fileRow * numCols + c;
+        if (fileIdx >= paneFiles.size())
+          break;
+        const auto& file = paneFiles[fileIdx];
+        int cx = startX + c * (cardW + gapX);
+        int cy = startY + r * (cardH + gapY);
+
+        if (cy + cardH > my - 1)
+          break;
+
+        bool isSelected = (hasFocus && fileIdx == safeSelectedIndex);
+        bool isMultiSelected = paneMultiSelection.count(file.path);
+
+        bool inClipboard = false;
+        for (const auto& p : clipboard.paths) {
+          if (p == file.path) {
+            inClipboard = true;
+            break;
+          }
+        }
+        bool isDimmed = inClipboard && clipboard.isCut && !isSelected;
+
+        FileStyle style = getFileStyle(file.name, file.extension, file.is_directory, file.is_empty_directory);
+        if (file.is_symlink) {
+          style.icon = ICON_LINK;
+        }
+        int finalPair = getFinalPair(style.pair, false, false);
+
+        int borderPair = 15;
+        if (isSelected) {
+          borderPair = 18;
+        } else if (isMultiSelected) {
+          borderPair = 9;
+        }
+
+        int borderAttr = COLOR_PAIR(borderPair);
+        if (isSelected || isMultiSelected) {
+          borderAttr |= A_BOLD;
+        }
+        if (isDimmed) {
+          borderAttr |= A_DIM;
+        }
+
+        // Row 0: Top card border
+        wattron(win, borderAttr);
+        mvwprintw(win, cy, cx, "%s", isSelected ? "┏" : "╭");
+        for (int b = 1; b < cardW - 1; ++b) {
+          wprintw(win, "%s", isSelected ? "━" : "─");
+        }
+        wprintw(win, "%s", isSelected ? "┓" : "╮");
+        wattroff(win, borderAttr);
+
+        if (isMultiSelected && cardW >= 8) {
+          wattron(win, COLOR_PAIR(9) | A_BOLD);
+          mvwprintw(win, cy, cx + cardW - 5, "[✔]");
+          wattroff(win, COLOR_PAIR(9) | A_BOLD);
+        }
+
+        int innerW = cardW - 2;
+
+        // Row 1: Icon line
+        wattron(win, borderAttr);
+        mvwprintw(win, cy + 1, cx, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 1, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+        wattroff(win, borderAttr);
+
+        for (int s = 0; s < innerW; ++s) {
+          mvwaddch(win, cy + 1, cx + 1 + s, ' ');
+        }
+        size_t iconLen = utf8_length(style.icon);
+        int iconX = cx + 1 + (innerW > (int)iconLen ? (innerW - (int)iconLen) / 2 : 0);
+        wattron(win, COLOR_PAIR(style.pair) | A_BOLD);
+        if (isDimmed) wattron(win, A_DIM);
+        mvwprintw(win, cy + 1, iconX, "%s", style.icon);
+        wattroff(win, COLOR_PAIR(style.pair) | A_BOLD);
+        if (isDimmed) wattroff(win, A_DIM);
+
+        // Row 2: Secondary info line
+        wattron(win, borderAttr);
+        mvwprintw(win, cy + 2, cx, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 2, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+        wattroff(win, borderAttr);
+
+        for (int s = 0; s < innerW; ++s) {
+          mvwaddch(win, cy + 2, cx + 1 + s, ' ');
+        }
+        std::string infoStr;
+        if (file.is_directory) {
+          if (file.is_empty_directory) {
+            infoStr = "empty";
+          } else {
+            uintmax_t dsz = file.size;
+            if (dsz == SIZE_CALCULATING) {
+              std::lock_guard<std::mutex> cLock(cacheMutex);
+              auto it = dirSizeCache.find(file.path.string());
+              if (it != dirSizeCache.end()) dsz = it->second;
+            }
+            if (dsz != SIZE_CALCULATING && dsz > 0) {
+              infoStr = formatSize(dsz);
+            } else {
+              infoStr = "folder";
+            }
+          }
+        } else {
+          infoStr = formatSize(file.size);
+        }
+        std::string dispInfo = utf8_safe_truncate(infoStr, innerW);
+        int infoX = cx + 1 + (innerW > (int)utf8_length(dispInfo) ? (innerW - (int)utf8_length(dispInfo)) / 2 : 0);
+        wattron(win, COLOR_PAIR(2) | A_DIM);
+        mvwprintw(win, cy + 2, infoX, "%s", dispInfo.c_str());
+        wattroff(win, COLOR_PAIR(2) | A_DIM);
+
+        // Row 3: Filename line
+        wattron(win, borderAttr);
+        mvwprintw(win, cy + 3, cx, "%s", isSelected ? "┃" : "│");
+        mvwprintw(win, cy + 3, cx + cardW - 1, "%s", isSelected ? "┃" : "│");
+        wattroff(win, borderAttr);
+
+        for (int s = 0; s < innerW; ++s) {
+          mvwaddch(win, cy + 3, cx + 1 + s, ' ');
+        }
+        std::string dispName = utf8_safe_truncate_middle(file.name, innerW);
+        int nameX = cx + 1 + (innerW > (int)utf8_length(dispName) ? (innerW - (int)utf8_length(dispName)) / 2 : 0);
+        if (isSelected) {
+          wattron(win, COLOR_PAIR(10) | A_BOLD);
+          mvwprintw(win, cy + 3, nameX, "%s", dispName.c_str());
+          wattroff(win, COLOR_PAIR(10) | A_BOLD);
+        } else {
+          wattron(win, COLOR_PAIR(finalPair));
+          if (isDimmed) wattron(win, A_DIM);
+          mvwprintw(win, cy + 3, nameX, "%s", dispName.c_str());
+          wattroff(win, COLOR_PAIR(finalPair));
+          if (isDimmed) wattroff(win, A_DIM);
+        }
+
+        // Row 4: Bottom card border
+        wattron(win, borderAttr);
+        mvwprintw(win, cy + 4, cx, "%s", isSelected ? "┗" : "╰");
+        for (int b = 1; b < cardW - 1; ++b) {
+          wprintw(win, "%s", isSelected ? "━" : "─");
+        }
+        wprintw(win, "%s", isSelected ? "┛" : "╯");
+        wattroff(win, borderAttr);
+      }
+    }
+
+    // Redraw window border at the end
+    if (hasFocus)
+      wattron(win, COLOR_PAIR(18) | A_BOLD);
+    else
+      wattron(win, COLOR_PAIR(6));
+    drawRoundedBox(win);
+    wattroff(win, A_BOLD | COLOR_PAIR(18) | COLOR_PAIR(6));
+
+    wnoutrefresh(win);
+  }
+
   void drawCurrent() {
     if (isDualPaneMode) {
       size_t leftIdx = leftTabIndex;
@@ -5997,6 +6345,12 @@ public:
                  tabs[leftIdx].multiSelection, tabs[leftIdx].isSearching, tabs[leftIdx].isTrashMode,
                  false, tabs[leftIdx].isDiskUsageMode);
       }
+      return;
+    }
+
+    if (viewMode == ViewMode::VIEW_GRID) {
+      drawGridPane(winCurrent, currentPath, currentFiles, selectedIndex, gridScrollRow, multiSelection,
+                   isSearching, isTrashMode, !focusPinned, isDiskUsageMode);
       return;
     }
 
@@ -6876,6 +7230,7 @@ public:
                                         {":", "Execute shell command (:!cmd)"},
                                         {"P", "Pin / bookmark current directory"},
                                         {"Tab", "Switch pane / bookmarks focus"},
+                                        {"V", "Toggle 2D Grid / Columns view"},
                                         {"F2", "Toggle dual-pane mode"},
                                         {"F3", "Toggle preview pane visibility"},
                                         {"F4", "Toggle parent pane visibility"},
@@ -7444,7 +7799,7 @@ public:
   }
 
   void drawPreview() {
-    if (!winPreview) {
+    if (viewMode == ViewMode::VIEW_GRID || !winPreview) {
       if (lastWasDirectRender) {
         clearDirectRender();
       }
@@ -8270,6 +8625,12 @@ public:
         printw(" Fyzenor ");
         attroff(COLOR_PAIR(6) | A_BOLD);
 
+        if (viewMode == ViewMode::VIEW_GRID) {
+          attron(COLOR_PAIR(5) | A_BOLD);
+          printw(" [󰕰 GRID] ");
+          attroff(COLOR_PAIR(5) | A_BOLD);
+        }
+
         if (isDiskUsageMode) {
           attron(COLOR_PAIR(3) | A_BOLD);
           printw(" [󰈐 DISK USAGE] ");
@@ -8569,12 +8930,27 @@ public:
                   }
                 }
               } else {
-                if (isScrollUp) {
-                  if (selectedIndex > 0)
-                    selectedIndex--;
+                if (viewMode == ViewMode::VIEW_GRID) {
+                  int numCols = getGridNumCols();
+                  if (isScrollUp) {
+                    if (selectedIndex >= (size_t)numCols)
+                      selectedIndex -= numCols;
+                    else
+                      selectedIndex = 0;
+                  } else {
+                    if (selectedIndex + numCols < currentFiles.size())
+                      selectedIndex += numCols;
+                    else if (!currentFiles.empty())
+                      selectedIndex = currentFiles.size() - 1;
+                  }
                 } else {
-                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
-                    selectedIndex++;
+                  if (isScrollUp) {
+                    if (selectedIndex > 0)
+                      selectedIndex--;
+                  } else {
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                      selectedIndex++;
+                  }
                 }
               }
               needsRedraw = true;
@@ -8589,15 +8965,79 @@ public:
                     pinnedIndex++;
                 }
               } else {
-                if (isScrollUp) {
-                  if (selectedIndex > 0)
-                    selectedIndex--;
+                if (viewMode == ViewMode::VIEW_GRID) {
+                  int numCols = getGridNumCols();
+                  if (isScrollUp) {
+                    if (selectedIndex >= (size_t)numCols)
+                      selectedIndex -= numCols;
+                    else
+                      selectedIndex = 0;
+                  } else {
+                    if (selectedIndex + numCols < currentFiles.size())
+                      selectedIndex += numCols;
+                    else if (!currentFiles.empty())
+                      selectedIndex = currentFiles.size() - 1;
+                  }
                 } else {
-                  if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
-                    selectedIndex++;
+                  if (isScrollUp) {
+                    if (selectedIndex > 0)
+                      selectedIndex--;
+                  } else {
+                    if (!currentFiles.empty() && selectedIndex < currentFiles.size() - 1)
+                      selectedIndex++;
+                  }
                 }
               }
               needsRedraw = true;
+            }
+          } else {
+            bool isLeftClick = (event.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED));
+            if (isLeftClick) {
+              if (event.y == 0) {
+                if (event.x >= width - 20) {
+                  toggleViewMode();
+                  continue;
+                }
+              } else if (winCurrent) {
+                int cY = 0, cX = 0, cH = 0, cW = 0;
+                getbegyx(winCurrent, cY, cX);
+                getmaxyx(winCurrent, cH, cW);
+                if (event.x >= cX && event.x < cX + cW && event.y >= cY && event.y < cY + cH) {
+                  if (viewMode == ViewMode::VIEW_GRID) {
+                    int relY = event.y - cY - 1;
+                    int relX = event.x - cX - 1;
+                    int usableW = cW - 2;
+                    int usableH = cH - 2;
+                    int cardW = (usableW < 18) ? std::max(10, usableW) : 18;
+                    int gapX = 1;
+                    int cardH = 5;
+                    int gapY = (usableH >= 28) ? 1 : 0;
+                    int numCols = getGridNumCols();
+                    int totalGridW = numCols * cardW + (numCols - 1) * gapX;
+                    int startX = 1 + (usableW - totalGridW) / 2;
+                    if (startX < 1) startX = 1;
+
+                    if (relX >= startX && relX < startX + totalGridW && relY >= 0) {
+                      int col = (relX - startX) / (cardW + gapX);
+                      int row = relY / (cardH + gapY);
+                      if (col >= 0 && col < numCols) {
+                        size_t clickedIdx = (gridScrollRow + row) * numCols + col;
+                        if (clickedIdx < currentFiles.size()) {
+                          focusPinned = false;
+                          if (clickedIdx == selectedIndex) {
+                            openFile();
+                            if (shouldExit)
+                              return;
+                          } else {
+                            selectedIndex = clickedIdx;
+                          }
+                          needsRedraw = true;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -8699,10 +9139,16 @@ public:
       if (ch == KEY_F(3)) { // F3 (Toggle Preview Pane visibility)
         if (!isDualPaneMode) {
           clearDirectRender();
-          hidePreview = !hidePreview;
+          if (viewMode == ViewMode::VIEW_GRID) {
+            viewMode = ViewMode::VIEW_COLUMNS;
+            hidePreview = false;
+            setStatus("Switched to Miller Columns View");
+          } else {
+            hidePreview = !hidePreview;
+            setStatus(hidePreview ? "Preview hidden" : "Preview visible");
+          }
           updateLayout();
           reloadAll();
-          setStatus(hidePreview ? "Preview hidden" : "Preview visible");
           needsRedraw = true;
         }
         continue;
@@ -8881,29 +9327,78 @@ public:
         case 'd':
           handleUnpin();
           break;
+        case 'V':
+          toggleViewMode();
+          break;
         }
       } else {
         switch (ch) {
         case 'j':
         case KEY_DOWN:
-          if (!currentFiles.empty()) {
-            if (selectedIndex < currentFiles.size() - 1)
-              selectedIndex++;
-            else
-              selectedIndex = 0;
+          if (viewMode == ViewMode::VIEW_GRID) {
+            int numCols = getGridNumCols();
+            size_t N = currentFiles.size();
+            if (N > 0) {
+              if (selectedIndex + numCols < N) {
+                selectedIndex += numCols;
+              } else {
+                size_t col = selectedIndex % numCols;
+                if (col < N)
+                  selectedIndex = col;
+                else
+                  selectedIndex = N - 1;
+              }
+            }
+          } else {
+            if (!currentFiles.empty()) {
+              if (selectedIndex < currentFiles.size() - 1)
+                selectedIndex++;
+              else
+                selectedIndex = 0;
+            }
           }
           break;
         case 'k':
         case KEY_UP:
-          if (!currentFiles.empty()) {
-            if (selectedIndex > 0)
-              selectedIndex--;
-            else
-              selectedIndex = currentFiles.size() - 1;
+          if (viewMode == ViewMode::VIEW_GRID) {
+            int numCols = getGridNumCols();
+            size_t N = currentFiles.size();
+            if (N > 0) {
+              if (selectedIndex >= (size_t)numCols) {
+                selectedIndex -= numCols;
+              } else {
+                size_t col = selectedIndex % numCols;
+                size_t totalRows = (N + numCols - 1) / numCols;
+                size_t target = (totalRows - 1) * numCols + col;
+                if (target >= N)
+                  target = N - 1;
+                selectedIndex = target;
+              }
+            }
+          } else {
+            if (!currentFiles.empty()) {
+              if (selectedIndex > 0)
+                selectedIndex--;
+              else
+                selectedIndex = currentFiles.size() - 1;
+            }
           }
           break;
         case 'l':
         case KEY_RIGHT:
+          if (viewMode == ViewMode::VIEW_GRID) {
+            if (!currentFiles.empty()) {
+              if (selectedIndex + 1 < currentFiles.size())
+                selectedIndex++;
+              else
+                selectedIndex = 0;
+            }
+          } else {
+            openFile();
+            if (shouldExit)
+              return;
+          }
+          break;
         case 10:
         case 13:
         case KEY_ENTER:
@@ -8913,28 +9408,81 @@ public:
           break;
         case 'h':
         case KEY_LEFT:
+          if (viewMode == ViewMode::VIEW_GRID) {
+            if (!currentFiles.empty()) {
+              if (selectedIndex > 0)
+                selectedIndex--;
+              else
+                selectedIndex = currentFiles.size() - 1;
+            }
+          } else {
+            goUp();
+          }
+          break;
         case 127:
         case KEY_BACKSPACE:
           goUp();
           break;
+        case KEY_NPAGE:
+          if (!currentFiles.empty()) {
+            if (viewMode == ViewMode::VIEW_GRID) {
+              int numCols = getGridNumCols();
+              if (selectedIndex + numCols * 3 < currentFiles.size())
+                selectedIndex += numCols * 3;
+              else
+                selectedIndex = currentFiles.size() - 1;
+            } else {
+              int step = std::max(5, height - 6);
+              if (selectedIndex + step < currentFiles.size())
+                selectedIndex += step;
+              else
+                selectedIndex = currentFiles.size() - 1;
+            }
+          }
+          break;
+        case KEY_PPAGE:
+          if (!currentFiles.empty()) {
+            if (viewMode == ViewMode::VIEW_GRID) {
+              int numCols = getGridNumCols();
+              if (selectedIndex >= (size_t)(numCols * 3))
+                selectedIndex -= numCols * 3;
+              else
+                selectedIndex = 0;
+            } else {
+              int step = std::max(5, height - 6);
+              if (selectedIndex >= (size_t)step)
+                selectedIndex -= step;
+              else
+                selectedIndex = 0;
+            }
+          }
+          break;
         case 'g':
+        case KEY_HOME:
           selectedIndex = 0;
           scrollOffset = 0;
+          gridScrollRow = 0;
           break;
         case 'G':
+        case KEY_END:
           if (!currentFiles.empty()) {
             selectedIndex = currentFiles.size() - 1;
-            int visibleHeight = height - 5;
-            if (visibleHeight > 0) {
-              if (selectedIndex > (size_t)visibleHeight) {
-                scrollOffset = selectedIndex - visibleHeight;
+            if (viewMode != ViewMode::VIEW_GRID) {
+              int visibleHeight = height - 5;
+              if (visibleHeight > 0) {
+                if (selectedIndex > (size_t)visibleHeight) {
+                  scrollOffset = selectedIndex - visibleHeight;
+                } else {
+                  scrollOffset = 0;
+                }
               } else {
                 scrollOffset = 0;
               }
-            } else {
-              scrollOffset = 0;
             }
           }
+          break;
+        case 'V':
+          toggleViewMode();
           break;
         case 'P':
           handlePin();

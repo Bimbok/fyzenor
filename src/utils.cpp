@@ -55,6 +55,7 @@ std::set<std::string> ARCHIVE_EXTS = {
 
 bool configShowHidden = false;
 std::string configSortMode = "name";
+std::string configViewMode = "columns";
 double configParentWidth = 0.18;
 double configCurrentWidth = 0.32;
 bool configHidePreview = false;
@@ -261,6 +262,71 @@ std::string utf8_safe_truncate_left(const std::string& str, size_t max_cols) {
     cols++;
   }
   return "..." + str.substr(bytes);
+}
+
+std::string utf8_safe_truncate_middle(const std::string& str, size_t max_cols) {
+  size_t total_cols = utf8_length(str);
+  if (total_cols <= max_cols) {
+    return str;
+  }
+  if (max_cols <= 4) {
+    return utf8_safe_truncate(str, max_cols);
+  }
+
+  // Find file extension if present
+  std::string ext = "";
+  size_t lastDot = str.find_last_of('.');
+  if (lastDot != std::string::npos && lastDot > 0 && (str.length() - lastDot) <= 6) {
+    ext = str.substr(lastDot);
+  }
+
+  size_t avail = max_cols - 3; // reserve 3 columns for "..."
+  size_t ext_cols = utf8_length(ext);
+
+  size_t left_target = 0;
+  size_t right_target = 0;
+
+  if (!ext.empty() && ext_cols + 2 <= avail) {
+    right_target = ext_cols;
+    left_target = avail - ext_cols;
+  } else {
+    left_target = (avail + 1) / 2;
+    right_target = avail - left_target;
+  }
+
+  size_t left_cols = 0;
+  size_t left_bytes = 0;
+  while (left_bytes < str.length() && left_cols < left_target) {
+    size_t clen = get_utf8_char_length(str, left_bytes);
+    if (clen == 0 || left_bytes + clen > str.length()) break;
+    left_cols++;
+    left_bytes += clen;
+  }
+  std::string leftPart = str.substr(0, left_bytes);
+
+  size_t right_cols = 0;
+  size_t right_bytes = str.length();
+  while (right_bytes > 0 && right_cols < right_target) {
+    size_t clen = 1;
+    while (clen <= right_bytes) {
+      unsigned char c = static_cast<unsigned char>(str[right_bytes - clen]);
+      if ((c & 0xC0) != 0x80) break;
+      clen++;
+    }
+    if (clen > right_bytes) {
+      right_bytes = 0;
+    } else {
+      right_bytes -= clen;
+    }
+    right_cols++;
+  }
+  std::string rightPart = str.substr(right_bytes);
+
+  std::string sep = "...";
+  if (!ext.empty() && ext.front() == '.') {
+    sep = "..";
+  }
+  return leftPart + sep + rightPart;
 }
 
 FileStyle getFileStyle(const std::string& name, const std::string& ext, bool isDir, bool isEmptyDir) {
@@ -1081,6 +1147,8 @@ void loadConfiguration() {
         configShowHidden = (val == "true");
       } else if (key == "sort_mode") {
         configSortMode = parse_string(val);
+      } else if (key == "view_mode") {
+        configViewMode = parse_string(val);
       }
     } else if (section == "layout") {
       if (key == "parent_width") {
@@ -1093,6 +1161,8 @@ void loadConfiguration() {
         configHideParent = (val == "true");
       } else if (key == "hide_pinned") {
         configHidePinned = (val == "true");
+      } else if (key == "view_mode") {
+        configViewMode = parse_string(val);
       }
     } else if (section == "icons") {
       std::string icon_val = parse_string(val);

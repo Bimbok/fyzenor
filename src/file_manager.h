@@ -174,11 +174,21 @@ private:
 
   // 2D Grid Visual Thumbnails State
   struct GridThumbnail {
+    std::string b64Data;
     std::string line1;
     std::string line2;
     bool isReady = false;
     bool isFailed = false;
   };
+  struct GridKittyItem {
+    std::string b64;
+    int termY;
+    int termX;
+    int cols;
+    int rows;
+    uint32_t imageId;
+  };
+  std::vector<GridKittyItem> visibleGridKittyItems;
   std::unordered_map<std::string, GridThumbnail> gridThumbnailMap;
   std::mutex gridThumbnailMutex;
   std::deque<std::string> gridThumbnailQueue;
@@ -1754,7 +1764,12 @@ public:
   }
 
   void clearDirectRender() {
-    std::cout << "\033_Ga=d,d=A,q=2\033\\" << std::flush;
+    static bool inTmux = (std::getenv("TMUX") != nullptr);
+    if (inTmux) {
+      std::cout << "\033Ptmux;\033\033\033_Ga=d,d=A,q=2\033\033\\\033\\" << std::flush;
+    } else {
+      std::cout << "\033_Ga=d,d=A,q=2\033\\" << std::flush;
+    }
     lastWasDirectRender = false;
     lastDrawnPath = "";
   }
@@ -3069,7 +3084,7 @@ public:
       std::error_code ec;
       if (!fs::exists(filePath, ec)) {
         std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-        gridThumbnailMap[filePath] = {"", "", false, true};
+        gridThumbnailMap[filePath] = {"", "", "", false, true};
         continue;
       }
 
@@ -3081,30 +3096,39 @@ public:
         mtime = 0;
       }
 
-      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_12x4";
+      std::string to_hash = filePath + "_" + std::to_string(mtime) + "_gthumb_v3";
       unsigned long hash = 5381;
       for (char c : to_hash)
         hash = ((hash << 5) + hash) + (unsigned char)c;
       char hex[32];
       snprintf(hex, sizeof(hex), "%lx", hash);
-      std::string diskCachePath = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
+      std::string diskCachePng = (fs::path(getCacheDir()) / (std::string(hex) + "_grid.png")).string();
+      std::string diskCacheAnsi = (fs::path(getCacheDir()) / (std::string(hex) + ".gthumb")).string();
 
+      std::string b64;
       std::string l1, l2;
       bool loadedFromDisk = false;
-      std::ifstream df(diskCachePath);
-      if (df) {
-        if (std::getline(df, l1) && std::getline(df, l2)) {
-          if (!l1.empty() && !l2.empty()) {
-            loadedFromDisk = true;
+
+      std::ifstream pf(diskCachePng, std::ios::binary);
+      if (pf) {
+        std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
+        pf.close();
+        if (!pbuf.empty()) {
+          b64 = base64_encode(pbuf.data(), pbuf.size());
+          std::ifstream df(diskCacheAnsi);
+          if (df) {
+            std::getline(df, l1);
+            std::getline(df, l2);
+            df.close();
           }
+          loadedFromDisk = true;
         }
-        df.close();
       }
 
       if (!loadedFromDisk) {
         if (!isCommandAvailable("ffmpeg")) {
           std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-          gridThumbnailMap[filePath] = {"", "", false, true};
+          gridThumbnailMap[filePath] = {"", "", "", false, true};
           continue;
         }
 
@@ -3112,61 +3136,65 @@ public:
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         bool isVid = (VIDEO_EXTS.count(ext) > 0);
 
-        std::string scaleFilter = "scale=12:4:force_original_aspect_ratio=decrease,pad=12:4:(ow-iw)/2:(oh-ih)/2:black";
+        std::string scaleHi = "scale=160:60:force_original_aspect_ratio=decrease";
+        std::string scaleLo = "scale=14:4:force_original_aspect_ratio=decrease,pad=14:4:(ow-iw)/2:(oh-ih)/2:black";
+        std::string filterComplex = "[0:v]" + scaleHi + "[hi];[0:v]" + scaleLo + "[lo]";
         std::string cmd;
         if (isVid) {
           cmd = "ffmpeg -y -v error -ss 00:00:00 -i " + escapeShellArg(filePath) +
-                " -vf " + escapeShellArg(scaleFilter) +
-                " -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
+                " -filter_complex " + escapeShellArg(filterComplex) +
+                " -map \"[hi]\" -frames:v 1 -f image2 " + escapeShellArg(diskCachePng) +
+                " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         } else {
           cmd = "ffmpeg -y -v error -i " + escapeShellArg(filePath) +
-                " -vf " + escapeShellArg(scaleFilter) +
-                " -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
+                " -filter_complex " + escapeShellArg(filterComplex) +
+                " -map \"[hi]\" -frames:v 1 -f image2 " + escapeShellArg(diskCachePng) +
+                " -map \"[lo]\" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null";
         }
 
         FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-          std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-          gridThumbnailMap[filePath] = {"", "", false, true};
-          continue;
-        }
-
-        std::vector<unsigned char> buf(144);
+        std::vector<unsigned char> buf(168);
         size_t bytesRead = 0;
-        while (bytesRead < 144) {
-          size_t n = fread(buf.data() + bytesRead, 1, 144 - bytesRead, pipe);
-          if (n == 0)
-            break;
-          bytesRead += n;
-        }
-        pclose(pipe);
-
-        if (bytesRead < 144) {
-          std::lock_guard<std::mutex> lock(gridThumbnailMutex);
-          gridThumbnailMap[filePath] = {"", "", false, true};
-          continue;
-        }
-
-        for (int y = 0; y < 2; ++y) {
-          std::string& line = (y == 0) ? l1 : l2;
-          int topRow = y * 2;
-          int botRow = y * 2 + 1;
-          for (int x = 0; x < 12; ++x) {
-            int topIdx = (topRow * 12 + x) * 3;
-            int botIdx = (botRow * 12 + x) * 3;
-            int tr = buf[topIdx], tg = buf[topIdx + 1], tb = buf[topIdx + 2];
-            int br = buf[botIdx], bg = buf[botIdx + 1], bb = buf[botIdx + 2];
-            line += "\033[38;2;" + std::to_string(tr) + ";" + std::to_string(tg) + ";" +
-                    std::to_string(tb) + ";48;2;" + std::to_string(br) + ";" +
-                    std::to_string(bg) + ";" + std::to_string(bb) + "m▀";
+        if (pipe) {
+          while (bytesRead < 168) {
+            size_t n = fread(buf.data() + bytesRead, 1, 168 - bytesRead, pipe);
+            if (n == 0)
+              break;
+            bytesRead += n;
           }
-          line += "\033[0m";
+          pclose(pipe);
         }
 
-        std::ofstream out(diskCachePath);
-        if (out) {
-          out << l1 << "\n" << l2 << "\n";
-          out.close();
+        if (bytesRead >= 168) {
+          for (int y = 0; y < 2; ++y) {
+            std::string& line = (y == 0) ? l1 : l2;
+            int topRow = y * 2;
+            int botRow = y * 2 + 1;
+            for (int x = 0; x < 14; ++x) {
+              int topIdx = (topRow * 14 + x) * 3;
+              int botIdx = (botRow * 14 + x) * 3;
+              int tr = buf[topIdx], tg = buf[topIdx + 1], tb = buf[topIdx + 2];
+              int br = buf[botIdx], bg = buf[botIdx + 1], bb = buf[botIdx + 2];
+              line += "\033[38;2;" + std::to_string(tr) + ";" + std::to_string(tg) + ";" +
+                      std::to_string(tb) + ";48;2;" + std::to_string(br) + ";" +
+                      std::to_string(bg) + ";" + std::to_string(bb) + "m▀";
+            }
+            line += "\033[0m";
+          }
+          std::ofstream out(diskCacheAnsi);
+          if (out) {
+            out << l1 << "\n" << l2 << "\n";
+            out.close();
+          }
+        }
+
+        std::ifstream pf(diskCachePng, std::ios::binary);
+        if (pf) {
+          std::vector<unsigned char> pbuf((std::istreambuf_iterator<char>(pf)), {});
+          pf.close();
+          if (!pbuf.empty()) {
+            b64 = base64_encode(pbuf.data(), pbuf.size());
+          }
         }
       }
 
@@ -3175,7 +3203,8 @@ public:
         if (gridThumbnailMap.size() >= 1000) {
           gridThumbnailMap.clear();
         }
-        gridThumbnailMap[filePath] = {l1, l2, true, false};
+        bool ready = (!b64.empty() || !l1.empty());
+        gridThumbnailMap[filePath] = {b64, l1, l2, ready, !ready};
         gridThumbnailReady = true;
       }
     }
@@ -3191,32 +3220,71 @@ public:
     return currentFiles[selectedIndex].is_symlink ? 7 : 6;
   }
 
-  void sendKittyGraphics(const std::string& b64Data, int pY, int pX, int cols, int rows,
-                         int offX = 0, int offY = 0, int startRow = 8) {
+  void sendKittyGraphics(const std::string& b64Data, int termY, int termX, int cols, int rows,
+                         uint32_t imageId = 1) {
     if (b64Data.empty() || cols <= 0 || rows <= 0)
       return;
-    // Move cursor to start of preview area (1-indexed for terminal)
-    // pY+1 is the start of the window, we have startRow lines of header/padding +
-    // offY.
-    std::cout << "\033[" << (pY + startRow + offY) << ";" << (pX + 3 + offX) << "H";
-    const size_t chunk_size = 4096;
+    static bool inTmux = (std::getenv("TMUX") != nullptr);
+
+    std::cout << "\033[" << termY << ";" << termX << "H";
+
+    const size_t chunk_size = 2048;
     size_t total = b64Data.length();
     size_t offset = 0;
     while (offset < total) {
       size_t chunkLen = std::min(chunk_size, total - offset);
       bool isLast = (offset + chunkLen >= total);
-      std::cout << "\033_G";
+
+      std::string cmd;
       if (offset == 0) {
-        // a=T: transmit and display, f=100: PNG, t=d: direct, i=1: image id 1, q=2: quiet
-        // c, r: scale image to fit these columns and rows
-        std::cout << "a=T,f=100,t=d,i=1,q=2,c=" << cols << ",r=" << rows << ",";
+        cmd = "\033_Ga=T,f=100,t=d,i=" + std::to_string(imageId) +
+              ",q=2,C=1,c=" + std::to_string(cols) + ",r=" + std::to_string(rows) +
+              ",m=" + (isLast ? "0" : "1") + ";" + b64Data.substr(offset, chunkLen) + "\033\\";
+      } else {
+        cmd = "\033_Gm=" + std::string(isLast ? "0" : "1") + ";" +
+              b64Data.substr(offset, chunkLen) + "\033\\";
       }
-      std::cout << "m=" << (isLast ? "0" : "1") << ";";
-      std::cout.write(b64Data.data() + offset, chunkLen);
-      std::cout << "\033\\";
+
+      if (inTmux) {
+        std::string wrapped = "\033Ptmux;\033";
+        for (char c : cmd) {
+          if (c == '\033')
+            wrapped += "\033\033";
+          else
+            wrapped += c;
+        }
+        wrapped += "\033\\";
+        std::cout << wrapped;
+      } else {
+        std::cout << cmd;
+      }
+
       offset += chunkLen;
     }
+  }
+
+  void drawGridKittyThumbnails() {
+    if (visibleGridKittyItems.empty()) {
+      if (lastWasDirectRender) {
+        clearDirectRender();
+      }
+      return;
+    }
+
+    static bool inTmux = (std::getenv("TMUX") != nullptr);
+    if (inTmux) {
+      std::cout << "\033Ptmux;\033\033\033_Ga=d,d=A,q=2\033\033\\\033\\" << std::flush;
+    } else {
+      std::cout << "\033_Ga=d,d=A,q=2\033\\" << std::flush;
+    }
+
+    for (const auto& item : visibleGridKittyItems) {
+      if (item.b64.empty() || item.cols <= 0 || item.rows <= 0)
+        continue;
+      sendKittyGraphics(item.b64, item.termY, item.termX, item.cols, item.rows, item.imageId);
+    }
     std::cout << std::flush;
+    lastWasDirectRender = true;
   }
 
   void drawFromCache(PreviewType type) {
@@ -3254,7 +3322,10 @@ public:
       if (offY < 0)
         offY = 0;
 
-      sendKittyGraphics(cachedBase64, pY, pX, cols, rows, offX, offY, imgStartRow);
+      int termY = pY + imgStartRow + offY;
+      int termX = pX + 3 + offX;
+      sendKittyGraphics(cachedBase64, termY, termX, cols, rows, 1);
+      std::cout << std::flush;
       lastWasDirectRender = true;
       lastDrawnPath = cachedPath;
     }
@@ -6251,6 +6322,7 @@ public:
                     bool paneIsTrashMode, bool hasFocus, bool paneIsDiskUsageMode = false) {
     if (!win)
       return;
+    visibleGridKittyItems.clear();
     werase(win);
     if (hasFocus)
       wattron(win, COLOR_PAIR(18) | A_BOLD);
@@ -6417,9 +6489,10 @@ public:
         bool isVid = (VIDEO_EXTS.count(extLower) > 0);
         bool isMedia = (isImg || isVid);
         int innerW = cardW - 2;
-        bool canShowThumb = configGridThumbnails && (innerW >= 12);
+        int thumbW = 14;
+        bool canShowThumb = configGridThumbnails && (innerW >= thumbW);
         bool hasThumbnail = false;
-        std::string thumbLine1, thumbLine2;
+        std::string thumbB64, thumbLine1, thumbLine2;
 
         if (isMedia && canShowThumb) {
           std::string fPath = file.path.string();
@@ -6428,6 +6501,7 @@ public:
           if (it != gridThumbnailMap.end()) {
             if (it->second.isReady) {
               hasThumbnail = true;
+              thumbB64 = it->second.b64Data;
               thumbLine1 = it->second.line1;
               thumbLine2 = it->second.line2;
             }
@@ -6482,9 +6556,18 @@ public:
         }
 
         if (hasThumbnail) {
-          int thumbX = cx + 1 + (innerW > 12 ? (innerW - 12) / 2 : 0);
-          wprintw_ansi(win, cy + 1, thumbX, thumbLine1, 12);
-          wprintw_ansi(win, cy + 2, thumbX, thumbLine2, 12);
+          int thumbX = cx + 1 + (innerW > thumbW ? (innerW - thumbW) / 2 : 0);
+          wprintw_ansi(win, cy + 1, thumbX, thumbLine1, thumbW);
+          wprintw_ansi(win, cy + 2, thumbX, thumbLine2, thumbW);
+
+          if (!thumbB64.empty()) {
+            int winY, winX;
+            getbegyx(win, winY, winX);
+            int termY = winY + cy + 1 + 1; // 1-indexed for terminal (Row 1 of card)
+            int termX = winX + thumbX + 1; // 1-indexed for terminal
+            uint32_t imgId = 100 + (uint32_t)visibleGridKittyItems.size();
+            visibleGridKittyItems.push_back({thumbB64, termY, termX, thumbW, 2, imgId});
+          }
         } else {
           // Row 1: Icon line
           size_t iconLen = utf8_length(style.icon);
@@ -8514,7 +8597,9 @@ public:
     doupdate();
     fflush(stdout);
 
-    if (pendingDirectRenderType != PreviewType::NONE) {
+    if (viewMode == ViewMode::VIEW_GRID) {
+      drawGridKittyThumbnails();
+    } else if (pendingDirectRenderType != PreviewType::NONE) {
       drawFromCache(pendingDirectRenderType);
       pendingDirectRenderType = PreviewType::NONE;
     }

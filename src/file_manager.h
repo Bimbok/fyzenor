@@ -186,8 +186,18 @@ private:
     int cols;
     int rows;
     uint32_t imageId;
+
+    bool operator==(const GridKittyItem& o) const {
+      return termY == o.termY && termX == o.termX &&
+             cols == o.cols && rows == o.rows &&
+             imageId == o.imageId && b64 == o.b64;
+    }
+    bool operator!=(const GridKittyItem& o) const {
+      return !(*this == o);
+    }
   };
   std::vector<GridKittyItem> visibleGridKittyItems;
+  std::vector<GridKittyItem> lastDrawnGridKittyItems;
   std::unordered_map<std::string, GridThumbnail> gridThumbnailMap;
   std::mutex gridThumbnailMutex;
   std::deque<std::string> gridThumbnailQueue;
@@ -1771,6 +1781,7 @@ public:
     }
     lastWasDirectRender = false;
     lastDrawnPath = "";
+    lastDrawnGridKittyItems.clear();
   }
 
   void cancelSearch() {
@@ -3276,12 +3287,11 @@ public:
       return;
     }
 
-    static bool inTmux = (std::getenv("TMUX") != nullptr);
-    if (inTmux) {
-      std::cout << "\033Ptmux;\033\033\033_Ga=d,d=A,q=2\033\033\\\033\\" << std::flush;
-    } else {
-      std::cout << "\033_Ga=d,d=A,q=2\033\\" << std::flush;
+    if (visibleGridKittyItems == lastDrawnGridKittyItems) {
+      return;
     }
+
+    clearDirectRender();
 
     for (const auto& item : visibleGridKittyItems) {
       if (item.b64.empty() || item.cols <= 0 || item.rows <= 0)
@@ -3290,6 +3300,7 @@ public:
     }
     std::cout << std::flush;
     lastWasDirectRender = true;
+    lastDrawnGridKittyItems = visibleGridKittyItems;
   }
 
   void drawFromCache(PreviewType type) {
@@ -6555,10 +6566,6 @@ public:
 
         if (hasThumbnail) {
           int thumbX = cx + 1 + (innerW > thumbW ? (innerW - thumbW) / 2 : 0);
-          for (size_t l = 0; l < thumbLines.size() && (int)l < thumbH; ++l) {
-            wprintw_ansi(win, cy + 1 + (int)l, thumbX, thumbLines[l], thumbW);
-          }
-
           if (!thumbB64.empty()) {
             int winY, winX;
             getbegyx(win, winY, winX);
@@ -6566,6 +6573,10 @@ public:
             int termX = winX + thumbX + 1; // 1-indexed for terminal
             uint32_t imgId = 100 + (uint32_t)visibleGridKittyItems.size();
             visibleGridKittyItems.push_back({thumbB64, termY, termX, thumbW, thumbH, imgId});
+          } else {
+            for (size_t l = 0; l < thumbLines.size() && (int)l < thumbH; ++l) {
+              wprintw_ansi(win, cy + 1 + (int)l, thumbX, thumbLines[l], thumbW);
+            }
           }
         } else {
           // Row 2: Icon line (centered)
@@ -8117,7 +8128,10 @@ public:
   }
 
   void drawPreview() {
-    if (viewMode == ViewMode::VIEW_GRID || !winPreview) {
+    if (viewMode == ViewMode::VIEW_GRID) {
+      return;
+    }
+    if (!winPreview) {
       if (lastWasDirectRender) {
         clearDirectRender();
       }

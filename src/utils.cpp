@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <algorithm>
 #include <clocale>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1405,6 +1406,103 @@ std::string keyToName(int ch) {
   if (ch >= 32 && ch <= 126) {
     return std::string(1, (char)ch);
   }
+  return "";
+}
+
+bool getImageDimensions(const std::string& path, int& outW, int& outH) {
+  outW = 0;
+  outH = 0;
+  std::ifstream f(path, std::ios::binary);
+  if (!f) return false;
+
+  std::vector<unsigned char> header(65536);
+  f.read(reinterpret_cast<char*>(header.data()), header.size());
+  size_t n = f.gcount();
+  if (n < 16) return false;
+
+  // PNG
+  if (n >= 24 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' &&
+      header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A) {
+    outW = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+    outH = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+    return (outW > 0 && outH > 0);
+  }
+
+  // GIF
+  if (n >= 10 && header[0] == 'G' && header[1] == 'I' && header[2] == 'F') {
+    outW = header[6] | (header[7] << 8);
+    outH = header[8] | (header[9] << 8);
+    return (outW > 0 && outH > 0);
+  }
+
+  // BMP
+  if (n >= 26 && header[0] == 'B' && header[1] == 'M') {
+    outW = header[18] | (header[19] << 8) | (header[20] << 16) | (header[21] << 24);
+    int32_t h = header[22] | (header[23] << 8) | (header[24] << 16) | (header[25] << 24);
+    outH = std::abs(h);
+    return (outW > 0 && outH > 0);
+  }
+
+  // WEBP
+  if (n >= 30 && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F' &&
+      header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') {
+    if (header[12] == 'V' && header[13] == 'P' && header[14] == '8' && header[15] == 'X') {
+      outW = 1 + (header[24] | (header[25] << 8) | (header[26] << 16));
+      outH = 1 + (header[27] | (header[28] << 8) | (header[29] << 16));
+      return (outW > 0 && outH > 0);
+    } else if (header[12] == 'V' && header[13] == 'P' && header[14] == '8' && header[15] == ' ') {
+      if (n >= 30 && header[23] == 0x9D && header[24] == 0x01 && header[25] == 0x2A) {
+        outW = (header[26] | (header[27] << 8)) & 0x3FFF;
+        outH = (header[28] | (header[29] << 8)) & 0x3FFF;
+        return (outW > 0 && outH > 0);
+      }
+    } else if (header[12] == 'V' && header[13] == 'P' && header[14] == '8' && header[15] == 'L') {
+      if (n >= 25 && header[20] == 0x2F) {
+        uint32_t b0 = header[21], b1 = header[22], b2 = header[23], b3 = header[24];
+        outW = 1 + (((b1 & 0x3F) << 8) | b0);
+        outH = 1 + (((b3 & 0xF) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6));
+        return (outW > 0 && outH > 0);
+      }
+    }
+  }
+
+  // JPEG
+  if (n >= 4 && header[0] == 0xFF && header[1] == 0xD8) {
+    size_t i = 2;
+    while (i + 4 < n) {
+      if (header[i] != 0xFF) {
+        i++;
+        continue;
+      }
+      unsigned char marker = header[i + 1];
+      if (marker == 0xC0 || marker == 0xC1 || marker == 0xC2) {
+        if (i + 9 <= n) {
+          outH = (header[i + 5] << 8) | header[i + 6];
+          outW = (header[i + 7] << 8) | header[i + 8];
+          return (outW > 0 && outH > 0);
+        }
+      }
+      if (marker == 0xD9 || marker == 0xDA)
+        break;
+      uint16_t length = (header[i + 2] << 8) | header[i + 3];
+      i += 2 + length;
+    }
+  }
+
+  return false;
+}
+
+std::string getAspectRatioLabel(int w, int h) {
+  if (w <= 0 || h <= 0) return "";
+  double ratio = static_cast<double>(w) / static_cast<double>(h);
+  if (std::abs(ratio - 16.0 / 9.0) < 0.05) return "16:9";
+  if (std::abs(ratio - 9.0 / 16.0) < 0.05) return "9:16";
+  if (std::abs(ratio - 4.0 / 3.0) < 0.05) return "4:3";
+  if (std::abs(ratio - 3.0 / 4.0) < 0.05) return "3:4";
+  if (std::abs(ratio - 1.0) < 0.05) return "1:1";
+  if (std::abs(ratio - 21.0 / 9.0) < 0.08) return "21:9";
+  if (std::abs(ratio - 3.0 / 2.0) < 0.05) return "3:2";
+  if (std::abs(ratio - 2.0 / 3.0) < 0.05) return "2:3";
   return "";
 }
 

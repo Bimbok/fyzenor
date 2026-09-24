@@ -6472,10 +6472,20 @@ public:
     int totalGridW = numCols * cardW + (numCols - 1) * gapX;
     int startX = 1 + (usableW - totalGridW) / 2;
     if (startX < 1) startX = 1;
-    int startY = 1;
 
-    int visibleRows = (usableH + gapY) / (cardH + gapY);
+    // Media & Details Inspector Footer calculation:
+    // Reserve at least 2 or 3 lines at the bottom for the inspector when space permits
+    int minInspH = (usableH >= 20) ? 3 : (usableH >= 12 ? 2 : 0);
+    int availGridH = usableH - minInspH;
+    int visibleRows = (availGridH + gapY) / (cardH + gapY);
     if (visibleRows < 1) visibleRows = 1;
+
+    int totalGridH = visibleRows * cardH + (visibleRows - 1) * gapY;
+    int remainingH = usableH - totalGridH;
+    bool showInspector = (remainingH >= 2);
+    int inspH = showInspector ? std::min(5, remainingH) : 0;
+    int extraSpace = remainingH - inspH;
+    int startY = 1 + (extraSpace > 0 ? extraSpace / 2 : 0);
 
     size_t safeSelectedIndex = paneSelectedIndex;
     if (safeSelectedIndex >= paneFiles.size()) {
@@ -6497,9 +6507,11 @@ public:
       wattroff(win, COLOR_PAIR(18) | A_BOLD);
     }
     if ((paneGridScrollRow + visibleRows) * numCols < paneFiles.size()) {
-      wattron(win, COLOR_PAIR(18) | A_BOLD);
-      mvwprintw(win, my - 1, (mx - 7) / 2, " ▼ ▼ ▼ ");
-      wattroff(win, COLOR_PAIR(18) | A_BOLD);
+      if (!showInspector) {
+        wattron(win, COLOR_PAIR(18) | A_BOLD);
+        mvwprintw(win, my - 1, (mx - 7) / 2, " ▼ ▼ ▼ ");
+        wattroff(win, COLOR_PAIR(18) | A_BOLD);
+      }
     }
 
     for (int r = 0; r < visibleRows; ++r) {
@@ -6512,7 +6524,7 @@ public:
         int cx = startX + c * (cardW + gapX);
         int cy = startY + r * (cardH + gapY);
 
-        if (cy + cardH > my - 1)
+        if (cy + cardH > my - 1 - inspH)
           break;
 
         bool isSelected = (hasFocus && fileIdx == safeSelectedIndex);
@@ -6745,6 +6757,246 @@ public:
       wattron(win, COLOR_PAIR(6));
     drawRoundedBox(win);
     wattroff(win, A_BOLD | COLOR_PAIR(18) | COLOR_PAIR(6));
+
+    // Media & File Details Inspector Footer Bar
+    if (showInspector && inspH >= 2 && !paneFiles.empty()) {
+      int inspY = my - 1 - inspH;
+
+      int borderPair = hasFocus ? 18 : 6;
+      int borderAttr = COLOR_PAIR(borderPair) | (hasFocus ? A_BOLD : 0);
+
+      wattron(win, borderAttr);
+      mvwaddstr(win, inspY, 0, "├");
+      for (int x = 1; x < mx - 1; ++x) {
+        mvwaddstr(win, inspY, x, "─");
+      }
+      mvwaddstr(win, inspY, mx - 1, "┤");
+      wattroff(win, borderAttr);
+
+      if (safeSelectedIndex < paneFiles.size()) {
+        const auto& selFile = paneFiles[safeSelectedIndex];
+        FileDetails details = getFileDetails(selFile.path);
+        FileStyle selStyle = getFileStyle(selFile.name, selFile.extension, selFile.is_directory, selFile.is_empty_directory);
+        if (selFile.is_symlink) {
+          selStyle.icon = ICON_LINK;
+        }
+
+        // Title badge on divider line (Icon + Filename)
+        std::string titleBadge = " " + std::string(selStyle.icon) + " " + selFile.name + (selFile.is_directory ? "/ " : " ");
+        int maxBadgeW = mx - 32;
+        if (maxBadgeW < 8) maxBadgeW = 8;
+        if ((int)utf8_length(titleBadge) > maxBadgeW) {
+          titleBadge = utf8_safe_truncate(titleBadge, maxBadgeW - 3) + "... ";
+        }
+        wattron(win, COLOR_PAIR(18) | A_BOLD);
+        mvwprintw(win, inspY, 2, "%s", titleBadge.c_str());
+        wattroff(win, COLOR_PAIR(18) | A_BOLD);
+
+        // Scroll indicator in center of divider line if more items below
+        if ((paneGridScrollRow + visibleRows) * numCols < paneFiles.size()) {
+          wattron(win, COLOR_PAIR(18) | A_BOLD);
+          mvwprintw(win, inspY, (mx - 7) / 2, " ▼ ▼ ▼ ");
+          wattroff(win, COLOR_PAIR(18) | A_BOLD);
+        }
+
+        // Position / Selection badge on right
+        std::string posBadge = " [" + std::to_string(safeSelectedIndex + 1) + "/" + std::to_string(paneFiles.size());
+        if (!paneMultiSelection.empty()) {
+          posBadge += " • " + std::to_string(paneMultiSelection.size()) + " sel";
+        }
+        posBadge += "] ";
+        int posPair = paneMultiSelection.empty() ? 6 : 9;
+        wattron(win, COLOR_PAIR(posPair) | (paneMultiSelection.empty() ? A_DIM : A_BOLD));
+        mvwprintw(win, inspY, mx - 1 - (int)posBadge.length(), "%s", posBadge.c_str());
+        wattroff(win, COLOR_PAIR(posPair) | (paneMultiSelection.empty() ? A_DIM : A_BOLD));
+
+        // Clear content lines and draw vertical side borders
+        for (int y = inspY + 1; y < my - 1; ++y) {
+          wattron(win, borderAttr);
+          mvwaddstr(win, y, 0, "│");
+          mvwaddstr(win, y, mx - 1, "│");
+          wattroff(win, borderAttr);
+          for (int x = 1; x < mx - 1; ++x) {
+            mvwaddch(win, y, x, ' ');
+          }
+        }
+
+        // Content Line 1 (inspY + 1): Type, Dimensions (if image), Size, Date, Permissions
+        int curX = 2;
+        int line1Y = inspY + 1;
+        if (line1Y < my - 1) {
+          std::string ext = selFile.extension;
+          std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+          std::string typeLabel;
+          if (selFile.is_directory) {
+            typeLabel = "Directory";
+          } else if (selFile.is_symlink) {
+            typeLabel = "Symlink";
+          } else if (IMAGE_EXTS.count(ext)) {
+            std::string upper = ext.empty() ? "" : ext.substr(1);
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            typeLabel = upper + " Image";
+          } else if (VIDEO_EXTS.count(ext)) {
+            std::string upper = ext.empty() ? "" : ext.substr(1);
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            typeLabel = upper + " Video";
+          } else if (AUDIO_EXTS.count(ext)) {
+            std::string upper = ext.empty() ? "" : ext.substr(1);
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            typeLabel = upper + " Audio";
+          } else if (ARCHIVE_EXTS.count(ext)) {
+            std::string upper = ext.empty() ? "" : ext.substr(1);
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            typeLabel = upper + " Archive";
+          } else {
+            typeLabel = details.type;
+          }
+
+          wattron(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+          mvwprintw(win, line1Y, curX, "%s", typeLabel.c_str());
+          wattroff(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+          curX += (int)utf8_length(typeLabel);
+
+          auto printSep = [&](int y, int& x) {
+            if (x + 5 < mx - 2) {
+              wattron(win, COLOR_PAIR(6) | A_DIM);
+              mvwprintw(win, y, x, "  │  ");
+              wattroff(win, COLOR_PAIR(6) | A_DIM);
+              x += 5;
+            }
+          };
+
+          // Image dimensions if image
+          int imgW = 0, imgH = 0;
+          if (IMAGE_EXTS.count(ext) && getImageDimensions(selFile.path.string(), imgW, imgH)) {
+            printSep(line1Y, curX);
+            std::string asp = getAspectRatioLabel(imgW, imgH);
+            std::string dimStr = "󰍹 " + std::to_string(imgW) + "×" + std::to_string(imgH);
+            if (!asp.empty()) dimStr += " (" + asp + ")";
+            if (curX + (int)utf8_length(dimStr) < mx - 2) {
+              wattron(win, COLOR_PAIR(18) | A_BOLD);
+              mvwprintw(win, line1Y, curX, "%s", dimStr.c_str());
+              wattroff(win, COLOR_PAIR(18) | A_BOLD);
+              curX += (int)utf8_length(dimStr);
+            }
+          }
+
+          // Size segment
+          std::string sizeStr;
+          if (selFile.is_directory) {
+            uintmax_t dsz = selFile.size;
+            if (dsz == SIZE_CALCULATING) {
+              std::lock_guard<std::mutex> cLock(cacheMutex);
+              auto it = dirSizeCache.find(selFile.path.string());
+              if (it != dirSizeCache.end()) dsz = it->second;
+            }
+            if (dsz != SIZE_CALCULATING && dsz > 0) {
+              sizeStr = formatSize(dsz);
+            } else {
+              sizeStr = selFile.is_empty_directory ? "empty" : "folder";
+            }
+          } else {
+            sizeStr = formatSize(selFile.size);
+          }
+          std::string sizeSeg = "󰋊 " + sizeStr;
+          printSep(line1Y, curX);
+          if (curX + (int)utf8_length(sizeSeg) < mx - 2) {
+            wattron(win, COLOR_PAIR(2) | A_BOLD);
+            mvwprintw(win, line1Y, curX, "%s", sizeSeg.c_str());
+            wattroff(win, COLOR_PAIR(2) | A_BOLD);
+            curX += (int)utf8_length(sizeSeg);
+          }
+
+          // Modified date segment
+          std::string dateVal = selFile.modified_time_str.empty() ? details.modifyTime : selFile.modified_time_str;
+          std::string dateSeg = "󰔠 " + dateVal;
+          printSep(line1Y, curX);
+          if (curX + (int)utf8_length(dateSeg) < mx - 2) {
+            wattron(win, COLOR_PAIR(6));
+            mvwprintw(win, line1Y, curX, "%s", dateSeg.c_str());
+            wattroff(win, COLOR_PAIR(6));
+            curX += (int)utf8_length(dateSeg);
+          }
+
+          // Permissions segment
+          std::string permSeg = " " + details.permissionsSymbolic;
+          if (!details.ownerName.empty()) permSeg += " (" + details.ownerName + ")";
+          printSep(line1Y, curX);
+          if (curX + (int)utf8_length(permSeg) < mx - 2) {
+            wattron(win, COLOR_PAIR(6) | A_DIM);
+            mvwprintw(win, line1Y, curX, "%s", permSeg.c_str());
+            wattroff(win, COLOR_PAIR(6) | A_DIM);
+            curX += (int)utf8_length(permSeg);
+          }
+        }
+
+        // Content Line 2 (inspY + 2): Full Path (or Path + Quick Actions if tight)
+        int line2Y = inspY + 2;
+        if (line2Y < my - 1) {
+          int pX = 2;
+          wattron(win, COLOR_PAIR(1));
+          mvwprintw(win, line2Y, pX, " ");
+          wattroff(win, COLOR_PAIR(1));
+          pX += 2;
+
+          std::string fullPathStr = selFile.path.string();
+          if (selFile.is_symlink && !details.symlinkTarget.empty()) {
+            fullPathStr += " 󰌷 " + details.symlinkTarget;
+          }
+
+          std::string quickTips = "[Enter] Open  [Space] Select  [s] Sort  [V] Columns";
+          int maxPathW = mx - pX - 2;
+          if (inspH <= 3 && maxPathW > (int)quickTips.length() + 25) {
+            maxPathW -= ((int)quickTips.length() + 4);
+            std::string dispP = utf8_safe_truncate(fullPathStr, maxPathW);
+            wattron(win, COLOR_PAIR(7));
+            mvwprintw(win, line2Y, pX, "%s", dispP.c_str());
+            wattroff(win, COLOR_PAIR(7));
+
+            wattron(win, COLOR_PAIR(6) | A_DIM);
+            mvwprintw(win, line2Y, mx - 2 - quickTips.length(), "%s", quickTips.c_str());
+            wattroff(win, COLOR_PAIR(6) | A_DIM);
+          } else {
+            std::string dispP = utf8_safe_truncate(fullPathStr, maxPathW);
+            wattron(win, COLOR_PAIR(7));
+            mvwprintw(win, line2Y, pX, "%s", dispP.c_str());
+            wattroff(win, COLOR_PAIR(7));
+          }
+        }
+
+        // Content Line 3 (inspY + 3): Navigation & Shortcut pills
+        int line3Y = inspY + 3;
+        if (line3Y < my - 1) {
+          int tipX = 2;
+          wattron(win, COLOR_PAIR(1) | A_BOLD);
+          mvwprintw(win, line3Y, tipX, "󰌌 Actions: ");
+          wattroff(win, COLOR_PAIR(1) | A_BOLD);
+          tipX += 11;
+
+          auto printPill = [&](const std::string& key, const std::string& label) {
+            if (tipX + (int)key.length() + (int)label.length() + 4 < mx - 2) {
+              wattron(win, COLOR_PAIR(18) | A_BOLD);
+              mvwprintw(win, line3Y, tipX, "[%s]", key.c_str());
+              wattroff(win, COLOR_PAIR(18) | A_BOLD);
+              tipX += (int)key.length() + 2;
+
+              wattron(win, COLOR_PAIR(6));
+              mvwprintw(win, line3Y, tipX, " %s  ", label.c_str());
+              wattroff(win, COLOR_PAIR(6));
+              tipX += (int)label.length() + 3;
+            }
+          };
+
+          printPill("Enter/l", "Open");
+          printPill("Space/v", "Select");
+          printPill("h/Back", "Parent");
+          printPill("s", "Sort");
+          printPill("P", "Pin");
+          printPill("V", "Columns Mode");
+        }
+      }
+    }
 
     wnoutrefresh(win);
   }
@@ -9451,12 +9703,21 @@ public:
                     int numCols = getGridNumCols();
                     int totalGridW = numCols * cardW + (numCols - 1) * gapX;
                     int startX = 1 + (usableW - totalGridW) / 2;
-                    if (startX < 1) startX = 1;
+                    int minInspH = (usableH >= 20) ? 3 : (usableH >= 12 ? 2 : 0);
+                    int availGridH = usableH - minInspH;
+                    int visibleRows = (availGridH + gapY) / (cardH + gapY);
+                    if (visibleRows < 1) visibleRows = 1;
+                    int totalGridH = visibleRows * cardH + (visibleRows - 1) * gapY;
+                    int remainingH = usableH - totalGridH;
+                    bool showInspector = (remainingH >= 2);
+                    int inspH = showInspector ? std::min(5, remainingH) : 0;
+                    int extraSpace = remainingH - inspH;
+                    int startY = 1 + (extraSpace > 0 ? extraSpace / 2 : 0);
 
-                    if (relX >= startX && relX < startX + totalGridW && relY >= 0) {
+                    if (relX >= startX && relX < startX + totalGridW && relY >= (startY - 1) && relY < (startY - 1 + totalGridH)) {
                       int col = (relX - startX) / (cardW + gapX);
-                      int row = relY / (cardH + gapY);
-                      if (col >= 0 && col < numCols) {
+                      int row = (relY - (startY - 1)) / (cardH + gapY);
+                      if (col >= 0 && col < numCols && row >= 0 && row < visibleRows) {
                         size_t clickedIdx = (gridScrollRow + row) * numCols + col;
                         if (clickedIdx < currentFiles.size()) {
                           focusPinned = false;
@@ -9469,6 +9730,11 @@ public:
                           }
                           needsRedraw = true;
                         }
+                      }
+                    } else if (showInspector && relY >= (usableH - inspH)) {
+                      if (event.x >= cX + cW - 18) {
+                        toggleViewMode();
+                        continue;
                       }
                     }
                   }

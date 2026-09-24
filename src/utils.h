@@ -99,5 +99,7 @@ std::string urlDecode(const std::string& str);
 std::vector<fs::path> parsePastedPaths(const std::string& data);
 std::string getSecureRuntimeDir();
 std::string getSecureTaskPidPath(int taskId, const std::string& prefix);
+bool getImageDimensions(const std::string& path, int& outW, int& outH);
+std::string getAspectRatioLabel(int w, int h);
 
 #endif // UTILS_H

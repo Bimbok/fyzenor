@@ -94,8 +94,8 @@ private:
 
   int getGridNumCols() const {
     int usableW = (winCurrent ? getmaxx(winCurrent) : width) - 2;
-    int cardW = 18;
-    if (usableW < 18) {
+    int cardW = 20;
+    if (usableW < 20) {
       cardW = std::max(10, usableW);
     }
     int gapX = 1;
@@ -6460,8 +6460,8 @@ public:
       return;
     }
 
-    int cardW = 18;
-    if (usableW < 18) {
+    int cardW = 20;
+    if (usableW < 20) {
       cardW = std::max(10, usableW);
     }
     int gapX = 1;
@@ -6750,6 +6750,69 @@ public:
       }
     }
 
+    // If directory has few items leaving empty space above the inspector,
+    // render a subtle, elegant Directory Overview Watermark in the middle space
+    size_t fileRows = (paneFiles.size() + numCols - 1) / numCols;
+    if (paneGridScrollRow == 0 && fileRows < (size_t)visibleRows && showInspector) {
+      int inspY = my - 1 - inspH;
+      int lastCardBottomY = startY + (int)fileRows * (cardH + gapY) - gapY;
+      int emptyGap = inspY - lastCardBottomY;
+      if (emptyGap >= 5) {
+        uintmax_t totalDirSize = 0;
+        int folderCount = 0;
+        int docCount = 0;
+        int mediaCount = 0;
+        int codeCount = 0;
+
+        for (const auto& fe : paneFiles) {
+          if (fe.is_directory) {
+            folderCount++;
+          } else {
+            totalDirSize += fe.size;
+            std::string ext = fe.extension;
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (IMAGE_EXTS.count(ext) || VIDEO_EXTS.count(ext) || AUDIO_EXTS.count(ext)) {
+              mediaCount++;
+            } else if (ext == ".pdf" || ext == ".doc" || ext == ".docx" || ext == ".md" || ext == ".txt") {
+              docCount++;
+            } else if (ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".h" || ext == ".hpp" ||
+                       ext == ".py" || ext == ".rs" || ext == ".go" || ext == ".js" || ext == ".ts") {
+              codeCount++;
+            }
+          }
+        }
+
+        std::string dName = panePath.filename().string();
+        if (dName.empty()) dName = "Directory";
+        std::string statLine1 = "󰉖  " + dName + "  •  " + std::to_string(paneFiles.size()) + " items";
+        if (totalDirSize > 0) {
+          statLine1 += "  •  " + formatSize(totalDirSize);
+        }
+
+        std::vector<std::string> parts;
+        if (folderCount > 0) parts.push_back(std::to_string(folderCount) + " folder" + (folderCount == 1 ? "" : "s"));
+        if (mediaCount > 0) parts.push_back(std::to_string(mediaCount) + " media");
+        if (docCount > 0) parts.push_back(std::to_string(docCount) + " document" + (docCount == 1 ? "" : "s"));
+        if (codeCount > 0) parts.push_back(std::to_string(codeCount) + " code file" + (codeCount == 1 ? "" : "s"));
+
+        std::string statLine2 = "";
+        for (size_t pi = 0; pi < parts.size(); ++pi) {
+          if (pi > 0) statLine2 += "  •  ";
+          statLine2 += parts[pi];
+        }
+
+        int midY = lastCardBottomY + emptyGap / 2;
+        int l1X = std::max(2, (mx - (int)utf8_length(statLine1)) / 2);
+        wattron(win, COLOR_PAIR(6) | A_DIM);
+        mvwprintw(win, midY - (statLine2.empty() ? 0 : 1), l1X, "%s", statLine1.c_str());
+        if (!statLine2.empty()) {
+          int l2X = std::max(2, (mx - (int)utf8_length(statLine2)) / 2);
+          mvwprintw(win, midY + 1, l2X, "%s", statLine2.c_str());
+        }
+        wattroff(win, COLOR_PAIR(6) | A_DIM);
+      }
+    }
+
     // Redraw window border at the end
     if (hasFocus)
       wattron(win, COLOR_PAIR(18) | A_BOLD);
@@ -6782,14 +6845,18 @@ public:
         }
 
         // Title badge on divider line (Icon + Filename)
-        std::string titleBadge = " " + std::string(selStyle.icon) + " " + selFile.name + (selFile.is_directory ? "/ " : " ");
-        int maxBadgeW = mx - 32;
+        std::string nameStr = selFile.name + (selFile.is_directory ? "/" : "");
+        int maxBadgeW = mx - 36;
         if (maxBadgeW < 8) maxBadgeW = 8;
-        if ((int)utf8_length(titleBadge) > maxBadgeW) {
-          titleBadge = utf8_safe_truncate(titleBadge, maxBadgeW - 3) + "... ";
+        if ((int)utf8_length(nameStr) > maxBadgeW) {
+          nameStr = utf8_safe_truncate(nameStr, maxBadgeW - 3) + "...";
         }
+        wattron(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+        mvwprintw(win, inspY, 2, " %s ", selStyle.icon);
+        wattroff(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+
         wattron(win, COLOR_PAIR(18) | A_BOLD);
-        mvwprintw(win, inspY, 2, "%s", titleBadge.c_str());
+        mvwprintw(win, inspY, 2 + (int)utf8_length(selStyle.icon) + 2, "%s ", nameStr.c_str());
         wattroff(win, COLOR_PAIR(18) | A_BOLD);
 
         // Scroll indicator in center of divider line if more items below
@@ -6800,15 +6867,14 @@ public:
         }
 
         // Position / Selection badge on right
-        std::string posBadge = " [" + std::to_string(safeSelectedIndex + 1) + "/" + std::to_string(paneFiles.size());
+        std::string posBadge = " 󰋚 " + std::to_string(safeSelectedIndex + 1) + " of " + std::to_string(paneFiles.size()) + " ";
         if (!paneMultiSelection.empty()) {
-          posBadge += " • " + std::to_string(paneMultiSelection.size()) + " sel";
+          posBadge += "• " + std::to_string(paneMultiSelection.size()) + " sel ";
         }
-        posBadge += "] ";
-        int posPair = paneMultiSelection.empty() ? 6 : 9;
-        wattron(win, COLOR_PAIR(posPair) | (paneMultiSelection.empty() ? A_DIM : A_BOLD));
-        mvwprintw(win, inspY, mx - 1 - (int)posBadge.length(), "%s", posBadge.c_str());
-        wattroff(win, COLOR_PAIR(posPair) | (paneMultiSelection.empty() ? A_DIM : A_BOLD));
+        int posPair = paneMultiSelection.empty() ? 18 : 9;
+        wattron(win, COLOR_PAIR(posPair) | A_BOLD);
+        mvwprintw(win, inspY, mx - 2 - (int)utf8_length(posBadge), "%s", posBadge.c_str());
+        wattroff(win, COLOR_PAIR(posPair) | A_BOLD);
 
         // Clear content lines and draw vertical side borders
         for (int y = inspY + 1; y < my - 1; ++y) {
@@ -6868,30 +6934,17 @@ public:
           std::string ext = selFile.extension;
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-          std::string typeLabel;
+          uintmax_t dirItemCount = 0;
           if (selFile.is_directory) {
-            typeLabel = "Directory";
-          } else if (selFile.is_symlink) {
-            typeLabel = "Symlink";
-          } else if (IMAGE_EXTS.count(ext)) {
-            std::string upper = ext.empty() ? "" : ext.substr(1);
-            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-            typeLabel = upper + " Image";
-          } else if (VIDEO_EXTS.count(ext)) {
-            std::string upper = ext.empty() ? "" : ext.substr(1);
-            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-            typeLabel = upper + " Video";
-          } else if (AUDIO_EXTS.count(ext)) {
-            std::string upper = ext.empty() ? "" : ext.substr(1);
-            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-            typeLabel = upper + " Audio";
-          } else if (ARCHIVE_EXTS.count(ext)) {
-            std::string upper = ext.empty() ? "" : ext.substr(1);
-            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-            typeLabel = upper + " Archive";
-          } else {
-            typeLabel = details.type;
+            try {
+              for (const auto& entry : fs::directory_iterator(selFile.path, fs::directory_options::skip_permission_denied)) {
+                (void)entry;
+                dirItemCount++;
+                if (dirItemCount > 9999) break;
+              }
+            } catch (...) {}
           }
+          std::string typeLabel = getFileTypeDescription(selFile.extension, selFile.is_directory, selFile.is_symlink, 0, dirItemCount);
 
           wattron(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
           mvwprintw(win, line1Y, curX, "%s", typeLabel.c_str());
@@ -6971,36 +7024,53 @@ public:
           }
         }
 
-        // Content Line 2: Full Path (or Path + Quick Actions if tight)
+        // Content Line 2: Full Path with Breadcrumb Highlighting
         if (line2Y > 0 && line2Y < my - 1) {
           int pX = 2;
-          wattron(win, COLOR_PAIR(1));
+          wattron(win, COLOR_PAIR(18) | A_BOLD);
           mvwprintw(win, line2Y, pX, " ");
-          wattroff(win, COLOR_PAIR(1));
+          wattroff(win, COLOR_PAIR(18) | A_BOLD);
           pX += 2;
 
-          std::string fullPathStr = selFile.path.string();
+          fs::path parentP = selFile.path.parent_path();
+          std::string parentStr = parentP.string();
+          if (!parentStr.empty() && parentStr.back() != '/') {
+            parentStr += "/";
+          }
+          std::string fileStr = selFile.name + (selFile.is_directory ? "/" : "");
           if (selFile.is_symlink && !details.symlinkTarget.empty()) {
-            fullPathStr += " 󰌷 " + details.symlinkTarget;
+            fileStr += " 󰌷 " + details.symlinkTarget;
           }
 
           std::string quickTips = "[Enter] Open  [Space] Select  [s] Sort  [V] Columns";
           int maxPathW = mx - pX - 2;
           if (line3Y <= 0 && maxPathW > (int)quickTips.length() + 25) {
             maxPathW -= ((int)quickTips.length() + 4);
+          }
+
+          int fileLen = (int)utf8_length(fileStr);
+          int parentLen = (int)utf8_length(parentStr);
+          if (parentLen + fileLen <= maxPathW) {
+            wattron(win, COLOR_PAIR(6) | A_DIM);
+            mvwprintw(win, line2Y, pX, "%s", parentStr.c_str());
+            wattroff(win, COLOR_PAIR(6) | A_DIM);
+            pX += parentLen;
+
+            wattron(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+            mvwprintw(win, line2Y, pX, "%s", fileStr.c_str());
+            wattroff(win, COLOR_PAIR(selStyle.pair) | A_BOLD);
+          } else {
+            std::string fullPathStr = parentStr + fileStr;
             std::string dispP = utf8_safe_truncate(fullPathStr, maxPathW);
             wattron(win, COLOR_PAIR(7));
             mvwprintw(win, line2Y, pX, "%s", dispP.c_str());
             wattroff(win, COLOR_PAIR(7));
+          }
 
+          if (line3Y <= 0 && maxPathW > (int)quickTips.length() + 25) {
             wattron(win, COLOR_PAIR(6) | A_DIM);
             mvwprintw(win, line2Y, mx - 2 - quickTips.length(), "%s", quickTips.c_str());
             wattroff(win, COLOR_PAIR(6) | A_DIM);
-          } else {
-            std::string dispP = utf8_safe_truncate(fullPathStr, maxPathW);
-            wattron(win, COLOR_PAIR(7));
-            mvwprintw(win, line2Y, pX, "%s", dispP.c_str());
-            wattroff(win, COLOR_PAIR(7));
           }
         }
 
@@ -9734,7 +9804,7 @@ public:
                     int relX = event.x - cX - 1;
                     int usableW = cW - 2;
                     int usableH = cH - 2;
-                    int cardW = (usableW < 18) ? std::max(10, usableW) : 18;
+                    int cardW = (usableW < 20) ? std::max(10, usableW) : 20;
                     int gapX = 1;
                     int cardH = 7;
                     int gapY = (usableH >= 32) ? 1 : 0;

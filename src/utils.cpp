@@ -1506,3 +1506,98 @@ std::string getAspectRatioLabel(int w, int h) {
   return "";
 }
 
+std::string getFileTypeDescription(const std::string& ext, bool isDir, bool isSymlink, mode_t mode, uintmax_t dirItemCount) {
+  if (isDir) {
+    if (dirItemCount > 0) {
+      return "Directory (" + std::to_string(dirItemCount) + " item" + (dirItemCount == 1 ? "" : "s") + ")";
+    }
+    return "Directory";
+  }
+  if (isSymlink) {
+    return "Symbolic Link";
+  }
+
+  std::string e = ext;
+  std::transform(e.begin(), e.end(), e.begin(), ::tolower);
+
+  // Documents & Data
+  if (e == ".pdf") return "PDF Document";
+  if (e == ".epub" || e == ".mobi") return "E-Book Document";
+  if (e == ".doc" || e == ".docx") return "Word Document";
+  if (e == ".xls" || e == ".xlsx" || e == ".csv" || e == ".tsv") return "Spreadsheet";
+  if (e == ".ppt" || e == ".pptx") return "Presentation";
+  if (e == ".md" || e == ".markdown") return "Markdown Document";
+  if (e == ".txt" || e == ".text") return "Plain Text Document";
+  if (e == ".log") return "Log File";
+  if (e == ".rtf" || e == ".odt" || e == ".ods") return "Document";
+
+  // Code & Development
+  if (e == ".c") return "C Source File";
+  if (e == ".h") return "C Header File";
+  if (e == ".cpp" || e == ".cc" || e == ".cxx") return "C++ Source File";
+  if (e == ".hpp" || e == ".hxx" || e == ".ixx") return "C++ Header File";
+  if (e == ".py" || e == ".pyw") return "Python Script";
+  if (e == ".ipynb") return "Jupyter Notebook";
+  if (e == ".rs") return "Rust Source File";
+  if (e == ".go") return "Go Source File";
+  if (e == ".java") return "Java Source File";
+  if (e == ".kt" || e == ".kts") return "Kotlin Source File";
+  if (e == ".js" || e == ".mjs") return "JavaScript File";
+  if (e == ".ts") return "TypeScript File";
+  if (e == ".jsx" || e == ".tsx") return "React Component";
+  if (e == ".html" || e == ".htm") return "HTML Document";
+  if (e == ".css" || e == ".scss" || e == ".sass" || e == ".less") return "Stylesheet";
+  if (e == ".json" || e == ".json5" || e == ".jsonc") return "JSON Data File";
+  if (e == ".yaml" || e == ".yml") return "YAML Configuration";
+  if (e == ".toml") return "TOML Configuration";
+  if (e == ".xml") return "XML Document";
+  if (e == ".sh" || e == ".bash" || e == ".zsh") return "Shell Script";
+  if (e == ".fish") return "Fish Script";
+  if (e == ".lua") return "Lua Script";
+  if (e == ".vim") return "Vim Script";
+  if (e == ".sql") return "SQL Database Script";
+  if (e == ".cmake") return "CMake Build Script";
+  if (e == ".dockerfile") return "Docker Configuration";
+  if (e == ".conf" || e == ".ini" || e == ".cfg") return "Configuration File";
+
+  // Media
+  if (IMAGE_EXTS.count(e)) {
+    std::string u = e.empty() ? "" : e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " Image";
+  }
+  if (VIDEO_EXTS.count(e)) {
+    std::string u = e.empty() ? "" : e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " Video";
+  }
+  if (AUDIO_EXTS.count(e)) {
+    std::string u = e.empty() ? "" : e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " Audio";
+  }
+  if (ARCHIVE_EXTS.count(e)) {
+    std::string u = e.empty() ? "" : e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " Archive";
+  }
+  if (FONT_EXTS.count(e)) {
+    std::string u = e.empty() ? "" : e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " Font";
+  }
+
+  // Executable check
+  if ((mode & 0111) != 0) {
+    return "Executable Binary";
+  }
+
+  if (!e.empty() && e[0] == '.') {
+    std::string u = e.substr(1);
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u + " File";
+  }
+  return "Regular File";
+}
+
+

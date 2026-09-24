@@ -101,5 +101,6 @@ std::string getSecureRuntimeDir();
 std::string getSecureTaskPidPath(int taskId, const std::string& prefix);
 bool getImageDimensions(const std::string& path, int& outW, int& outH);
 std::string getAspectRatioLabel(int w, int h);
+std::string getFileTypeDescription(const std::string& ext, bool isDir, bool isSymlink, mode_t mode = 0, uintmax_t dirItemCount = 0);
 
 #endif // UTILS_H

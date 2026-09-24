@@ -6474,8 +6474,8 @@ public:
     if (startX < 1) startX = 1;
 
     // Media & Details Inspector Footer calculation:
-    // Reserve at least 2 or 3 lines at the bottom for the inspector when space permits
-    int minInspH = (usableH >= 20) ? 3 : (usableH >= 12 ? 2 : 0);
+    // Reserve lines at the bottom for the inspector when space permits
+    int minInspH = (usableH >= 24) ? 4 : (usableH >= 12 ? 2 : 0);
     int availGridH = usableH - minInspH;
     int visibleRows = (availGridH + gapY) / (cardH + gapY);
     if (visibleRows < 1) visibleRows = 1;
@@ -6483,7 +6483,7 @@ public:
     int totalGridH = visibleRows * cardH + (visibleRows - 1) * gapY;
     int remainingH = usableH - totalGridH;
     bool showInspector = (remainingH >= 2);
-    int inspH = showInspector ? std::min(5, remainingH) : 0;
+    int inspH = showInspector ? remainingH : 0;
     int extraSpace = remainingH - inspH;
     int startY = 1 + (extraSpace > 0 ? extraSpace / 2 : 0);
 
@@ -6821,10 +6821,50 @@ public:
           }
         }
 
-        // Content Line 1 (inspY + 1): Type, Dimensions (if image), Size, Date, Permissions
+        // Determine vertical placement of inspector content lines for generous, responsive line spacing
+        int innerH = (my - 1) - (inspY + 1);
+        int line1Y = -1;
+        int line2Y = -1;
+        int line3Y = -1;
+
+        if (innerH <= 1) {
+          line1Y = inspY + 1;
+        } else if (innerH == 2) {
+          line1Y = inspY + 1;
+          line2Y = inspY + 2;
+        } else if (innerH == 3) {
+          line1Y = inspY + 1;
+          line2Y = inspY + 2;
+          line3Y = inspY + 3;
+        } else if (innerH == 4) {
+          line1Y = inspY + 1;
+          line2Y = inspY + 2;
+          line3Y = inspY + 4; // 1 blank line before actions
+        } else if (innerH == 5) {
+          // Double spaced throughout!
+          line1Y = inspY + 1;
+          line2Y = inspY + 3;
+          line3Y = inspY + 5;
+        } else if (innerH == 6) {
+          // Double spaced with top padding
+          line1Y = inspY + 2;
+          line2Y = inspY + 4;
+          line3Y = inspY + 6;
+        } else if (innerH == 7) {
+          // Symmetrically double spaced with top and bottom padding
+          line1Y = inspY + 2;
+          line2Y = inspY + 4;
+          line3Y = inspY + 6;
+        } else {
+          int pad = (innerH - 5) / 2;
+          line1Y = inspY + 1 + pad;
+          line2Y = line1Y + 2;
+          line3Y = line2Y + 2;
+        }
+
+        // Content Line 1: Type, Dimensions (if image), Size, Date, Permissions
         int curX = 2;
-        int line1Y = inspY + 1;
-        if (line1Y < my - 1) {
+        if (line1Y > 0 && line1Y < my - 1) {
           std::string ext = selFile.extension;
           std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
@@ -6931,9 +6971,8 @@ public:
           }
         }
 
-        // Content Line 2 (inspY + 2): Full Path (or Path + Quick Actions if tight)
-        int line2Y = inspY + 2;
-        if (line2Y < my - 1) {
+        // Content Line 2: Full Path (or Path + Quick Actions if tight)
+        if (line2Y > 0 && line2Y < my - 1) {
           int pX = 2;
           wattron(win, COLOR_PAIR(1));
           mvwprintw(win, line2Y, pX, " ");
@@ -6947,7 +6986,7 @@ public:
 
           std::string quickTips = "[Enter] Open  [Space] Select  [s] Sort  [V] Columns";
           int maxPathW = mx - pX - 2;
-          if (inspH <= 3 && maxPathW > (int)quickTips.length() + 25) {
+          if (line3Y <= 0 && maxPathW > (int)quickTips.length() + 25) {
             maxPathW -= ((int)quickTips.length() + 4);
             std::string dispP = utf8_safe_truncate(fullPathStr, maxPathW);
             wattron(win, COLOR_PAIR(7));
@@ -6965,9 +7004,8 @@ public:
           }
         }
 
-        // Content Line 3 (inspY + 3): Navigation & Shortcut pills
-        int line3Y = inspY + 3;
-        if (line3Y < my - 1) {
+        // Content Line 3: Navigation & Shortcut pills
+        if (line3Y > 0 && line3Y < my - 1) {
           int tipX = 2;
           wattron(win, COLOR_PAIR(1) | A_BOLD);
           mvwprintw(win, line3Y, tipX, "󰌌 Actions: ");
@@ -9703,14 +9741,14 @@ public:
                     int numCols = getGridNumCols();
                     int totalGridW = numCols * cardW + (numCols - 1) * gapX;
                     int startX = 1 + (usableW - totalGridW) / 2;
-                    int minInspH = (usableH >= 20) ? 3 : (usableH >= 12 ? 2 : 0);
+                    int minInspH = (usableH >= 24) ? 4 : (usableH >= 12 ? 2 : 0);
                     int availGridH = usableH - minInspH;
                     int visibleRows = (availGridH + gapY) / (cardH + gapY);
                     if (visibleRows < 1) visibleRows = 1;
                     int totalGridH = visibleRows * cardH + (visibleRows - 1) * gapY;
                     int remainingH = usableH - totalGridH;
                     bool showInspector = (remainingH >= 2);
-                    int inspH = showInspector ? std::min(5, remainingH) : 0;
+                    int inspH = showInspector ? remainingH : 0;
                     int extraSpace = remainingH - inspH;
                     int startY = 1 + (extraSpace > 0 ? extraSpace / 2 : 0);
 
